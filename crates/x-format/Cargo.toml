@@ -1,0 +1,12 @@
+[package]
+name = "x-format"
+version = "0.34.0"
+edition = "2021"
+[dependencies]
+x-core = { path = "../x-core" }
+vello = "0.1"
+miniz_oxide = "0.8"
+[dev-dependencies]
+x-components = { path = "../x-components" }
+x-render = { path = "../x-render" }
+x-editor = { path = "../x-editor" }

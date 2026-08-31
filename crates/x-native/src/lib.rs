@@ -1,0 +1,48 @@
+//! x-native — facade crate: one `arco_native` surface over the workspace.
+pub use x_core::*;
+pub mod components { pub use x_components::*; }
+pub use x_components::{resolve_instance_layout, sync_instance_sizes, MeasureFn};
+pub use x_render::{Assets, EncodeCtx, build_scene, build_scene_with_assets, build_scene_full, benchmark_scene};
+pub use x_render::{build_render_tree, render_via_ir, RenderCommand, RenderTree, VelloSink, thumbnail_scene, export_pdf, export_pdf_with_assets, SceneCache, FrameCache, FrameCacheStats};
+pub mod editor { pub use x_editor::*; }
+pub mod fileio { pub use x_format::*; }
+pub mod text { pub use x_text::*; }
+pub mod ui { pub use x_ui::*; }
+
+pub use x_render::export_pdf_full;
+
+/// TEXT PARITY glue: build an `SvgTextOutliner` closure over a
+/// FontManager. This is the facade's job precisely because x-format is
+/// not allowed to depend on x-text (dependency direction is
+/// test-enforced): the exporter takes an injected callback, and this is
+/// the one canonical implementation of it — same `node_text_outlines`
+/// pipeline as the canvas and PDF sinks.
+pub fn svg_text_outliner(fonts: &x_text::FontManager)
+    -> impl Fn(&str, f64, f64, Option<&str>) -> Option<Vec<String>> + '_
+{
+    move |text: &str, size: f64, max_width: f64, font: Option<&str>| {
+        let (glyphs, _) = x_text::node_text_outlines(fonts, text, size, max_width, font, vello::peniko::Color::BLACK)?;
+        Some(glyphs.iter().map(|g| {
+            // apply the glyph's local transform to its path, then write
+            // node-local SVG path data (the exporter's <g> handles x/y).
+            let mut p = g.path.clone();
+            p.apply_affine(g.transform);
+            svg_path_data(&p)
+        }).collect())
+    }
+}
+
+fn svg_path_data(p: &vello::kurbo::BezPath) -> String {
+    use vello::kurbo::PathEl::*;
+    let mut d = String::new();
+    for el in p.elements() {
+        match el {
+            MoveTo(a) => d.push_str(&format!("M {:.2} {:.2} ", a.x, a.y)),
+            LineTo(a) => d.push_str(&format!("L {:.2} {:.2} ", a.x, a.y)),
+            QuadTo(a, b) => d.push_str(&format!("Q {:.2} {:.2} {:.2} {:.2} ", a.x, a.y, b.x, b.y)),
+            CurveTo(a, b, c) => d.push_str(&format!("C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ", a.x, a.y, b.x, b.y, c.x, c.y)),
+            ClosePath => d.push_str("Z "),
+        }
+    }
+    d.trim_end().to_string()
+}
