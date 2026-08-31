@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/x-core",
+    "crates/x-components",
+    "crates/x-render",
+    "crates/x-text",
+    "crates/x-editor",
+    "crates/x-format",
+    "crates/x-native",
+    "crates/x-ui",
+    "apps/x-designer",
+]

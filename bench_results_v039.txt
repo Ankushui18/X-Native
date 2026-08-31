@@ -1,0 +1,20 @@
+--- rect farm (uniform) ---
+rects/1000     nodes=1001    cold=  1.33ms warm: ir=  1.07ms encode=284.97µs total=  1.36ms cache 0h/0m <= 17ms ✓
+rects/10000    nodes=10001   cold= 13.21ms warm: ir= 11.25ms encode=  2.53ms total= 13.79ms cache 0h/0m <= 33ms ✓
+rects/50000    nodes=50001   cold= 63.71ms warm: ir= 55.67ms encode= 12.44ms total= 68.11ms cache 0h/0m OVER 66ms ✗
+rects/100000   nodes=100001  cold=113.74ms warm: ir=109.29ms encode= 25.16ms total=134.44ms cache 0h/0m OVER 100ms ✗
+--- mixed workload (rect/ellipse/text/gradient/instance) ---
+mixed/1000     nodes=1004    cold=  2.50ms warm: ir=599.00µs encode=861.72µs total=  1.46ms cache 800h/2m <= 17ms ✓
+mixed/10000    nodes=10004   cold= 20.75ms warm: ir=  7.51ms encode= 13.53ms total= 21.04ms cache 8800h/4m <= 33ms ✓
+mixed/50000    nodes=50004   cold=124.18ms warm: ir= 38.49ms encode= 90.55ms total=129.04ms cache 48800h/6m OVER 66ms ✗
+mixed/100000   nodes=100004  cold=233.46ms warm: ir= 74.17ms encode=188.29ms total=262.46ms cache 128800h/8m OVER 100ms ✗
+--- INTERACTION: FrameCache, one node moving per frame ---
+mixed/1000     drag-frame avg=  1.37ms worst=  1.43ms (hash=0.2ms lower=0.4ms encode=0.5ms, 489/1001 reused, 0 culled) <= 17ms ✓
+  mem: live=67.6MB peak=642.2MB | text-cache 0.0MB (0 evictions)
+mixed/10000    drag-frame avg=  9.80ms worst= 10.16ms (hash=2.0ms lower=0.4ms encode=0.5ms, 9489/10001 reused, 0 culled) <= 33ms ✓
+  mem: live=67.6MB peak=642.2MB | text-cache 0.0MB (0 evictions)
+mixed/100000   drag-frame avg=187.48ms worst=197.08ms (hash=26.1ms lower=0.6ms encode=0.5ms, 99489/100001 reused, 0 culled) OVER 100ms ✗
+  mem: live=67.6MB peak=670.2MB | text-cache 0.0MB (0 evictions)
+--- INTERACTION + VIEWPORT (app conditions: ~1500x1000 window) ---
+mixed/10000    drag-frame avg=  6.89ms worst=  7.69ms (hash=2.8ms lower=0.3ms encode=0.1ms, 9489/10001 reused, 9252 culled) <= 17ms ✓
+mixed/100000   drag-frame avg=109.78ms worst=118.56ms (hash=35.8ms lower=1.1ms encode=0.1ms, 99489/100001 reused, 99252 culled) OVER 33ms ✗

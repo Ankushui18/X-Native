@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+<defs>
+<linearGradient id="g1" x1="0" y1="0" x2="170" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ff5a00"/><stop offset="1" stop-color="#8e2de2"/></linearGradient>
+</defs>
+<g transform="translate(0 0)"><g transform="translate(20 20)"><rect width="170" height="120" rx="0" fill="url(#g1)"/></g>
+<g transform="translate(210 20)"><rect width="170" height="120" rx="14" fill="#0d99ff"/></g>
+<g transform="translate(20 160)"><ellipse cx="60" cy="60" rx="60" ry="60" fill="#2ecc71"/></g>
+</g>
+</svg>
