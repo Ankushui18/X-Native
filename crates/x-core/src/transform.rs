@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
+pub use vello::kurbo::{Affine, Rect};
+pub use vello::kurbo::Point;
+use vello::kurbo::{Circle, RoundedRect, RoundedRectRadii, Shape};
 use vello::peniko::{Brush, Color, Fill, Gradient, Mix};
 #[allow(unused_imports)]
 use crate::*;
