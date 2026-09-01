@@ -41,7 +41,12 @@ pub fn hit_test(root: &Node, point: Point) -> Option<String> {
         for child in &node.children { walk(child, world, point, out); }
     }
     let mut out = None;
-    walk(root, Affine::IDENTITY, point, &mut out);
+    // The document root is the canvas, not a selectable object. Nested
+    // frames/components remain hittable via `walk`.
+    let world = Affine::IDENTITY * root.transform.matrix(root.w, root.h);
+    for child in &root.children {
+        walk(child, world, point, &mut out);
+    }
     out
 }
 
@@ -59,7 +64,10 @@ pub fn hit_test_rect(root: &Node, rect: Rect) -> Vec<String> {
         for child in &node.children { walk(child, world, rect, out); }
     }
     let mut out = vec![];
-    walk(root, Affine::IDENTITY, rect, &mut out);
+    let world = Affine::IDENTITY * root.transform.matrix(root.w, root.h);
+    for child in &root.children {
+        walk(child, world, rect, &mut out);
+    }
     out
 }
 
