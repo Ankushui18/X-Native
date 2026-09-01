@@ -264,7 +264,7 @@ pub fn kind_label(n: &Node) -> &'static str {
     match &n.kind {
         Frame { .. } => "FRAME", Group => "GROUP", Rect { .. } => "RECT", Ellipse => "ELLIPSE",
         Line => "LINE", Text { .. } => "TEXT", Image { .. } => "IMAGE", Vector { .. } => "VECTOR",
-        Component { .. } => "COMP", Instance { .. } => "INST",
+        VectorNetwork(_) => "NET", Component { .. } => "COMP", Instance { .. } => "INST",
     }
 }
 

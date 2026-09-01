@@ -13,7 +13,7 @@ impl App {
                 let ox = (self.win_w - frame.w * scale) / 2.0;
                 let oy = (self.win_h - frame.h * scale) / 2.0;
                 ui.append(&scene, Some(Affine::translate((ox, oy)) * Affine::scale(scale)));
-                label(&mut ui, "PRESENTING - ESC TO EXIT", 10.0, self.win_h - STATUS_H - 8.0, C_DIM);
+                label(&mut ui, "PRESENTING - ESC TO EXIT", 10.0, self.win_h - STATUS_H - 8.0, 9.0, C_DIM);
                 return ui;
             }
         }
@@ -298,7 +298,7 @@ impl App {
 
         // X-Native \"hide interface\": canvas only + tiny hint
         if self.chrome_hidden {
-            label(&mut ui, "⌘. TO SHOW UI", 10.0, self.win_h - STATUS_H - 8.0, C_DIM);
+            label(&mut ui, "⌘. TO SHOW UI", 10.0, self.win_h - STATUS_H - 8.0, 9.0, C_DIM);
             return ui;
         }
 
@@ -799,7 +799,7 @@ impl App {
                         m.move_to((gx - 4.0, gy + 3.0)); m.line_to((gx - 1.0, gy - 1.0)); m.line_to((gx + 4.0, gy + 3.0));
                         ui.stroke(&st, Affine::IDENTITY, icon_c, None, &m);
                     }
-                    Vector { .. } => { label(&mut ui, "~", gx - 4.0, y - 1.0, 9.0, icon_c); }
+                    Vector { .. } | VectorNetwork(_) => { label(&mut ui, "~", gx - 4.0, y - 1.0, 9.0, icon_c); }
                     Component { .. } | Instance { .. } => {
                         let d = 4.5;
                         let mut dia = vello::kurbo::BezPath::new();

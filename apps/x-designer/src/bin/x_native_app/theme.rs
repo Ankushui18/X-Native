@@ -46,9 +46,7 @@ pub const C_ACCENT: Color = Color::rgb8(0x7c, 0x5c, 0xfc); // Primary brand colo
 
 // Canvas & Interaction
 pub const C_CANVAS: Color = Color::rgb8(0x22, 0x24, 0x2a); // Canvas background
-pub const C_HOVERBG: Color = Color::rgb8(0x2a, 0x2d, 0x36); // Hover states (subtle lift)
 pub const C_FIELD: Color = Color::rgb8(0x1e, 0x20, 0x27);   // Input fields (slightly darker for depth)
-pub const C_SELECTED: Color = Color::rgba8(0x7c, 0x5c, 0xfc, 20); // Selected item background (transparent violet)
 
 // Section headers
 pub const C_SECTION: Color = Color::rgb8(0xd7, 0xd9, 0xe1);

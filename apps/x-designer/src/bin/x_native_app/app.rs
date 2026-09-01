@@ -3511,7 +3511,7 @@ impl App {
         }
     }
 
-    fn gradient_geometry(&self) -> Option<(usize, Point, Point, Vec<(f32, Color)>)> {
+    pub fn gradient_geometry(&self) -> Option<(usize, Point, Point, Vec<(f32, Color)>)> {
         if !self.gradient_editing || self.editor.selection.len() != 1 { return None; }
         let id = &self.editor.selection[0];
         let n = find(&self.editor.root, id)?;

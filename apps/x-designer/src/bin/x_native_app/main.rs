@@ -6,8 +6,8 @@ use arco_native::editor::{find, hit_test_rect, Editor};
 use arco_native::fileio::{export_svg, load_x_file, save_x_file};
 use arco_native::text::{encode_text, measure};
 use arco_native::{
-    build_scene, AutoLayout, Color, CrossAlign, Document, Effect, LayoutDirection, Node, Paint,
-    Variables, PI,
+    build_scene, AutoLayout, BlendKind, Color, CrossAlign, Document, Effect, LayoutDirection, Node,
+    Paint, StrokeAlign, Variables, PI,
 };
 use std::sync::Arc;
 use vello::kurbo::{Affine, Point, Rect, Shape};
