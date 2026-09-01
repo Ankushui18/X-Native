@@ -62,7 +62,7 @@ pub fn set_override(node: &mut Node, target: &str, value: OverrideValue) {
 
 // ------------------------------------------------------------- properties
 
-/// A designer-facing component property (Figma component properties).
+/// A designer-facing component property (component properties).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComponentProp {
     /// Text property: binds a property name to a text node id inside the master.
@@ -153,7 +153,7 @@ pub fn find_master<'a>(root: &'a Node, name: &str) -> Option<&'a Node> {
 
 /// Detach an instance: resolve the master's children WITH the instance's
 /// overrides applied, and return them re-based at the instance's position
-/// wrapped in a Group. Nested instances stay instances (Figma behavior).
+/// wrapped in a Group. Nested instances stay instances (standard behavior).
 pub fn detach_instance(root: &Node, instance: &Node, vars: &Variables) -> Option<Node> {
     let NodeKind::Instance { component } = &instance.kind else { return None };
     let master = find_master(root, component)?;

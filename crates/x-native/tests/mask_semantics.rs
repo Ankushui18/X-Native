@@ -1,6 +1,6 @@
 //! Review hardening pass: mask semantics across node kinds and features.
 //!
-//! Figma-style rule implemented in the IR: a node with `is_mask` clips its
+//! standard rule implemented in the IR: a node with `is_mask` clips its
 //! FOLLOWING SIBLINGS inside the same parent. These tests prove the rule
 //! composes with images, vectors, groups, components+auto-layout, booleans,
 //! gradients, effects, and both exporters (SVG structural, PDF sink runs).
@@ -122,7 +122,7 @@ fn mask_boolean_gradient_effect_chain_survives_export() {
         };
         n.effects.push(Effect::DropShadow { dx: 3.0, dy: 4.0, blur: 8.0, color: Color::rgba8(0, 0, 0, 120) });
     }
-    // insert a mask BEFORE it (clips it, Figma order)
+    // insert a mask BEFORE it (clips it, standard order)
     let idx = ed.root.children.iter().position(|c| c.id == bool_id).unwrap();
     ed.root.children.insert(idx, Node::ellipse("m", 30.0, 30.0, 200.0, 200.0, Color::WHITE).mask(true));
 

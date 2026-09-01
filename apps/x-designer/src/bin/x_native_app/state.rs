@@ -30,7 +30,7 @@ pub enum Drag {
     Resize { corner: u8, start_world: Point, orig: (f64, f64, f64, f64), cmds: usize }, // x,y,w,h
     Rotate { center: Point, start_angle: f64, orig: f64, cmds: usize },
     Pan { start: Point },
-    /// Figma Scale tool: vertical drag scales the selected subtree.
+    /// Scale tool: vertical drag scales the selected subtree.
     Scale { start_y: f64, applied: f64, cmds: usize },
     /// Direct manipulation of a selected fill gradient. handle 0/1 are the
     /// geometry endpoints; handle 2+n is stop n.
@@ -39,7 +39,7 @@ pub enum Drag {
 
 /// Text-input focus: either inline canvas text editing or a numeric
 /// inspector field. Keyboard chars route here when active.
-/// Which top-level experience is showing (Figma-like lifecycle):
+/// Which top-level experience is showing (standard lifecycle):
 /// Dashboard (recent files) or the Editor for the open document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen { Dashboard, Editor }
@@ -62,7 +62,7 @@ pub enum Focus {
     TextNode { id: String, buffer: String, original: String, caret: usize, sel_anchor: Option<usize> },
     /// editing X/Y/W/H (field 0..4) of the selected node
     Field { id: String, field: u8, buffer: String },
-    /// typing in the layers-panel search box (Sketch-style filter)
+    /// typing in the layers-panel search box (minimap filter)
     LayerSearch,
     LayerRename { id: String, buffer: String },
     /// typing in the inspector font browser search box
@@ -128,21 +128,21 @@ pub struct App {
     pub hover: Option<String>,
     /// layers panel scroll offset (rows)
     pub layers_scroll: usize,
-    /// Sketch-style hide interface (Ctrl+.)
+    /// minimap hide interface (Ctrl+.)
     pub chrome_hidden: bool,
-    /// rulers on/off (Shift+R in Figma)
+    /// rulers on/off (Shift+R in standard)
     pub rulers: bool,
     /// user guides in page coords: (vertical?, coord)
     pub user_guides: Vec<(bool, f64)>,
-    /// Figma outline view (Ctrl+Y): strokes only, no fills
+    /// outline view (Ctrl+Y): strokes only, no fills
     pub outline_view: bool,
-    /// right-sidebar tab: 0 = Design, 1 = Prototype (Figma properties panel)
+    /// right-sidebar tab: 0 = Design, 1 = Prototype (properties panel)
     pub inspector_tab: u8,
     /// "?" shortcuts overlay
     pub help_open: bool,
-    /// spacebar held -> temporary hand tool (Figma)
+    /// spacebar held -> temporary hand tool (standard)
     pub space_pan: bool,
-    /// Sketch-style layer list filter
+    /// minimap layer list filter
     pub layer_filter: String,
     /// decoded image assets (GPU-side cache; Phase 4.2)
     pub assets: arco_native::Assets,
@@ -236,7 +236,7 @@ pub struct App {
     pub menu_open: Option<usize>,
     /// minimap overlay (View menu; mockup hides it, so default OFF)
     pub minimap: bool,
-    /// dashboard vs editor (Figma-like Home -> file -> editor lifecycle)
+    /// dashboard vs editor (standard Home -> file -> editor lifecycle)
     pub screen: Screen,
     /// dashboard cards (scanned from document.x + files/*.x)
     pub dash_files: Vec<DashFile>,

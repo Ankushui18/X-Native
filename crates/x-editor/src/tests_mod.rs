@@ -439,11 +439,11 @@ mod tests {
                 .child(Node::rect("inner", 10.0, 10.0, 100.0, 100.0, Color::WHITE)),
         );
         let mut e = Editor::new(d);
-        // plain click on inner selects TOP-LEVEL group (Figma behavior)
-        e.click_figma(Point::new(50.0, 50.0), false, false);
+        // plain click on inner selects TOP-LEVEL group (standard behavior)
+        e.click_select(Point::new(50.0, 50.0), false, false);
         assert_eq!(e.selection, vec!["g".to_string()]);
         // deep click (ctrl) selects the exact node
-        e.click_figma(Point::new(50.0, 50.0), false, true);
+        e.click_select(Point::new(50.0, 50.0), false, true);
         assert_eq!(e.selection, vec!["inner".to_string()]);
         // drill: from g, double-click goes one level down
         e.selection = vec!["g".into()];

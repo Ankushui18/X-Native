@@ -63,7 +63,7 @@ pub fn hit_test_rect(root: &Node, rect: Rect) -> Vec<String> {
     out
 }
 
-/// Figma's selection model: a plain click selects the TOP-LEVEL object
+/// industry-standard selection model: a plain click selects the TOP-LEVEL object
 /// (direct child of the page) that contains the hit; only deep-select
 /// (Ctrl/Cmd+click) or double-click drills into nested children.
 /// Maps a (deep) hit id to its top-level ancestor's id.

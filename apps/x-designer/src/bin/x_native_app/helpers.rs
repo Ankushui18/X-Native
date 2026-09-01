@@ -327,7 +327,7 @@ pub fn draw_eye(s: &mut Scene, cx: f64, cy: f64, on: bool, c: Color) {
 
 /// Small bordered stepper button with a centered - or + glyph.
 pub fn draw_stepper(s: &mut Scene, r: Rect, plus: bool, hover: bool, c: Color) {
-    if hover { fill_rrect(s, r, 3.0, Color::rgba8(0xff, 0xff, 0xff, 18)); }
+    if hover { fill_rrect(s, r, 4.0, C_HOVERBG); }
     let st = vello::kurbo::Stroke::new(1.2).with_caps(vello::kurbo::Cap::Round);
     let (cx, cy) = ((r.x0 + r.x1) / 2.0, (r.y0 + r.y1) / 2.0);
     s.stroke(&st, Affine::IDENTITY, c, None, &vello::kurbo::Line::new((cx - 3.0, cy), (cx + 3.0, cy)));
