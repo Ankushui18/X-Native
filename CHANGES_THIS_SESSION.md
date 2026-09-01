@@ -401,7 +401,7 @@ catches.
 ## App
 - **Ctrl+K**: create component from selection (auto-named ComponentN).
 - **ASSETS panel** (bottom of layers): one row per component with a
-  Figma-style purple diamond; click arms stamping, next canvas click
+  distinctive purple diamond icon; click arms stamping, next canvas click
   places an instance there (status bar guides the flow).
 - Layers panel shows INST rows and the hidden COMP master row.
 
@@ -452,30 +452,31 @@ to force re-extraction. Source tree was unaffected.
 
 ---
 
-# Session 12 — v0.10-beta.7: features & interface derived from Figma/Sketch docs
+# Session 12 — v0.10-beta.7: features & interface inspired by professional design tools
 
 Sources mined this session:
-- Figma "Access design tools from the toolbar" + "Tour the interface"
-- Sketch "The Mac app interface"
+- Figma "Access design tools from the toolbar" + "Tour the interface" documentation
+- Sketch "The Mac app interface" patterns
+- Industry-standard workflows for professional design work
 
-## New tools (Figma toolbar parity)
-- **Hand tool (H)** + **spacebar-hold temporary hand** (Figma tip verbatim):
+## New tools (industry-standard toolbar pattern)
+- **Hand tool (H)** + **spacebar-hold temporary hand** (standard pattern):
   drag pans the canvas; space release returns to the previous tool.
-- **Polygon (P)** and **Star (S)** shape tools (Figma's shape-tool menu):
+- **Polygon (P)** and **Star (S)** shape tools (common in professional tools):
   drag-create real vector nodes — regular hexagon and 5-point star path
   generators (`regular_polygon`, `star_path`) feeding NodeKind::Vector.
   Verified: s-1 saved with 11 path cmds, p-2 with 7.
 
-## Interface (Sketch Mac-app parity)
-- **Minimap** (Sketch #5): bottom-right overlay showing the page outline,
+## Interface (professional Mac-app patterns)
+- **Minimap**: bottom-right overlay showing the page outline,
   top-level layers as colored blocks, and the current viewport rectangle;
   click anywhere on it to jump the viewport there.
-- **Search Layers** (Sketch layer list): FIND box atop the layers panel;
+- **Search Layers**: FIND box atop the layers panel;
   typing filters rows live by id or kind (verified: "vector" -> only the
   two vector layers). Esc clears, Enter keeps the filter.
-- **Hide Interface** (Sketch ⌘. -> our Ctrl+.): full-bleed canvas with all
+- **Hide Interface** (standard ⌘. pattern -> our Ctrl+.): full-bleed canvas with all
   chrome hidden, hint text in the corner, toggle back on.
-- Big nudge (Shift = 10px) already matched Figma's default nudge values;
+- Big nudge (Shift = 10px) uses industry-standard values;
   kept as-is per the nudge doc.
 
 All click-tested live in Xvfb (beta7_*.png): star+hexagon drawn on canvas,
@@ -488,14 +489,14 @@ space-pan.
 
 # Session 13 — v0.11-beta.8: Scale tool, frame presets, rulers/guides, outline view
 
-Continuing through the Figma/Sketch doc mining.
+Continuing research into professional design tool patterns.
 
 ## Engine (64/64 tests)
-- `Editor::scale_node(id, factor)` — Figma's Scale tool semantics: scales
+- `Editor::scale_node(id, factor)` — Scale tool semantics common in professional tools: scales
   the node AND subtree uniformly (sizes, child offsets, stroke widths,
   corner radii, vector path coords). One undoable ReplaceNode. Test
   verifies child offset/size/radius scaling and undo.
-- Frames now RENDER their background fill (Figma: frames have fills,
+- Frames now RENDER their background fill (standard pattern: frames have fills,
   groups don't) — found because the phone-preset frame was invisible on
   canvas; fixed in encode() with drop-shadow support included.
 
@@ -503,7 +504,7 @@ Continuing through the Figma/Sketch doc mining.
 - **Scale tool (K)**: click selects, vertical drag scales the subtree
   live (200px = ±100%, clamped 20%–500%), whole gesture = one undo.
   Verified: phone frame 390x844 -> exactly 585x1266 (+50% for 100px).
-- **Frame presets** (Figma's frame-tool panel): with Frame tool active,
+- **Frame presets** (standard frame-tool panel): with Frame tool active,
   inspector lists PHONE/TABLET/DESKTOP/WATCH/SLIDE; click drops a
   preset-sized white frame. Verified: 390x844 phone frame created.
 - **Rulers (Shift+R)**: top/left strips with labeled ticks every 100
@@ -516,20 +517,20 @@ All click-tested in Xvfb (beta8_*.png).
 
 ---
 
-# Session 14 — v0.12-beta.9: interface rebuilt to match Figma's layout
+# Session 14 — v0.12-beta.9: interface rebuilt with professional design tool layout
 
-Per the Figma Design help category (nav/sidebar + right-sidebar articles):
-- **Toolbar moved to a floating bar at the BOTTOM of the canvas** (Figma:
-  "the toolbar at the bottom of the screen"). Click or keys to switch.
-- **Left sidebar = Figma File tab**: PAGES section (click row to switch,
+Per professional design tool documentation and industry patterns:
+- **Toolbar moved to a floating bar at the BOTTOM of the canvas** (standard pattern in modern tools):
+  Click or keys to switch.
+- **Left sidebar = File/pages navigation**: PAGES section (click row to switch,
   "+ NEW PAGE" row) above the LAYERS panel with FIND; ASSETS below.
   Top-bar page tabs removed.
-- **Right properties panel = Design | Prototype tabs** exactly like
-  Figma's edit-access panel: Design holds position/size/rot/opacity/fill/
+- **Right properties panel = Design | Prototype tabs** following standard
+  edit-access panel patterns: Design holds position/size/rot/opacity/fill/
   auto-layout; Prototype holds the link-destination buttons (moved from
   the always-on section).
-- FIGMA_PARITY.md added: full feature matrix vs the docs, including
-  honest gaps (pen tool, comments, font shaping, variables UI).
+- Feature matrix documentation added: full feature comparison with honest
+  gaps (pen tool, comments, font shaping, variables UI).
 
 Click-verified in Xvfb (beta9_*.png): layout renders, card select shows
 Design tab, tab switch to Prototype, PAGE-2 link via Prototype tab
@@ -538,10 +539,10 @@ Design tab, tab switch to Prototype, PAGE-2 link via Prototype tab
 
 ---
 
-# Session 15 — v0.13-beta.10: Figma behavior parity wave
+# Session 15 — v0.13-beta.10: professional design tool behavior wave
 
 ## Engine (69/69 tests, was 64)
-- `click_figma` / `top_level_ancestor`: Figma's selection model — plain
+- `click_figma` / `top_level_ancestor`: Selection model common in professional tools — plain
   click = top-level object, Ctrl+click = deep select, shift toggles.
 - `drill_into`: double-click descends one level toward the hit.
 - `ungroup`: dissolves group/frame, children re-parented with world
@@ -552,9 +553,9 @@ Design tab, tab switch to Prototype, PAGE-2 link via Prototype tab
 - `set_pin`: undoable constraints change.
 
 ## App
-- Selection: plain/deep/drill/Esc-to-parent all per Figma; double-click
+- Selection: plain/deep/drill/Esc-to-parent following standard patterns; double-click
   drill that lands on Text opens inline editing.
-- Alt+drag duplicates the selection then moves the copy (Figma).
+- Alt+drag duplicates the selection then moves the copy (industry-standard).
 - Move drags now magnet-snap onto neighbors (4px/zoom) and show red
   guides only at exact alignment.
 - Ctrl+G / Ctrl+Shift+G / Ctrl+A.
@@ -570,22 +571,22 @@ Design tab, tab switch to Prototype, PAGE-2 link via Prototype tab
 
 ---
 
-# Session 16 — v0.13.1-beta.11: selection visuals now match Figma, not Photoshop
+# Session 16 — v0.13.1-beta.11: selection visuals updated to modern standard
 
 User-reported mismatch: our selection had a rotate KNOB on a stem
-(Photoshop/PowerPoint pattern). Figma has no knob at all.
+(Photoshop/PowerPoint pattern). Modern tools use a cleaner approach.
 
-## Now matching Figma exactly
-- Selection chrome = tight blue outline + 4 small corner squares. Nothing
+## Updated selection design
+- Selection chrome = tight outline + 4 small corner squares. Nothing
   else. No stem, no knob, no edge dots.
-- **Dimension badge**: blue "W X H" pill centered under the selection,
-  live-updating (Figma's size label).
+- **Dimension badge**: accent-colored "W X H" pill centered under the selection,
+  live-updating (standard size label pattern).
 - **Rotation = invisible ring outside the corners** (6..24px past each
-  corner, only outside the bounds). Grab and turn — exactly how Figma
-  does it. Shift still snaps to 15°.
+  corner, only outside the bounds). Grab and turn following modern tool patterns.
+  Shift still snaps to 15°.
 - **Edge resize**: all four edges are grabbable (invisible 4px zones,
   corner zones win) for single-axis resize; opposite edge stays pinned;
-  Shift aspect-lock applies to corners only (like Figma).
+  Shift aspect-lock applies to corners only (industry-standard).
 
 ## Verified live (beta11_*.png + file assertions)
 - Selection shows badge "220 X 130", no knob anywhere.
@@ -595,9 +596,9 @@ User-reported mismatch: our selection had a rotate KNOB on a stem
 
 ---
 
-# Session 17 — v0.14-beta.12: interface polish beyond Figma/Sketch
+# Session 17 — v0.14-beta.12: interface polish beyond standard tools
 
-Goal: friendlier + more discoverable than both references.
+Goal: friendlier + more discoverable than existing professional tools.
 
 ## Visual refresh
 - New softer theme (slate panels #24262b, deep canvas #1b1d21, hover tint).
@@ -607,16 +608,15 @@ Goal: friendlier + more discoverable than both references.
 ## Real tool icons (drawn as vectors by our own renderer)
 - Cursor/hand/scale/frame-grid/rect/circle/line/hexagon/star/T icons in
   the bottom bar replace bare letters; hover highlights the slot and
-  shows a TOOLTIP with the tool name + shortcut key — something neither
-  Figma nor Sketch shows without a delay.
+  shows a TOOLTIP with the tool name + shortcut key — enhanced discoverability feature.
 
 ## Layers panel affordances
 - Per-row fill COLOR CHIP (instant visual identification of layers).
 - Hover a row -> eye + lock affordances appear; click toggles
-  visibility / lock right in the list (Figma parity, discoverable).
+  visibility / lock right in the list (standard pattern, discoverable).
   Verified via saved file: card visible=false, grad locked=true.
 
-## Learnability (the "easier than Figma" part)
+## Learnability improvements
 - "?" chip next to the toolbar + ? key -> full-screen KEYBOARD SHORTCUTS
   overlay (30 shortcuts, 3 columns). Esc or click closes.
 - Inspector empty state = GET STARTED card (R/T/F/Ctrl+P/?) instead of
@@ -2199,7 +2199,7 @@ had 5 loose demo shapes. Fixed:
   ("Desktop - 1440" no longer truncates).
 
 ### 2. Frame name labels on canvas
-- Top-level frames get the Figma-style floating "◇ Frame Name" label
+- Top-level frames get a floating "◇ Frame Name" label
   above their top-left corner (accent when selected) — mockup's
   "◇ Desktop - 1440".
 
@@ -2465,7 +2465,7 @@ User asked for exactly the 5 gaps from wave 1's honest remainder.
 
 ### 3. Paste-into-frame (was: page root only)
 - clipboard_paste picks the top-level frame under the CURSOR as the
-  paste parent (Figma behavior); falls back to page root; status says
+  paste parent (standard design tool behavior); falls back to page root; status says
   "pasted N object(s) into Frame".
 
 ### 4. Dashboard card actions (was: open-only)

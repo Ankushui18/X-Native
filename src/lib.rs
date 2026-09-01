@@ -587,7 +587,7 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
         }
         NodeKind::Frame { .. } => {
             // Frames draw their background fill when it isn't transparent
-            // (matches Figma: frames have fills; groups do not).
+            // (matches industry convention: frames have fills; groups do not).
             let color = effective_fill(node, overrides, vars);
             if color.a > 0 {
                 let shape = Rect::new(0.0, 0.0, node.w, node.h).into_path(0.1);

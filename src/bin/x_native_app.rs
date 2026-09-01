@@ -37,8 +37,8 @@ use winit::window::WindowBuilder;
 const DOC_PATH: &str = "document.x";
 const SVG_PATH: &str = "export.svg";
 
-// ---- chrome layout constants (Figma: bottom toolbar, left sidebar with
-// pages+layers+assets, right properties panel with Design/Prototype tabs) ----
+// ---- chrome layout constants (inspired by professional tools: bottom toolbar,
+// left sidebar with pages+layers+assets, right properties panel with tabs) ----
 const TOOLBAR_W: f64 = 0.0; // tools live in the floating bottom bar now
 const LAYERS_W: f64 = 240.0;
 const BOTTOM_BAR_H: f64 = 40.0;
@@ -54,7 +54,7 @@ const C_ACCENT: Color = Color::rgb8(0x0d, 0x99, 0xff);
 const C_CANVAS: Color = Color::rgb8(0x1b, 0x1d, 0x21);
 const C_HOVERBG: Color = Color::rgb8(0x33, 0x36, 0x3d);
 
-/// Figma-style frame presets (name, w, h).
+/// Professional frame presets (name, w, h).
 const FRAME_PRESETS: [(&str, f64, f64); 5] = [
     ("PHONE 390X844", 390.0, 844.0),
     ("TABLET 820X1180", 820.0, 1180.0),
@@ -102,7 +102,7 @@ enum Drag {
     Resize { corner: u8, start_world: Point, orig: (f64, f64, f64, f64), cmds: usize }, // x,y,w,h
     Rotate { center: Point, start_angle: f64, orig: f64, cmds: usize },
     Pan { start: Point },
-    /// Figma Scale tool: vertical drag scales the selected subtree.
+    /// Scale tool: vertical drag scales the selected subtree.
     Scale { start_y: f64, applied: f64, cmds: usize },
 }
 
@@ -115,7 +115,7 @@ enum Focus {
     TextNode { id: String, buffer: String, original: String },
     /// editing X/Y/W/H (field 0..4) of the selected node
     Field { id: String, field: u8, buffer: String },
-    /// typing in the layers-panel search box (Sketch-style filter)
+    /// typing in the layers-panel search box (filter)
     LayerSearch,
 }
 
@@ -130,7 +130,7 @@ struct App {
     shift: bool,
     ctrl: bool,
     alt: bool,
-    /// alt was held at drag start -> duplicate then move (Figma Alt+drag)
+    /// alt was held at drag start -> duplicate then move (Alt+drag)
     alt_dupe_done: bool,
     status: String,
     created_count: usize,
@@ -155,21 +155,21 @@ struct App {
     hover: Option<String>,
     /// layers panel scroll offset (rows)
     layers_scroll: usize,
-    /// Sketch-style hide interface (Ctrl+.)
+    /// hide interface (Ctrl+.)
     chrome_hidden: bool,
-    /// rulers on/off (Shift+R in Figma)
+    /// rulers on/off (Shift+R)
     rulers: bool,
     /// user guides in page coords: (vertical?, coord)
     user_guides: Vec<(bool, f64)>,
-    /// Figma outline view (Ctrl+Y): strokes only, no fills
+    /// outline view (Ctrl+Y): strokes only, no fills
     outline_view: bool,
-    /// right-sidebar tab: 0 = Design, 1 = Prototype (Figma properties panel)
+    /// right-sidebar tab: 0 = Design, 1 = Prototype (properties panel)
     inspector_tab: u8,
     /// "?" shortcuts overlay
     help_open: bool,
-    /// spacebar held -> temporary hand tool (Figma)
+    /// spacebar held -> temporary hand tool
     space_pan: bool,
-    /// Sketch-style layer list filter
+    /// layer list filter
     layer_filter: String,
     /// decoded image assets (Phase 4.2)
     assets: arco_native::Assets,
@@ -199,13 +199,13 @@ impl App {
         if self.chrome_hidden { return Rect::new(0.0, 0.0, self.win_w, self.win_h); }
         Rect::new(TOOLBAR_W + LAYERS_W, TOP_H, self.win_w - INSPECTOR_W, self.win_h)
     }
-    /// Sketch-style minimap rect (bottom-right of the canvas).
+    /// minimap rect (bottom-right of the canvas).
     fn minimap_rect(&self) -> Rect {
         let c = self.canvas_rect();
         Rect::new(c.x1 - 176.0, c.y1 - BOTTOM_BAR_H - 116.0, c.x1 - 12.0, c.y1 - BOTTOM_BAR_H - 12.0)
     }
 
-    /// Figma-style floating toolbar, centered at the bottom of the canvas.
+    /// floating toolbar, centered at the bottom of the canvas.
     fn bottom_bar_rect(&self) -> Rect {
         let c = self.canvas_rect();
         let w = Tool::ALL.len() as f64 * 38.0 + 16.0;
@@ -246,7 +246,7 @@ impl App {
         Some(quad_bounds(self.camera() * world, w, h))
     }
 
-    /// Figma handle model: 0-3 = corners (TL,TR,BL,BR), 4=left edge,
+    /// handle model: 0-3 = corners (TL,TR,BL,BR), 4=left edge,
     /// 5=right, 6=top, 7=bottom. Corners win over edges.
     fn handle_at(&self, p: Point) -> Option<u8> {
         let b = self.selection_screen_bounds()?;
@@ -264,7 +264,7 @@ impl App {
         None
     }
 
-    /// Figma rotation: no visible knob — an invisible hotspot in the ring
+    /// rotation: no visible knob — an invisible hotspot in the ring
     /// JUST OUTSIDE each corner (8..24px out, beyond the resize square).
     fn rotate_handle_at(&self, p: Point) -> bool {
         let Some(b) = self.selection_screen_bounds() else { return false };
@@ -426,7 +426,7 @@ impl App {
 
         // help overlay swallows clicks
         if self.help_open { self.help_open = false; return; }
-        // chrome first (Figma layout: bottom toolbar, left sidebar, right panel)
+        // chrome first (bottom toolbar, left sidebar, right panel)
         if !self.chrome_hidden {
             let bar = self.bottom_bar_rect();
             if bar.contains(p) { self.click_bottom_bar(p); return; }
@@ -463,7 +463,7 @@ impl App {
                 let _ = id;
                 self.drag = Drag::Scale { start_y: p.y, applied: 1.0, cmds: self.editor.undo_depth() };
             } else {
-                // click selects first, like Figma's scale tool
+                // click selects first, like the scale tool
                 let wp = self.world_point(p);
                 self.editor.click(wp, false);
                 if !self.editor.selection.is_empty() {
@@ -531,7 +531,7 @@ impl App {
                     }
                 }
                 if double {
-                    // Figma double-click: drill into the hierarchy;
+                    // double-click: drill into the hierarchy;
                     // if the drill lands on a Text node -> inline edit.
                     if let Some(next) = self.editor.drill_into(wp) {
                         if let Some(n) = find(&self.editor.root, &next) {
@@ -547,8 +547,8 @@ impl App {
                         return;
                     }
                 }
-                // Figma: plain click = top-level object; Ctrl+click = deep select
-                self.editor.click_figma(wp, self.shift, self.ctrl);
+                // plain click = top-level object; Ctrl+click = deep select
+                self.editor.click_select(wp, self.shift, self.ctrl);
                 if self.editor.selection.is_empty() {
                     self.drag = Drag::Marquee { start_world: wp };
                 } else {
@@ -574,14 +574,14 @@ impl App {
         if let Drag::Move { start, .. } = self.drag {
             let d = (p - start) / self.zoom;
             if d.x != 0.0 || d.y != 0.0 {
-                // Figma Alt+drag = duplicate, then move the copy
+                // Alt+drag = duplicate, then move the copy
                 if self.alt && !self.alt_dupe_done {
                     self.alt_dupe_done = true;
                     let ids = self.editor.duplicate_selection((0.0, 0.0));
                     self.status = format!("alt-duplicated {}", ids.join(", "));
                 }
                 self.editor.move_selection(d.x.round(), d.y.round());
-                // Figma magnetic snap: pull edges/centers onto neighbors
+                // magnetic snap: pull edges/centers onto neighbors
                 if self.editor.selection.len() == 1 {
                     let id = self.editor.selection[0].clone();
                     let (sx, sy) = arco_native::editor::snap_delta(&self.editor.root, &id, 4.0 / self.zoom);
@@ -741,7 +741,7 @@ impl App {
     }
 
     fn click_left_sidebar(&mut self, p: Point) {
-        // PAGES section first (Figma File tab: pages above layers)
+        // PAGES section first (pages section first)
         let pages_y0 = TOP_H + 24.0;
         let pages_end = pages_y0 + self.pages.len() as f64 * ROW_H;
         if p.y >= pages_y0 && p.y < pages_end {
@@ -859,7 +859,7 @@ impl App {
                 }
             }
         }
-        // alignment row (Design tab): operates on multi-selection like Figma
+        // alignment row (Design tab): operates on multi-selection industry-standard
         if self.inspector_tab == 0 && !self.editor.selection.is_empty() {
             let ix2 = self.win_w - INSPECTOR_W;
             let ay = TOP_H + 24.0;
@@ -874,7 +874,7 @@ impl App {
                             arco_native::editor::align(&mut self.editor.root, &ids, kind);
                             self.status = format!("aligned {:?}", kind);
                         } else if let Some(id) = ids.first() {
-                            // single selection: align within its parent frame (Figma)
+                            // single selection: align within its parent frame 
                             let rootw = self.editor.root.w; let rooth = self.editor.root.h;
                             if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, id) {
                                 match kind {
@@ -1054,7 +1054,7 @@ impl App {
         let canvas = self.canvas_rect();
         ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &canvas);
         if self.outline_view {
-            // Figma "layer outlines": strokes only, no fills
+            // outline view mode: strokes only, no fills
             fn outline_walk(n: &Node, parent: Affine, cam: Affine, ui: &mut Scene) {
                 if !n.visible { return; }
                 let world = parent * n.transform.matrix(n.w, n.h);
@@ -1072,7 +1072,7 @@ impl App {
             ui.append(&doc_scene, Some(self.camera()));
         }
 
-        // user guides (cyan, Sketch/Figma canvas guides)
+        // user guides (cyan, canvas guides)
         for (vertical, coord) in &self.user_guides {
             let line = if *vertical {
                 let a = self.camera() * Point::new(*coord, -100000.0);
@@ -1130,7 +1130,7 @@ impl App {
                 let editing_this = matches!(&self.focus, Focus::TextNode { id: eid, .. } if eid == &id);
                 stroke_rect(&mut ui, b.inflate(1.5, 1.5), if editing_this { PALETTE[4] } else { C_ACCENT }, 1.5);
                 if self.editor.selection.len() == 1 && !editing_this {
-                    // Figma: 4 small corner squares only (no knob, no stem,
+                    // corner handles: 4 small squares only (no knob, no stem,
                     // no edge dots — edges are grabbable but invisible;
                     // rotation lives in the invisible ring outside corners)
                     for (cx, cy) in [(b.x0, b.y0), (b.x1, b.y0), (b.x0, b.y1), (b.x1, b.y1)] {
@@ -1140,7 +1140,7 @@ impl App {
                     }
                 }
                 if self.editor.selection.len() == 1 {
-                    // Figma dimension badge: blue pill under the selection
+                    // dimension badge under the selection
                     if let Some(n) = find(&self.editor.root, &id) {
                         let text = format!("{:.0} X {:.0}", n.w, n.h);
                         let tw = arco_native::text::measure(&text, 9.0);
@@ -1171,7 +1171,7 @@ impl App {
         }
         ui.pop_layer();
 
-        // Sketch-style "hide interface": canvas only + tiny hint
+        // focus mode: canvas only + tiny hint
         if self.chrome_hidden {
             label(&mut ui, "CTRL+. TO SHOW UI", 12.0, self.win_h - 24.0, 9.0, C_DIM);
             return ui;
@@ -1204,7 +1204,7 @@ impl App {
         };
         label(&mut ui, &status_line, 660.0, 11.0, 10.0, if self.focus == Focus::None { C_DIM } else { PALETTE[4] });
 
-        // ---------- left sidebar (Figma File tab: PAGES then LAYERS) ----------
+        // ---------- left sidebar (left sidebar structure) ----------
         fill_rect(&mut ui, Rect::new(0.0, TOP_H, LAYERS_W, self.win_h), C_PANEL);
         fill_rect(&mut ui, Rect::new(LAYERS_W - 1.0, TOP_H, LAYERS_W, self.win_h), C_PANEL_EDGE);
         // PAGES section
@@ -1283,7 +1283,7 @@ impl App {
                 if stamping_this {
                     fill_rect(&mut ui, Rect::new(2.0, y - 2.0, LAYERS_W - 4.0, y + ROW_H - 6.0), Color::rgba8(0x0d, 0x99, 0xff, 70));
                 }
-                // diamond marker, Figma-style
+                // diamond marker, standard
                 let d = 5.0;
                 let (cx, cy) = (16.0, y + 5.0);
                 let mut diamond = vello::kurbo::BezPath::new();
@@ -1301,7 +1301,7 @@ impl App {
         let ix = self.win_w - INSPECTOR_W;
         fill_rect(&mut ui, Rect::new(ix, TOP_H, self.win_w, self.win_h), C_PANEL);
         fill_rect(&mut ui, Rect::new(ix, TOP_H, ix + 1.0, self.win_h), C_PANEL_EDGE);
-        // Design | Prototype tabs (Figma properties panel)
+        // Design | Prototype tabs (properties panel)
         for (i, name) in ["DESIGN", "PROTOTYPE"].iter().enumerate() {
             let x = ix + 12.0 + i as f64 * 84.0;
             let r = Rect::new(x, TOP_H + 4.0, x + 78.0, TOP_H + 21.0);
@@ -1337,7 +1337,7 @@ impl App {
                     label(&mut ui, &format!("{}: {:.0}", names[f as usize], vals[f as usize]), fx, fy, 9.5, C_TEXT);
                 }
             }
-            // Figma alignment row (top of Design panel): L C R | T M B
+            // alignment row (top of Design panel): L C R | T M B
             {
                 let ay = TOP_H + 24.0;
                 for (i, lbl) in ["|<", "><", ">|", "T", "M", "B"].iter().enumerate() {
@@ -1365,7 +1365,7 @@ impl App {
                 stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0);
             }
             } // end Design tab
-            // ---- prototype link section (Prototype tab, Figma-style) ----
+            // ---- prototype link section (Prototype tab, standard) ----
             if self.inspector_tab == 1 {
                 let py = TOP_H + 40.0;
                 label(&mut ui, "PROTOTYPE", ix + 12.0, py, 10.0, C_DIM);
@@ -1388,7 +1388,7 @@ impl App {
                     bx += 62.0;
                 }
             }
-            // ---- constraints (Figma Design tab) ----
+            // ---- constraints (design tab) ----
             if self.inspector_tab == 0 {
                 let cy = TOP_H + 210.0 + 96.0;
                 label(&mut ui, "CONSTRAINTS", ix + 12.0, cy, 10.0, C_DIM);
@@ -1445,7 +1445,7 @@ impl App {
                 }
             }
         } else if self.tool == Tool::Frame {
-            // Figma: frame presets in the right panel when Frame tool active
+            // frame presets in the right panel when Frame tool active
             label(&mut ui, "FRAME PRESETS", ix + 12.0, TOP_H + 30.0, 10.0, C_DIM);
             for (i, (name, _, _)) in FRAME_PRESETS.iter().enumerate() {
                 let y = TOP_H + 50.0 + i as f64 * 24.0;
@@ -1503,7 +1503,7 @@ impl App {
             label(&mut ui, "?", hr.x0 + 10.0, hr.y0 + 8.0, 11.0, if self.help_open { Color::WHITE } else { C_DIM });
         }
 
-        // ---------- rulers (Figma Shift+R) ----------
+        // ---------- rulers (Shift+R) ----------
         if self.rulers {
             let c = self.canvas_rect();
             fill_rect(&mut ui, Rect::new(c.x0, c.y0, c.x1, c.y0 + 16.0), Color::rgba8(0x1a, 0x1a, 0x1a, 240));
@@ -1555,7 +1555,7 @@ impl App {
             label(&mut ui, "PRESS ? OR ESC TO CLOSE", panel.x0 + 20.0, panel.y1 - 24.0, 8.0, C_DIM);
         }
 
-        // ---------- minimap (Sketch) ----------
+        // ---------- minimap (minimap) ----------
         {
             let mm = self.minimap_rect();
             fill_rrect(&mut ui, Rect::new(mm.x0 + 2.0, mm.y0 + 2.0, mm.x1 + 2.0, mm.y1 + 2.0), 8.0, Color::rgba8(0, 0, 0, 80));
@@ -1951,7 +1951,7 @@ async fn run() {
                                 if app.help_open { app.help_open = false; }
                                 else if app.present.is_some() { app.present = None; app.status = "exited presentation".into(); }
                                 else if let Some(id) = app.editor.selection.first().cloned() {
-                                    // Figma: Esc selects the parent; at top level it deselects
+                                    // Esc selects parent; at top level it deselects
                                     let root_id = app.editor.root.id.clone();
                                     let parent = arco_native::editor::top_level_ancestor(&app.editor.root, &id);
                                     match parent {

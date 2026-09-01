@@ -49,7 +49,7 @@ impl ImagePlacement {
     pub fn is_default(&self) -> bool { *self == Self::default() }
 }
 
-/// Image fill behavior inside the node's box (Figma's fill modes).
+/// Image fill behavior inside the node's box (fill modes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ImageFit {
     /// stretch to the box (aspect ignored)
@@ -159,7 +159,7 @@ pub struct Node {
     /// Phase 2.12: resize constraints relative to the parent frame.
     pub pin: (HPin, VPin),
     /// Masks: when true, this node clips its FOLLOWING SIBLINGS inside
-    /// the same parent (Figma "use as mask" semantics, simplified).
+    /// the same parent (mask semantics semantics, simplified).
     pub is_mask: bool,
     /// P1: variable bindings — property -> variable name.
     /// Supported keys: "radius", "opacity", "fontsize", "w", "h".

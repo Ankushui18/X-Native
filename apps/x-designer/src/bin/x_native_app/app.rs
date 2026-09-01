@@ -49,13 +49,13 @@ impl App {
         let _ = std::fs::write(".xprefs", if self.thumbs_collapsed { "thumbs=collapsed" } else { "thumbs=open" });
         self.status = if self.thumbs_collapsed { "pages panel collapsed".into() } else { "pages panel shown".into() };
     }
-    /// Sketch-style minimap rect (bottom-right of the canvas).
+    /// minimap minimap rect (bottom-right of the canvas).
     pub fn minimap_rect(&self) -> Rect {
         let c = self.canvas_rect();
         Rect::new(c.x1 - 176.0, c.y1 - BOTTOM_BAR_H - 116.0, c.x1 - 12.0, c.y1 - BOTTOM_BAR_H - 12.0)
     }
 
-    /// Figma-style floating toolbar, centered at the bottom of the canvas.
+    /// standard floating toolbar, centered at the bottom of the canvas.
     pub fn bottom_bar_rect(&self) -> Rect {
         // tool row now lives centered in the header's second row (mockup)
         let w = Tool::ALL.len() as f64 * 38.0 + 16.0;
@@ -547,7 +547,7 @@ impl App {
         Some(quad_bounds(self.camera() * world, w, h))
     }
 
-    /// Figma handle model: 0-3 = corners (TL,TR,BL,BR), 4=left edge,
+    /// handle model: 0-3 = corners (TL,TR,BL,BR), 4=left edge,
     /// 5=right, 6=top, 7=bottom. Corners win over edges.
     pub fn handle_at(&self, p: Point) -> Option<u8> {
         let b = self.selection_screen_bounds()?;
@@ -565,7 +565,7 @@ impl App {
         None
     }
 
-    /// Figma rotation: no visible knob — an invisible hotspot in the ring
+    /// rotation mode: no visible knob — an invisible hotspot in the ring
     /// JUST OUTSIDE each corner (8..24px out, beyond the resize square).
     pub fn rotate_handle_at(&self, p: Point) -> bool {
         let Some(b) = self.selection_screen_bounds() else { return false };
@@ -678,7 +678,7 @@ impl App {
     }
 
     // ------------------------------------------- dashboard <-> editor
-    // Figma-like lifecycle: Home (recent files) -> open file -> editor ->
+    // standard lifecycle: Home (recent files) -> open file -> editor ->
     // back to Home (auto-saves; card thumbnail + modified time update).
 
     /// Scan persistent documents: ./document.x plus ./files/*.x
@@ -792,7 +792,7 @@ impl App {
         }
     }
 
-    /// Move the current page left/right in the page order (Figma reorder).
+    /// Move the current page left/right in the page order (reorder).
     pub fn reorder_page(&mut self, dir: i32) {
         let i = self.page_idx;
         let j = if dir < 0 { i.checked_sub(1) } else { if i + 1 < self.pages.len() { Some(i + 1) } else { None } };
@@ -912,7 +912,7 @@ impl App {
         self.status = "saved — dashboard".into();
     }
 
-    /// double-click a page row/cell -> inline rename (Figma behavior)
+    /// double-click a page row/cell -> inline rename (standard behavior)
     pub fn start_page_rename(&mut self, idx: usize) {
         if idx >= self.pages.len() { return; }
         self.focus = Focus::PageRename { idx, buffer: String::new() };
@@ -960,7 +960,7 @@ impl App {
         self.status = "page duplicated".into();
     }
 
-    // --------------------------------------------- clipboard (Figma keys)
+    // --------------------------------------------- clipboard (standard keys)
     pub fn clipboard_copy(&mut self) {
         let n = self.editor.selection.len();
         if n == 0 { self.status = "nothing selected to copy".into(); return; }
@@ -977,7 +977,7 @@ impl App {
 
     pub fn clipboard_paste(&mut self) {
         if self.editor.clipboard_len() == 0 { self.status = "clipboard empty".into(); return; }
-        // Figma behavior: paste into the top-level FRAME under the cursor
+        // standard behavior: paste into the top-level FRAME under the cursor
         // (when hovering one); otherwise the page root.
         let mut parent = self.editor.root.id.clone();
         if self.canvas_rect().contains(self.cursor) {
@@ -1280,7 +1280,7 @@ impl App {
                 let _ = id;
                 self.drag = Drag::Scale { start_y: p.y, applied: 1.0, cmds: self.editor.undo_depth() };
             } else {
-                // click selects first, like Figma's scale tool
+                // click selects first, industry-standard
                 let wp = self.world_point(p);
                 self.editor.click(wp, false);
                 if !self.editor.selection.is_empty() {
@@ -1336,7 +1336,7 @@ impl App {
                     self.editor.selection = vec![id.clone()];
                     self.pen_target = Some(id.clone());
                     self.pen_pending_out = None;
-                    // Figma-style: keep the button-down window open so a
+                    // standard: keep the button-down window open so a
                     // drag right after this click pulls a curve handle
                     // instead of only ever placing a straight corner.
                     self.pen_placing = Some((0, wp, self.editor.undo_depth()));
@@ -1500,7 +1500,7 @@ impl App {
                     }
                 }
                 if double {
-                    // Figma double-click: drill into the hierarchy;
+                    // drill-in double-click: drill into the hierarchy;
                     // Vector -> node-edit mode; Text -> inline edit.
                     if let Some(next) = self.editor.drill_into(wp) {
                         if let Some(n) = find(&self.editor.root, &next) {
@@ -1522,8 +1522,8 @@ impl App {
                         return;
                     }
                 }
-                // Figma: plain click = top-level object; Ctrl+click = deep select
-                self.editor.click_figma(wp, self.shift, self.ctrl);
+                // standard: plain click = top-level object; Ctrl+click = deep select
+                self.editor.click_select(wp, self.shift, self.ctrl);
                 if self.editor.selection.is_empty() {
                     self.drag = Drag::Marquee { start_world: wp };
                 } else {
@@ -1715,7 +1715,7 @@ impl App {
                 self.library_snapshots = d2.doc.library_snapshots.clone();
                 let decoded = self.assets.sync_store(&self.store);
                 if decoded > 0 { eprintln!("assets: decoded {decoded} embedded image(s)"); }
-                // style consumers re-sync on open (Figma semantics)
+                // style consumers re-sync on open (standard semantics)
                 arco_native::resolve_styles(&mut self.editor.root, &self.styles);
                 self.status = if notes.is_empty() {
                     format!("loaded ({} pages)", self.pages.len())
@@ -1756,8 +1756,8 @@ impl App {
         let Some(path) = rfd::FileDialog::new()
             .set_title("Import into X Designer")
             .add_filter("Supported design files", &["sketch", "json", "svg", "png"])
-            .add_filter("Sketch", &["sketch"])
-            .add_filter("Figma JSON", &["json"])
+            .add_filter("Sketch file", &["sketch"])
+            .add_filter("Design JSON", &["json"])
             .add_filter("SVG", &["svg"])
             .add_filter("PNG", &["png"])
             .pick_file() else {
@@ -1768,8 +1768,8 @@ impl App {
     }
 
     pub fn start_figma_import(&mut self) {
-        let Some(path) = rfd::FileDialog::new().set_title("Import Figma REST JSON")
-            .add_filter("Figma REST JSON", &["json"]).pick_file() else {
+        let Some(path) = rfd::FileDialog::new().set_title("Import Figma REST API JSON")
+            .add_filter("Figma REST API JSON", &["json"]).pick_file() else {
                 self.status = "import cancelled".into(); return;
             };
         self.stage_import_path(path);
@@ -1874,15 +1874,15 @@ impl App {
     }
 
     pub fn export_figma_now(&mut self) {
-        let Some(path) = rfd::FileDialog::new().set_title("Export editable Figma JSON").set_file_name("x-designer-figma.json").add_filter("Figma REST JSON", &["json"]).save_file() else { self.status = "export cancelled".into(); return; };
+        let Some(path) = rfd::FileDialog::new().set_title("Export Figma-compatible JSON").set_file_name("x-designer-export.json").add_filter("Figma REST API JSON", &["json"]).save_file() else { self.status = "export cancelled".into(); return; };
         let doc = self.document_snapshot(); let json = arco_native::fileio::export_figma_json(&doc);
-        self.status = match std::fs::write(&path, json) { Ok(_) => format!("exported Figma JSON: {}", path.display()), Err(e) => format!("Figma export FAILED: {e}") };
+        self.status = match std::fs::write(&path, json) { Ok(_) => format!("exported Figma-compatible JSON: {}", path.display()), Err(e) => format!("Figma export FAILED: {e}") };
     }
 
     pub fn export_sketch_now(&mut self) {
-        let Some(path) = rfd::FileDialog::new().set_title("Export editable Sketch document").set_file_name("x-designer.sketch").add_filter("Sketch document", &["sketch"]).save_file() else { self.status = "export cancelled".into(); return; };
+        let Some(path) = rfd::FileDialog::new().set_title("Export Sketch-compatible document").set_file_name("x-designer.sketch").add_filter("Sketch document", &["sketch"]).save_file() else { self.status = "export cancelled".into(); return; };
         let doc = self.document_snapshot(); let bytes = arco_native::fileio::export_sketch(&doc);
-        self.status = match std::fs::write(&path, bytes) { Ok(_) => format!("exported Sketch: {}", path.display()), Err(e) => format!("Sketch export FAILED: {e}") };
+        self.status = match std::fs::write(&path, bytes) { Ok(_) => format!("exported Sketch-compatible file: {}", path.display()), Err(e) => format!("Sketch export FAILED: {e}") };
     }
 
     // ------------------------------------------------- header dropdown menus
@@ -2193,7 +2193,7 @@ impl App {
     }
 
     pub fn mouse_move(&mut self, p: Point) {
-        // Figma-style pen tool: a drag right after placing an anchor pulls
+        // standard pen tool: a drag right after placing an anchor pulls
         // a bezier handle out of it instead of leaving a plain corner.
         if let (Tool::Pen, Some((idx, _, _))) = (self.tool, self.pen_placing) {
             self.cursor = p;
@@ -2261,14 +2261,14 @@ impl App {
         } else if let Drag::Move { start, .. } = self.drag {
             let d = (p - start) / self.zoom;
             if d.x != 0.0 || d.y != 0.0 {
-                // Figma Alt+drag = duplicate, then move the copy
+                // Alt+drag = duplicate, then move the copy
                 if self.alt && !self.alt_dupe_done {
                     self.alt_dupe_done = true;
                     let ids = self.editor.duplicate_selection((0.0, 0.0));
                     self.status = format!("alt-duplicated {}", ids.join(", "));
                 }
                 self.editor.move_selection(d.x.round(), d.y.round());
-                // Figma magnetic snap: pull edges/centers onto neighbors
+                // magnetic snap: pull edges/centers onto neighbors
                 if self.editor.selection.len() == 1 {
                     let id = self.editor.selection[0].clone();
                     let (sx, sy) = arco_native::editor::snap_delta(&self.editor.root, &id, 4.0 / self.zoom);
@@ -2370,7 +2370,7 @@ impl App {
     }
 
     pub fn mouse_up(&mut self, p: Point) {
-        // Figma-style pen tool: releasing after a curve-handle drag merges
+        // standard pen tool: releasing after a curve-handle drag merges
         // the drag's incremental commands into the anchor's placement step,
         // and keeps pen_pending_out so the NEXT anchor inherits the tangent.
         if let Some((_, _, depth)) = self.pen_placing.take() {
@@ -3203,7 +3203,7 @@ impl App {
                 }
             }
         }
-        // alignment row (Design tab): operates on multi-selection like Figma
+        // alignment row (Design tab): operates on multi-selection industry-standard
         if self.inspector_tab == 0 && !self.editor.selection.is_empty() {
             let ix2 = self.win_w - INSPECTOR_W;
             let ay = TOP_H + 24.0;
@@ -3218,7 +3218,7 @@ impl App {
                             arco_native::editor::align(&mut self.editor.root, &ids, kind);
                             self.status = format!("aligned {:?}", kind);
                         } else if let Some(id) = ids.first() {
-                            // single selection: align within its parent frame (Figma)
+                            // single selection: align within its parent frame 
                             let rootw = self.editor.root.w; let rooth = self.editor.root.h;
                             if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, id) {
                                 match kind {

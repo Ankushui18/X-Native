@@ -178,7 +178,7 @@ impl Menu {
 // ---------------------------------------------------------------- tooltip
 
 /// Delayed tooltip state machine: arm on hover, fires after `delay_ms`,
-/// cancels on move/leave. (Figma-style behavior, reduced-motion aware.)
+/// cancels on move/leave. (standard behavior, reduced-motion aware.)
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TooltipState {
     pub text: String,

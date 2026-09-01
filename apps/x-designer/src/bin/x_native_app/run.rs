@@ -303,7 +303,7 @@ pub async fn run() {
                             .and_then(|id| arco_native::editor::top_level_ancestor(&app.editor.root, &id).or(Some(id)));
                         let inside_selection = hit.as_ref().map_or(false, |h| app.editor.selection.contains(h));
                         if !inside_selection {
-                            app.editor.click_figma(wp, false, false);
+                            app.editor.click_select(wp, false, false);
                         }
                         let has_sel = !app.editor.selection.is_empty();
                         let two = app.editor.selection.len() == 2;
@@ -562,7 +562,7 @@ pub async fn run() {
                                 else if app.help_open { app.help_open = false; }
                                 else if app.present.is_some() { app.present = None; app.status = "exited presentation".into(); }
                                 else if let Some(id) = app.editor.selection.first().cloned() {
-                                    // Figma: Esc selects the parent; at top level it deselects
+                                    // Esc selects parent; at top level it deselects
                                     let root_id = app.editor.root.id.clone();
                                     let parent = arco_native::editor::top_level_ancestor(&app.editor.root, &id);
                                     match parent {

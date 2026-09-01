@@ -79,7 +79,7 @@ impl Editor {
         true
     }
 
-    /// Figma-style pen tool: append an anchor, arriving via a cubic curve
+    /// pen tool: append an anchor, arriving via a cubic curve
     /// when `out_c1` is given (the c1 control point, pulled out by the
     /// PREVIOUS anchor's placement drag). A plain click with no drag on
     /// the previous point still yields a straight `LineTo`.
@@ -105,7 +105,7 @@ impl Editor {
         true
     }
 
-    /// Figma-style pen tool: while placing anchor `anchor_idx`, a
+    /// pen tool: while placing anchor `anchor_idx`, a
     /// click-drag shapes the curve arriving at it — the incoming handle is
     /// pulled to the opposite side of the drag vector `(dx, dy)` (a corner
     /// point becomes a smooth one, mirroring the departure/arrival

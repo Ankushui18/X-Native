@@ -1,5 +1,5 @@
 //! Session 51 regression tests: editor clipboard (copy/cut/paste) and
-//! page rename persistence — the Figma-parity behaviors wired this wave.
+//! page rename persistence — the professional workflow behaviors wired this wave.
 
 use arco_native::editor::Editor;
 use arco_native::fileio;

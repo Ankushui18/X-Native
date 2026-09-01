@@ -100,10 +100,10 @@ impl Editor {
     }
 
     // -- selection ---------------------------------------------------------
-    /// Figma-style click: plain click selects the top-level object under the
-    /// cursor; `deep` (Ctrl+click in Figma) selects the exact nested node;
+    /// industry-standard click: plain click selects the top-level object under the
+    /// cursor; `deep` (Ctrl+click) selects the exact nested node;
     /// `shift` toggles membership.
-    pub fn click_figma(&mut self, p: Point, shift: bool, deep: bool) {
+    pub fn click_select(&mut self, p: Point, shift: bool, deep: bool) {
         let hit = hit_test(&self.root, p);
         let target = match hit {
             Some(id) if !deep => top_level_ancestor(&self.root, &id).unwrap_or(id),
@@ -118,7 +118,7 @@ impl Editor {
         }
     }
 
-    /// Figma double-click: drill one level deeper from the current
+    /// double-click to drill: drill one level deeper from the current
     /// selection toward the deep hit. Returns the newly selected id.
     pub fn drill_into(&mut self, p: Point) -> Option<String> {
         let deep = hit_test(&self.root, p)?;
@@ -278,7 +278,7 @@ impl Editor {
         }
     }
 
-    /// Phase 2.3 (Figma "Scale" tool): scale a node AND its whole subtree
+    /// Phase 2.3 (Scale tool): scale a node AND its whole subtree
     /// uniformly — sizes, child offsets, strokes, corner radii. One
     /// undoable ReplaceNode.
     pub fn scale_node(&mut self, id: &str, factor: f64) -> bool {

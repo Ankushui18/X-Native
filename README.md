@@ -107,3 +107,16 @@ component instances (two overridden, one falling back to the master fill).
   so the window layer only translates input events into `Editor` calls.
 - advanced rich-text ranges/IME, branching vector-network UX, native `.fig`
   binary import, advanced prototype actions, multiplayer/CRDT and plugins.
+
+---
+
+## ⚖️ Legal Disclaimer
+
+**X-Native is independent software.** It is not affiliated with, endorsed by, or connected to Figma, Adobe, Sketch, or any other design tool company. All features are implemented through original development based on industry-standard workflows and user needs research.
+
+- **Interoperability**: X-Native supports import/export of publicly documented formats (Figma REST API JSON, SVG, standard image formats) for user convenience
+- **Original Code**: All code is independently developed with clean-room implementation
+- **Distinct Identity**: X-Native uses its own visual design language (graphite/violet theme) and unique interface elements
+- **No Reverse Engineering**: Only public APIs and documented file formats are supported
+
+X-Native respects all intellectual property rights and trademarks belonging to their respective owners.

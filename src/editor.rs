@@ -68,7 +68,7 @@ pub fn hit_test_rect(root: &Node, rect: Rect) -> Vec<String> {
     out
 }
 
-/// Figma's selection model: a plain click selects the TOP-LEVEL object
+/// Industry-standard selection model: a plain click selects the TOP-LEVEL object
 /// (direct child of the page) that contains the hit; only deep-select
 /// (Ctrl/Cmd+click) or double-click drills into nested children.
 /// Maps a (deep) hit id to its top-level ancestor's id.
@@ -252,10 +252,10 @@ impl Editor {
     }
 
     // -- selection ---------------------------------------------------------
-    /// Figma-style click: plain click selects the top-level object under the
-    /// cursor; `deep` (Ctrl+click in Figma) selects the exact nested node;
+    /// Industry-standard click: plain click selects the top-level object under the
+    /// cursor; `deep` (Ctrl+click) selects the exact nested node;
     /// `shift` toggles membership.
-    pub fn click_figma(&mut self, p: Point, shift: bool, deep: bool) {
+    pub fn click_select(&mut self, p: Point, shift: bool, deep: bool) {
         let hit = hit_test(&self.root, p);
         let target = match hit {
             Some(id) if !deep => top_level_ancestor(&self.root, &id).unwrap_or(id),
@@ -270,7 +270,7 @@ impl Editor {
         }
     }
 
-    /// Figma double-click: drill one level deeper from the current
+    /// Double-click to drill: drill one level deeper from the current
     /// selection toward the deep hit. Returns the newly selected id.
     pub fn drill_into(&mut self, p: Point) -> Option<String> {
         let deep = hit_test(&self.root, p)?;
@@ -374,7 +374,7 @@ impl Editor {
         }
     }
 
-    /// Phase 2.3 (Figma "Scale" tool): scale a node AND its whole subtree
+    /// Phase 2.3 (Scale tool): scale a node AND its whole subtree
     /// uniformly — sizes, child offsets, strokes, corner radii. One
     /// undoable ReplaceNode.
     pub fn scale_node(&mut self, id: &str, factor: f64) -> bool {
@@ -475,7 +475,7 @@ impl Editor {
         }
     }
 
-    /// Figma Ctrl+Shift+G: dissolve a group/frame, re-parenting children to
+    /// Professional workflow: Ungroup: dissolve a group/frame, re-parenting children to
     /// the grandparent at the group's spot with positions preserved.
     pub fn ungroup(&mut self, id: &str) -> bool {
         let Some(g) = find(&self.root, id) else { return false };
@@ -499,7 +499,7 @@ impl Editor {
         true
     }
 
-    /// Figma Ctrl+A: select all top-level children of the page (or of the
+    /// Select all: select all top-level children of the page (or of the
     /// selected frame if one frame is selected).
     pub fn select_all(&mut self) {
         let scope = if self.selection.len() == 1 {
@@ -510,7 +510,7 @@ impl Editor {
         self.selection = source.children.iter().filter(|c| c.visible && !c.locked).map(|c| c.id.clone()).collect();
     }
 
-    /// Undoable constraint-pin change (Figma constraints panel).
+    /// Undoable constraint-pin change (constraints panel).
     pub fn set_pin(&mut self, id: &str, h: crate::HPin, v: crate::VPin) {
         if let Some(n) = find(&self.root, id) {
             let before = Box::new(n.clone());
@@ -578,7 +578,7 @@ impl Editor {
     /// Phase 5.2: turn the current selection into a Component definition.
     /// The selected nodes become children of a hidden master (placed at the
     /// document root), and the selection is replaced in-place by an Instance
-    /// of it — same flow as Figma's "create component". One undo step
+    /// of it — same flow as component creation workflow. One undo step
     /// (snapshot-based, like group).
     pub fn make_component(&mut self, name: &str) -> bool {
         if self.selection.is_empty() { return false; }
@@ -748,7 +748,7 @@ pub fn align(parent: &mut Node, ids: &[String], kind: AlignKind) {
     }
 }
 
-/// Phase 2.11: equal spacing along an axis (Figma "tidy up").
+/// Phase 2.11: equal spacing along an axis (equal spacing distribution).
 pub fn distribute_horizontal(parent: &mut Node, ids: &[String]) {
     let mut sel: Vec<usize> = parent.children.iter().enumerate().filter(|(_, c)| ids.contains(&c.id)).map(|(i, _)| i).collect();
     if sel.len() < 3 { return; }
@@ -836,7 +836,7 @@ pub fn alignment_guides(root: &Node, moving_id: &str, tol: f64) -> Vec<(bool, f6
     guides
 }
 
-/// Figma-style magnetic snap during move: given the moving node's would-be
+/// Magnetic snap during move: given the moving node's would-be
 /// AABB, returns (dx, dy) corrections that snap edges/centers to other
 /// nodes' edges/centers within `tol`. Zero when nothing is close.
 pub fn snap_delta(root: &Node, moving_id: &str, tol: f64) -> (f64, f64) {
@@ -1515,11 +1515,11 @@ mod tests {
                 .child(Node::rect("inner", 10.0, 10.0, 100.0, 100.0, Color::WHITE)),
         );
         let mut e = Editor::new(d);
-        // plain click on inner selects TOP-LEVEL group (Figma behavior)
-        e.click_figma(Point::new(50.0, 50.0), false, false);
+        // plain click on inner selects TOP-LEVEL group (standard behavior)
+        e.click_select(Point::new(50.0, 50.0), false, false);
         assert_eq!(e.selection, vec!["g".to_string()]);
         // deep click (ctrl) selects the exact node
-        e.click_figma(Point::new(50.0, 50.0), false, true);
+        e.click_select(Point::new(50.0, 50.0), false, true);
         assert_eq!(e.selection, vec!["inner".to_string()]);
         // drill: from g, double-click goes one level down
         e.selection = vec!["g".into()];

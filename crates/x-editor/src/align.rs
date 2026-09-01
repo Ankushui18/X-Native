@@ -33,7 +33,7 @@ pub fn align(parent: &mut Node, ids: &[String], kind: AlignKind) {
     }
 }
 
-/// Phase 2.11: equal spacing along an axis (Figma "tidy up").
+/// Phase 2.11: equal spacing along an axis (equal spacing distribution).
 pub fn distribute_horizontal(parent: &mut Node, ids: &[String]) {
     let mut sel: Vec<usize> = parent.children.iter().enumerate().filter(|(_, c)| ids.contains(&c.id)).map(|(i, _)| i).collect();
     if sel.len() < 3 { return; }

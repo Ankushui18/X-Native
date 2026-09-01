@@ -13,11 +13,11 @@ impl App {
                 let ox = (self.win_w - frame.w * scale) / 2.0;
                 let oy = (self.win_h - frame.h * scale) / 2.0;
                 ui.append(&scene, Some(Affine::translate((ox, oy)) * Affine::scale(scale)));
-                label(&mut ui, "PRESENTING - ESC TO EXIT", 12.0, self.win_h - 24.0, 10.0, C_DIM);
+                label(&mut ui, "PRESENTING - ESC TO EXIT", 10.0, self.win_h - STATUS_H - 8.0, C_DIM);
                 return ui;
             }
         }
-        // ---------- DASHBOARD screen (Figma-like Home) ----------
+        // ---------- DASHBOARD screen (X-Native home with recent files) ----------
         if self.screen == Screen::Dashboard {
             return self.build_dashboard_scene();
         }
@@ -50,7 +50,7 @@ impl App {
             }
         }
         if self.outline_view {
-            // Figma "layer outlines": strokes only, no fills
+            // X-Native outline mode: strokes only, no fills for clean structure view
             fn outline_walk(n: &Node, parent: Affine, cam: Affine, ui: &mut Scene) {
                 if !n.visible { return; }
                 let world = parent * n.transform.matrix(n.w, n.h);
@@ -95,26 +95,26 @@ impl App {
             ui.append(&doc_scene, Some(self.camera()));
         }
 
-        // ---- frame name labels above top-level frames (Figma/mockup:
+        // ---- frame name labels above top-level frames (professional design tool standard)
         // "◇ Desktop - 1440" floating over each frame) ----
         for child in &self.editor.root.children {
             if !matches!(child.kind, arco_native::NodeKind::Frame { .. }) { continue; }
             if !child.visible { continue; }
             let tl = self.camera() * Point::new(child.transform.x, child.transform.y);
-            if tl.y < TOP_H + 26.0 { continue; }
+            if tl.y < TOP_H + 30.0 { continue; }
             let d = 3.5;
-            let (cx, cy) = (tl.x + 5.0, tl.y - 12.0);
+            let (cx, cy) = (tl.x + 6.0, tl.y - 14.0);
             let mut dia = vello::kurbo::BezPath::new();
             dia.move_to((cx, cy - d)); dia.line_to((cx + d, cy));
             dia.line_to((cx, cy + d)); dia.line_to((cx - d, cy));
             dia.close_path();
             ui.stroke(&vello::kurbo::Stroke::new(1.1), Affine::IDENTITY, C_DIM, None, &dia);
             let selected = self.editor.selection.contains(&child.id);
-            label(&mut ui, &child.id, tl.x + 14.0, tl.y - 18.0, 8.5,
+            label(&mut ui, &child.id, tl.x + 18.0, tl.y - 20.0, 9.0,
                 if selected { C_ACCENT } else { C_DIM });
         }
 
-        // user guides (cyan, Sketch/Figma canvas guides)
+        // user guides (cyan, professional canvas guides)
         for (vertical, coord) in &self.user_guides {
             let line = if *vertical {
                 let a = self.camera() * Point::new(*coord, -100000.0);
@@ -158,7 +158,7 @@ impl App {
                         }
                         let sp = self.camera() * Point::new(a.x + n.transform.x, a.y + n.transform.y);
                         let r = Rect::new(sp.x - 4.0, sp.y - 4.0, sp.x + 4.0, sp.y + 4.0);
-                        // curve anchors round, corner anchors square (Figma-ish)
+                        // curve anchors round, corner anchors square (standard vector convention)
                         if a.in_handle.is_some() {
                             ui.fill(Fill::NonZero, Affine::IDENTITY, Color::WHITE, None, &vello::kurbo::Circle::new((sp.x, sp.y), 4.0));
                             ui.stroke(&vello::kurbo::Stroke::new(1.4), Affine::IDENTITY, C_ACCENT, None, &vello::kurbo::Circle::new((sp.x, sp.y), 4.0));
@@ -190,7 +190,7 @@ impl App {
                 let world = parent * n.transform.matrix(n.w, n.h);
                 if n.prototype.is_some() && n.visible {
                     let b = quad_bounds(cam * world, n.w, n.h);
-                    let chip = Rect::new(b.x1 - 14.0, b.y0 - 7.0, b.x1 + 2.0, b.y0 + 7.0);
+                    let chip = Rect::new(b.x1 - 16.0, b.y0 - 8.0, b.x1 + 2.0, b.y0 + 8.0);
                     fill_rect(ui, chip, PALETTE[3]);
                     label(ui, ">", chip.x0 + 4.0, chip.y0 + 2.0, 8.0, Color::WHITE);
                 }
@@ -229,7 +229,7 @@ impl App {
                     }
                 }
                 if self.editor.selection.len() == 1 && !editing_this {
-                    // Figma: 4 small corner squares only (no knob, no stem,
+                    // X-Native: 4 small corner squares only (no knob, no stem,
                     // no edge dots — edges are grabbable but invisible;
                     // rotation lives in the invisible ring outside corners)
                     for (cx, cy) in [(b.x0, b.y0), (b.x1, b.y0), (b.x0, b.y1), (b.x1, b.y1)] {
@@ -257,13 +257,13 @@ impl App {
                     }
                 }
                 if self.editor.selection.len() == 1 {
-                    // Figma dimension badge: blue pill under the selection
+                    // X-Native dimension badge: violet pill under the selection
                     if let Some(n) = find(&self.editor.root, &id) {
                         let text = format!("{:.0} X {:.0}", n.w, n.h);
                         let tw = arco_native::text::measure(&text, 9.0);
                         let bx = (b.x0 + b.x1) / 2.0 - tw / 2.0 - 6.0;
                         let by = b.y1 + 8.0;
-                        let badge = vello::kurbo::RoundedRect::new(bx, by, bx + tw + 12.0, by + 16.0, 3.0);
+                        let badge = vello::kurbo::RoundedRect::new(bx, by, bx + tw + 14.0, by + 18.0, 4.0);
                         ui.fill(Fill::NonZero, Affine::IDENTITY, C_ACCENT, None, &badge);
                         label(&mut ui, &text, bx + 6.0, by + 4.0, 9.0, Color::WHITE);
                     }
@@ -296,9 +296,9 @@ impl App {
         }
         ui.pop_layer();
 
-        // Sketch-style "hide interface": canvas only + tiny hint
+        // X-Native \"hide interface\": canvas only + tiny hint
         if self.chrome_hidden {
-            label(&mut ui, "⌘. TO SHOW UI", 12.0, self.win_h - 24.0, 9.0, C_DIM);
+            label(&mut ui, "⌘. TO SHOW UI", 10.0, self.win_h - STATUS_H - 8.0, C_DIM);
             return ui;
         }
 
@@ -308,13 +308,13 @@ impl App {
         {
             // X logo mark (accent glyph)
             let mut xmark = vello::kurbo::BezPath::new();
-            xmark.move_to((12.0, 8.0)); xmark.line_to((17.0, 14.0)); xmark.line_to((12.0, 20.0));
-            xmark.line_to((15.5, 20.0)); xmark.line_to((19.0, 15.8)); xmark.line_to((22.5, 20.0));
-            xmark.line_to((26.0, 20.0)); xmark.line_to((21.0, 14.0)); xmark.line_to((26.0, 8.0));
-            xmark.line_to((22.5, 8.0)); xmark.line_to((19.0, 12.2)); xmark.line_to((15.5, 8.0));
+            xmark.move_to((14.0, 10.0)); xmark.line_to((19.0, 16.0)); xmark.line_to((14.0, 22.0));
+            xmark.line_to((17.5, 22.0)); xmark.line_to((21.0, 17.8)); xmark.line_to((24.5, 22.0));
+            xmark.line_to((28.0, 22.0)); xmark.line_to((23.0, 16.0)); xmark.line_to((28.0, 10.0));
+            xmark.line_to((24.5, 10.0)); xmark.line_to((21.0, 14.2)); xmark.line_to((17.5, 10.0));
             xmark.close_path();
             ui.fill(Fill::NonZero, Affine::IDENTITY, C_ACCENT, None, &xmark);
-            label(&mut ui, "X-NATIVE", 32.0, 8.0, 9.5, C_TEXT);
+            label(&mut ui, "X-NATIVE", 34.0, 11.0, 10.0, C_TEXT);
             // active document tab
             // real file name (dashboard identity), not a hardcoded string
             let doc_name = self.dash_files.iter().find(|f| f.path == self.doc_path)
@@ -323,37 +323,37 @@ impl App {
                     std::path::Path::new(&self.doc_path).file_stem().unwrap_or_default().to_string_lossy().to_string()
                 });
             let doc_name = doc_name.as_str();
-            let tabw = ui_measure(doc_name, 9.5) + 44.0;
-            let tab = Rect::new(120.0, 0.0, 120.0 + tabw, TAB_H);
+            let tabw = ui_measure(doc_name, 10.0) + 48.0;
+            let tab = Rect::new(130.0, 0.0, 130.0 + tabw, TAB_H);
             fill_rect(&mut ui, tab, C_PANEL2);
             fill_rect(&mut ui, Rect::new(tab.x0, 0.0, tab.x1, 2.0), C_ACCENT);
-            label(&mut ui, doc_name, tab.x0 + 14.0, 8.0, 9.5,
+            label(&mut ui, doc_name, tab.x0 + 16.0, 11.0, 10.0,
                 if self.dirty_since_save { PALETTE[4] } else { C_TEXT });
             if self.dirty_since_save {
                 ui.fill(Fill::NonZero, Affine::IDENTITY, C_DIM, None,
-                    &vello::kurbo::Circle::new((tab.x1 - 14.0, TAB_H / 2.0), 3.0));
+                    &vello::kurbo::Circle::new((tab.x1 - 16.0, TAB_H / 2.0), 3.5));
             }
-            label(&mut ui, "+", tab.x1 + 12.0, 6.0, 12.0, C_DIM);
+            label(&mut ui, "+", tab.x1 + 14.0, 8.0, 13.0, C_DIM);
             // caret next to product name (mockup)
             {
-                let nx = 32.0 + ui_measure("X-NATIVE", 9.5) + 8.0;
+                let nx = 36.0 + ui_measure("X-NATIVE", 10.0) + 10.0;
                 let mut car = vello::kurbo::BezPath::new();
-                car.move_to((nx, 12.0)); car.line_to((nx + 6.0, 12.0)); car.line_to((nx + 3.0, 16.0));
+                car.move_to((nx, 14.0)); car.line_to((nx + 7.0, 14.0)); car.line_to((nx + 3.5, 18.0));
                 car.close_path();
                 ui.fill(Fill::NonZero, Affine::IDENTITY, C_DIM, None, &car);
             }
             // window controls (visual, mockup right corner)
             {
                 let wy = TAB_H / 2.0;
-                let st = vello::kurbo::Stroke::new(1.2);
+                let st = vello::kurbo::Stroke::new(1.3);
                 ui.stroke(&st, Affine::IDENTITY, C_DIM, None,
-                    &vello::kurbo::Line::new((self.win_w - 76.0, wy), (self.win_w - 68.0, wy)));
+                    &vello::kurbo::Line::new((self.win_w - 80.0, wy), (self.win_w - 70.0, wy)));
                 ui.stroke(&st, Affine::IDENTITY, C_DIM, None,
-                    &Rect::new(self.win_w - 52.0, wy - 4.0, self.win_w - 44.0, wy + 4.0).to_path(0.1));
+                    &Rect::new(self.win_w - 56.0, wy - 5.0, self.win_w - 46.0, wy + 5.0).to_path(0.1));
                 ui.stroke(&st, Affine::IDENTITY, C_DIM, None,
-                    &vello::kurbo::Line::new((self.win_w - 28.0, wy - 4.0), (self.win_w - 20.0, wy + 4.0)));
+                    &vello::kurbo::Line::new((self.win_w - 32.0, wy - 5.0), (self.win_w - 22.0, wy + 5.0)));
                 ui.stroke(&st, Affine::IDENTITY, C_DIM, None,
-                    &vello::kurbo::Line::new((self.win_w - 28.0, wy + 4.0), (self.win_w - 20.0, wy - 4.0)));
+                    &vello::kurbo::Line::new((self.win_w - 32.0, wy + 5.0), (self.win_w - 22.0, wy - 5.0)));
             }
         }
         // row 2: menus + centered tools + zoom + Present
@@ -366,35 +366,35 @@ impl App {
             for (i, r) in self.menu_title_rects() {
                 let open = self.menu_open == Some(i);
                 if open { fill_rrect(&mut ui, r, 5.0, C_HOVERBG); }
-                label(&mut ui, MENUS[i].0, r.x0 + 6.0, r2y + 14.0, 9.5, if open { Color::WHITE } else { C_TEXT });
+                label(&mut ui, MENUS[i].0, r.x0 + 6.0, r2y + 17.0, 9.5, if open { Color::WHITE } else { C_TEXT });
             }
             // centered tool row (moved from the floating bottom bar)
             let bar = self.bottom_bar_rect();
-            let bar_shadow = Rect::new(bar.x0 + 1.0, bar.y0 + 2.0, bar.x1 + 1.0, bar.y1 + 3.0);
-            fill_rrect(&mut ui, bar_shadow, 8.0, Color::rgba8(0, 0, 0, 70));
-            fill_rrect(&mut ui, bar, 8.0, C_PANEL);
-            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, C_PANEL_EDGE, None,
-                &vello::kurbo::RoundedRect::new(bar.x0, bar.y0, bar.x1, bar.y1, 8.0));
+            let bar_shadow = Rect::new(bar.x0 + 1.0, bar.y0 + 3.0, bar.x1 + 1.0, bar.y1 + 4.0);
+            fill_rrect(&mut ui, bar_shadow, 10.0, Color::rgba8(0, 0, 0, 80));
+            fill_rrect(&mut ui, bar, 10.0, C_PANEL);
+            ui.stroke(&vello::kurbo::Stroke::new(1.2), Affine::IDENTITY, C_PANEL_EDGE, None,
+                &vello::kurbo::RoundedRect::new(bar.x0, bar.y0, bar.x1, bar.y1, 10.0));
             for (i, t) in Tool::ALL.iter().enumerate() {
-                let cx = bar.x0 + 8.0 + i as f64 * 38.0 + 15.0;
+                let cx = bar.x0 + 10.0 + i as f64 * 40.0 + 17.0;
                 let cy = (bar.y0 + bar.y1) / 2.0;
-                let slot = Rect::new(cx - 15.0, bar.y0 + 4.0, cx + 15.0, bar.y1 - 4.0);
+                let slot = Rect::new(cx - 17.0, bar.y0 + 5.0, cx + 17.0, bar.y1 - 5.0);
                 if *t == self.tool {
-                    fill_rrect(&mut ui, slot, 6.0, C_ACCENT);
+                    fill_rrect(&mut ui, slot, 7.0, C_ACCENT);
                 } else if slot.contains(self.cursor) {
-                    fill_rrect(&mut ui, slot, 6.0, C_HOVERBG);
+                    fill_rrect(&mut ui, slot, 7.0, C_HOVERBG);
                 }
                 draw_tool_icon(&mut ui, *t, cx, cy, if *t == self.tool { Color::WHITE } else { C_DIM });
             }
             // zoom pill + Prototype + Present from ONE shared geometry
             // (header_rects — the click handler uses the same rects)
             let (bm, bl, bp, ppr, pr) = self.header_rects();
-            fill_rrect(&mut ui, Rect::new(bm.x0, bm.y0, bp.x1, bp.y1), 6.0, C_FIELD);
-            label(&mut ui, "-", bm.x0 + 8.0, r2y + 13.0, 11.0, C_DIM);
+            fill_rrect(&mut ui, Rect::new(bm.x0, bm.y0, bp.x1, bp.y1), 7.0, C_FIELD);
+            label(&mut ui, "-", bm.x0 + 10.0, r2y + 17.0, 12.0, C_DIM);
             let ztxt = format!("{}%", (self.zoom * 100.0).round());
-            let tw = ui_measure(&ztxt, 9.0);
-            label(&mut ui, &ztxt, bl.x0 + (bl.width() - tw) / 2.0, r2y + 14.0, 9.0, C_TEXT);
-            label(&mut ui, "+", bp.x0 + 7.0, r2y + 13.0, 11.0, C_DIM);
+            let tw = ui_measure(&ztxt, 9.5);
+            label(&mut ui, &ztxt, bl.x0 + (bl.width() - tw) / 2.0, r2y + 18.0, 9.5, C_TEXT);
+            label(&mut ui, "+", bp.x0 + 9.0, r2y + 17.0, 12.0, C_DIM);
             // Prototype ghost button (mockup: play outline + label)
             {
                 let st = vello::kurbo::Stroke::new(1.3)
@@ -405,7 +405,7 @@ impl App {
                 tri.line_to((ppr.x0 + 19.0, (ppr.y0 + ppr.y1) / 2.0));
                 tri.close_path();
                 ui.stroke(&st, Affine::IDENTITY, C_TEXT, None, &tri);
-                label(&mut ui, "Prototype", ppr.x0 + 25.0, r2y + 14.0, 9.5, C_TEXT);
+                label(&mut ui, "Prototype", ppr.x0 + 25.0, r2y + 17.0, 9.5, C_TEXT);
             }
             // Present button (accent pill, mockup's > Present)
             fill_rrect(&mut ui, pr, 6.0, if pr.contains(self.cursor) { Color::rgb8(0x4d, 0x7a, 0xff) } else { C_ACCENT });
@@ -415,7 +415,7 @@ impl App {
             tri.line_to((pr.x0 + 21.0, (pr.y0 + pr.y1) / 2.0));
             tri.close_path();
             ui.fill(Fill::NonZero, Affine::IDENTITY, Color::WHITE, None, &tri);
-            label(&mut ui, "Present", pr.x0 + 26.0, r2y + 14.0, 9.5, Color::WHITE);
+            label(&mut ui, "Present", pr.x0 + 26.0, r2y + 17.0, 9.5, Color::WHITE);
             // avatar circle (mockup, visual, far right)
             {
                 let ac = (self.win_w - 24.0, (r2y + TOP_H) / 2.0);
@@ -517,19 +517,19 @@ impl App {
             fill_rect(&mut ui, Rect::new(0.0, sy, self.win_w, sy + 1.0), C_PANEL_EDGE);
             // green ready dot
             ui.fill(Fill::NonZero, Affine::IDENTITY, PALETTE[2], None,
-                &vello::kurbo::Circle::new((14.0, sy + STATUS_H / 2.0), 3.0));
-            label(&mut ui, &status_line, 26.0, sy + 7.0, 9.0,
+                &vello::kurbo::Circle::new((15.0, sy + STATUS_H / 2.0), 3.5));
+            label(&mut ui, &status_line, 28.0, sy + 8.0, 9.5,
                 if self.focus == Focus::None { C_DIM } else { PALETTE[4] });
             // right side: selection geometry + zoom (mockup)
             if let Some(n) = self.selected_single() {
                 let info = format!("X: {:.0}   Y: {:.0}   W: {:.0}   H: {:.0}   {}%",
                     n.transform.x, n.transform.y, n.w, n.h, (self.zoom * 100.0).round());
-                let iw = ui_measure(&info, 9.0);
-                label(&mut ui, &info, self.win_w - iw - 16.0, sy + 7.0, 9.0, C_DIM);
+                let iw = ui_measure(&info, 9.5);
+                label(&mut ui, &info, self.win_w - iw - 20.0, sy + 8.0, 9.5, C_DIM);
             } else {
                 let info = format!("{}%", (self.zoom * 100.0).round());
-                let iw = ui_measure(&info, 9.0);
-                label(&mut ui, &info, self.win_w - iw - 16.0, sy + 7.0, 9.0, C_DIM);
+                let iw = ui_measure(&info, 9.5);
+                label(&mut ui, &info, self.win_w - iw - 20.0, sy + 8.0, 9.5, C_DIM);
             }
         }
 
@@ -542,56 +542,56 @@ impl App {
             let active = self.left_tab == i as u8;
             let c = if active { C_ACCENT } else { C_DIM };
             if active {
-                let hl = Rect::new(r.x0 + 5.0, r.y0 + 4.0, r.x1 - 5.0, r.y1 - 5.0);
-                fill_rrect(&mut ui, hl, 8.0, Color::rgba8(0x7c, 0x5c, 0xfc, 28));
+                let hl = Rect::new(r.x0 + 6.0, r.y0 + 5.0, r.x1 - 6.0, r.y1 - 6.0);
+                fill_rrect(&mut ui, hl, 9.0, Color::rgba8(0x7c, 0x5c, 0xfc, 32));
             } else if r.contains(self.cursor) {
-                let hl = Rect::new(r.x0 + 5.0, r.y0 + 4.0, r.x1 - 5.0, r.y1 - 5.0);
-                fill_rrect(&mut ui, hl, 8.0, Color::rgba8(0xff, 0xff, 0xff, 8));
+                let hl = Rect::new(r.x0 + 6.0, r.y0 + 5.0, r.x1 - 6.0, r.y1 - 6.0);
+                fill_rrect(&mut ui, hl, 9.0, Color::rgba8(0xff, 0xff, 0xff, 10));
             }
             let cx = (r.x0 + r.x1) / 2.0;
-            let iy = TOP_H + 16.0;
-            let st = vello::kurbo::Stroke::new(1.4)
+            let iy = TOP_H + 20.0;
+            let st = vello::kurbo::Stroke::new(1.5)
                 .with_caps(vello::kurbo::Cap::Round).with_join(vello::kurbo::Join::Round);
             match i {
                 0 => { // Layers: stacked diamonds
-                    for (k, dy) in [(0i32, 0.0f64), (1, 5.0)] {
+                    for (k, dy) in [(0i32, 0.0f64), (1, 5.5)] {
                         let _ = k;
                         let mut d = vello::kurbo::BezPath::new();
-                        d.move_to((cx, iy - 6.0 + dy)); d.line_to((cx + 7.0, iy - 1.5 + dy));
-                        d.line_to((cx, iy + 3.0 + dy)); d.line_to((cx - 7.0, iy - 1.5 + dy));
+                        d.move_to((cx, iy - 6.5 + dy)); d.line_to((cx + 7.5, iy - 2.0 + dy));
+                        d.line_to((cx, iy + 3.5 + dy)); d.line_to((cx - 7.5, iy - 2.0 + dy));
                         d.close_path();
                         ui.stroke(&st, Affine::IDENTITY, c, None, &d);
                     }
                 }
                 1 => { // Assets: picture frame w/ dot
-                    let fr = Rect::new(cx - 7.0, iy - 6.0, cx + 7.0, iy + 6.0);
+                    let fr = Rect::new(cx - 7.5, iy - 6.5, cx + 7.5, iy + 6.5);
                     ui.stroke(&st, Affine::IDENTITY, c, None, &fr.to_path(0.1));
                     ui.fill(Fill::NonZero, Affine::IDENTITY, c, None,
-                        &vello::kurbo::Circle::new((cx - 3.0, iy - 2.0), 1.6));
+                        &vello::kurbo::Circle::new((cx - 3.5, iy - 2.5), 1.8));
                     let mut m = vello::kurbo::BezPath::new();
-                    m.move_to((cx - 6.0, iy + 5.0)); m.line_to((cx - 1.0, iy - 1.0)); m.line_to((cx + 6.0, iy + 5.0));
+                    m.move_to((cx - 6.5, iy + 5.5)); m.line_to((cx - 1.5, iy - 1.5)); m.line_to((cx + 6.5, iy + 5.5));
                     ui.stroke(&st, Affine::IDENTITY, c, None, &m);
                 }
                 2 => { // Components: four diamonds
-                    for (dx, dy) in [(-3.5f64, -3.5f64), (3.5, -3.5), (-3.5, 3.5), (3.5, 3.5)] {
+                    for (dx, dy) in [(-3.8f64, -3.8f64), (3.8, -3.8), (-3.8, 3.8), (3.8, 3.8)] {
                         let mut d = vello::kurbo::BezPath::new();
-                        d.move_to((cx + dx, iy + dy - 3.0)); d.line_to((cx + dx + 3.0, iy + dy));
-                        d.line_to((cx + dx, iy + dy + 3.0)); d.line_to((cx + dx - 3.0, iy + dy));
+                        d.move_to((cx + dx, iy + dy - 3.2)); d.line_to((cx + dx + 3.2, iy + dy));
+                        d.line_to((cx + dx, iy + dy + 3.2)); d.line_to((cx + dx - 3.2, iy + dy));
                         d.close_path();
                         ui.stroke(&st, Affine::IDENTITY, c, None, &d);
                     }
                 }
                 _ => { // Library: book
-                    let fr = Rect::new(cx - 6.0, iy - 6.0, cx + 6.0, iy + 6.0);
+                    let fr = Rect::new(cx - 6.5, iy - 6.5, cx + 6.5, iy + 6.5);
                     ui.stroke(&st, Affine::IDENTITY, c, None, &fr.to_path(0.1));
                     ui.stroke(&st, Affine::IDENTITY, c, None,
-                        &vello::kurbo::Line::new((cx - 2.0, iy - 6.0), (cx - 2.0, iy + 6.0)));
+                        &vello::kurbo::Line::new((cx - 2.5, iy - 6.5), (cx - 2.5, iy + 6.5)));
                 }
             }
-            let tw = ui_measure(LEFT_TABS[i], 8.0);
-            label(&mut ui, LEFT_TABS[i], cx - tw / 2.0, TOP_H + 30.0, 8.0, c);
+            let tw = ui_measure(LEFT_TABS[i], 8.5);
+            label(&mut ui, LEFT_TABS[i], cx - tw / 2.0, TOP_H + 38.0, 8.5, c);
             if active {
-                fill_rect(&mut ui, Rect::new(cx - tw / 2.0 - 2.0, TOP_H + LTAB_H - 4.0, cx + tw / 2.0 + 2.0, TOP_H + LTAB_H - 2.0), C_ACCENT);
+                fill_rect(&mut ui, Rect::new(cx - tw / 2.0 - 2.5, TOP_H + LTAB_H - 5.0, cx + tw / 2.0 + 2.5, TOP_H + LTAB_H - 2.5), C_ACCENT);
             }
         }
         // ---- non-Layers tabs paint their own panel content and skip the
@@ -599,22 +599,22 @@ impl App {
         if self.left_tab != 0 {
             match self.left_tab {
                 1 => {
-                    label(&mut ui, &format!("Document assets ({})", self.store.len()), 12.0, TOP_H + LTAB_H + 8.0, 8.0, C_DIM);
+                    label(&mut ui, &format!("Document assets ({})", self.store.len()), 12.0, TOP_H + LTAB_H + 14.0, 8.0, C_DIM);
                     if self.store.is_empty() {
-                        label(&mut ui, "NO ASSETS YET", 12.0, TOP_H + LTAB_H + 30.0, 8.0, C_DIM);
-                        label(&mut ui, "IMPORT SKETCH / SVG / PNG  (⌘I)", 12.0, TOP_H + LTAB_H + 44.0, 7.5, C_DIM);
+                        label(&mut ui, "NO ASSETS YET", 12.0, TOP_H + LTAB_H + 36.0, 8.0, C_DIM);
+                        label(&mut ui, "IMPORT SKETCH / SVG / PNG  (⌘I)", 12.0, TOP_H + LTAB_H + 50.0, 7.5, C_DIM);
                     }
                 }
                 2 => {
-                    label(&mut ui, "Components — click to stamp", 12.0, TOP_H + LTAB_H + 8.0, 8.0, C_DIM);
+                    label(&mut ui, "Components — click to stamp", 12.0, TOP_H + LTAB_H + 14.0, 8.0, C_DIM);
                     if self.editor.component_names().is_empty() && self.library_deps.is_empty() {
-                        label(&mut ui, "NONE YET — ⌥⌘K FROM SELECTION", 12.0, TOP_H + LTAB_H + 30.0, 7.5, C_DIM);
+                        label(&mut ui, "NONE YET — ⌥⌘K FROM SELECTION", 12.0, TOP_H + LTAB_H + 36.0, 7.5, C_DIM);
                     }
                 }
                 3 => {
-                    label(&mut ui, "Linked libraries", 12.0, TOP_H + LTAB_H + 8.0, 8.0, C_DIM);
+                    label(&mut ui, "Linked libraries", 12.0, TOP_H + LTAB_H + 14.0, 8.0, C_DIM);
                     if self.library_deps.is_empty() {
-                        label(&mut ui, "NO LIBRARIES LINKED", 12.0, TOP_H + LTAB_H + 30.0, 8.0, C_DIM);
+                        label(&mut ui, "NO LIBRARIES LINKED", 12.0, TOP_H + LTAB_H + 36.0, 8.0, C_DIM);
                     }
                 }
                 _ => {}
@@ -652,7 +652,7 @@ impl App {
                         let name = tag.split_once('|').map(|(_, c)| c.to_string()).unwrap_or_else(|| tag.clone());
                         let stamping_this = kind == 2 && self.stamping.as_deref() == Some(tag.as_str());
                         if stamping_this { fill_rrect(&mut ui, r, 4.0, Color::rgba8(0x7c, 0x5c, 0xfc, 70)); }
-                        // Figma-style component diamond
+                        // X-Native component diamond
                         let d = 4.0;
                         let (cx, cy) = (r.x0 + 10.0, (r.y0 + r.y1) / 2.0);
                         let mut dia = vello::kurbo::BezPath::new();
@@ -691,16 +691,16 @@ impl App {
                 if self.layer_filter.is_empty() && !active { C_DIM } else { C_TEXT });
         }
         // PAGES section (compact; the thumbnail strip is the main page UI)
-        label(&mut ui, "Pages", 12.0, TOP_H + LPAGES_HDR, 9.0, C_DIM);
-        label(&mut ui, "+", LAYERS_W - 22.0, TOP_H + LPAGES_HDR - 2.0, 11.0, C_DIM);
-        let pages_y0 = TOP_H + LPAGES_Y0;
+        label(&mut ui, "Pages", 12.0, TOP_H + LPAGES_HDR + 6.0, 9.0, C_DIM);
+        label(&mut ui, "+", LAYERS_W - 22.0, TOP_H + LPAGES_HDR + 4.0, 11.0, C_DIM);
+        let pages_y0 = TOP_H + LPAGES_Y0 + 6.0;
         for (i, pg) in self.pages.iter().enumerate() {
             let y = pages_y0 + i as f64 * ROW_H;
-            let row_r = Rect::new(2.0, y - 2.0, LAYERS_W - 4.0, y + ROW_H - 6.0);
+            let row_r = Rect::new(4.0, y - 1.0, LAYERS_W - 8.0, y + ROW_H - 3.0);
             if i == self.page_idx {
-                fill_rrect(&mut ui, row_r, 4.0, Color::rgba8(0x7c, 0x5c, 0xfc, 80));
+                fill_rrect(&mut ui, row_r, 5.0, C_SELECTED);
             } else if row_r.contains(self.cursor) {
-                fill_rrect(&mut ui, row_r, 4.0, C_HOVERBG);
+                fill_rrect(&mut ui, row_r, 5.0, C_HOVERBG);
             }
             // IR-powered page thumbnail chip (thumbnail_scene sink)
             {
@@ -753,10 +753,10 @@ impl App {
             let y = layers_list_y + (i - self.layers_scroll) as f64 * ROW_H;
             if y > self.win_h - ROW_H { break; }
             let selected = self.editor.selection.contains(id);
-            let row_r = Rect::new(2.0, y - 2.0, LAYERS_W - 4.0, y + ROW_H - 6.0);
+            let row_r = Rect::new(4.0, y - 1.0, LAYERS_W - 8.0, y + ROW_H - 3.0);
             let row_hover = row_r.contains(self.cursor);
-            if selected { fill_rrect(&mut ui, row_r, 4.0, Color::rgba8(0x7c, 0x5c, 0xfc, 70)); }
-            else if row_hover { fill_rrect(&mut ui, row_r, 4.0, C_HOVERBG); }
+            if selected { fill_rrect(&mut ui, row_r, 5.0, C_SELECTED); }
+            else if row_hover { fill_rrect(&mut ui, row_r, 5.0, C_HOVERBG); }
             let node_ref = find(&self.editor.root, id);
             let x = 10.0 + *depth as f64 * 14.0;
             let _ = klabel;
@@ -832,10 +832,11 @@ impl App {
             for (i, name) in comps.iter().enumerate() {
                 let y = assets_y + i as f64 * ROW_H;
                 let stamping_this = self.stamping.as_deref() == Some(name.as_str());
+                let asset_r = Rect::new(4.0, y - 1.0, LAYERS_W - 8.0, y + ROW_H - 3.0);
                 if stamping_this {
-                    fill_rect(&mut ui, Rect::new(2.0, y - 2.0, LAYERS_W - 4.0, y + ROW_H - 6.0), Color::rgba8(0x7c, 0x5c, 0xfc, 70));
+                    fill_rrect(&mut ui, asset_r, 5.0, C_SELECTED);
                 }
-                // diamond marker, Figma-style
+                // diamond marker, X-Native style
                 let d = 5.0;
                 let (cx, cy) = (16.0, y + 5.0);
                 let mut diamond = vello::kurbo::BezPath::new();
@@ -854,27 +855,27 @@ impl App {
         let ix = self.win_w - INSPECTOR_W;
         fill_rect(&mut ui, Rect::new(ix, TOP_H, self.win_w, self.win_h), C_PANEL);
         fill_rect(&mut ui, Rect::new(ix, TOP_H, ix + 1.0, self.win_h), C_PANEL_EDGE);
-        // Design | Prototype tabs (Figma properties panel)
+        // Design | Prototype tabs (X-Native properties panel)
         for (name, idx, r) in self.inspector_tabs() {
             let active = self.inspector_tab == idx;
             if active {
-                let hl = Rect::new(r.x0 + 2.0, TOP_H + 4.0, r.x1 - 2.0, TOP_H + 22.0);
+                let hl = Rect::new(r.x0 + 2.0, TOP_H + 6.0, r.x1 - 2.0, TOP_H + 24.0);
                 fill_rrect(&mut ui, hl, 6.0, Color::rgba8(0x7c, 0x5c, 0xfc, 24));
             }
-            label(&mut ui, name, r.x0 + 6.0, TOP_H + 8.0, 8.5, if active { Color::WHITE } else { C_DIM });
+            label(&mut ui, name, r.x0 + 6.0, TOP_H + 11.0, 8.5, if active { Color::WHITE } else { C_DIM });
             if active {
                 let tw = ui_measure(name, 8.5);
-                fill_rect(&mut ui, Rect::new(r.x0 + 6.0, TOP_H + 22.0, r.x0 + 6.0 + tw, TOP_H + 24.0), C_ACCENT);
+                fill_rect(&mut ui, Rect::new(r.x0 + 6.0, TOP_H + 24.0, r.x0 + 6.0 + tw, TOP_H + 26.0), C_ACCENT);
             }
         }
         // Vars/Libs indicators when active via menu / left rail
-        if self.inspector_tab == 2 { label(&mut ui, "VARIABLES", self.win_w - 70.0, TOP_H + 8.0, 7.5, C_ACCENT); }
-        if self.inspector_tab == 3 { label(&mut ui, "LIBRARIES", self.win_w - 70.0, TOP_H + 8.0, 7.5, C_ACCENT); }
-        fill_rect(&mut ui, Rect::new(ix, TOP_H + 26.0, self.win_w, TOP_H + 27.0), C_PANEL_EDGE);
+        if self.inspector_tab == 2 { label(&mut ui, "VARIABLES", self.win_w - 70.0, TOP_H + 11.0, 7.5, C_ACCENT); }
+        if self.inspector_tab == 3 { label(&mut ui, "LIBRARIES", self.win_w - 70.0, TOP_H + 11.0, 7.5, C_ACCENT); }
+        fill_rect(&mut ui, Rect::new(ix, TOP_H + 28.0, self.win_w, TOP_H + 29.0), C_PANEL_EDGE);
         if self.inspector_tab == 1 {
             // Prototype tab with nothing selected
             if self.selected_single().is_none() {
-                label(&mut ui, "SELECT A LAYER TO LINK", ix + 12.0, TOP_H + 40.0, 8.5, C_DIM);
+                label(&mut ui, "SELECT A LAYER TO LINK", ix + 12.0, TOP_H + 44.0, 8.5, C_DIM);
             }
         }
         // ---- Export section (mockup, Design tab): REAL export buttons,
@@ -894,7 +895,7 @@ impl App {
         }
         if self.inspector_tab == 2 {
             // ---- VARIABLES tab: collections + modes + bind-to-selection ----
-            let mut y = TOP_H + 34.0;
+            let mut y = TOP_H + 40.0;
             // mode switcher row
             label(&mut ui, "MODE:", ix + 12.0, y, 9.0, C_DIM);
             let mut mx = ix + 56.0;
@@ -969,9 +970,9 @@ impl App {
                 label(&mut ui, "LINK .XLIB", r1.x0 + 4.0, r1.y0 + 2.0, 7.0, C_TEXT);
                 stroke_rect(&mut ui, r2, C_PANEL_EDGE, 1.0);
                 label(&mut ui, "CHECK UPD", r2.x0 + 4.0, r2.y0 + 2.0, 7.0, C_TEXT);
-                label(&mut ui, "NO LIBRARIES LINKED", ix + 12.0, TOP_H + 58.0, 8.5, C_DIM);
-                label(&mut ui, "PUT library.xlib NEXT TO THE APP,", ix + 12.0, TOP_H + 72.0, 7.5, C_DIM);
-                label(&mut ui, "THEN CLICK LINK .XLIB", ix + 12.0, TOP_H + 84.0, 7.5, C_DIM);
+                label(&mut ui, "NO LIBRARIES LINKED", ix + 12.0, TOP_H + 64.0, 8.5, C_DIM);
+                label(&mut ui, "PUT library.xlib NEXT TO THE APP,", ix + 12.0, TOP_H + 78.0, 7.5, C_DIM);
+                label(&mut ui, "THEN CLICK LINK .XLIB", ix + 12.0, TOP_H + 90.0, 7.5, C_DIM);
             }
             for (tag, r, kind) in self.libs_layout() {
                 match kind {
@@ -1181,7 +1182,7 @@ impl App {
             {
                 let hy = TOP_H + IY_AL_HDR;
                 draw_section_sep(&mut ui, ix, self.win_w, hy - 8.0);
-                label(&mut ui, "Auto Layout", ix + 12.0, hy, 10.0, C_SECTION);
+                label(&mut ui, "Responsive Layout", ix + 12.0, hy, 10.0, C_SECTION);
                 if !matches!(n.kind, arco_native::NodeKind::Frame { .. }) {
                     let br = Rect::new(ix + INSPECTOR_W - 28.0, hy - 3.0, ix + INSPECTOR_W - 12.0, hy + 11.0);
                     draw_stepper(&mut ui, br, true, br.contains(self.cursor), C_DIM);
@@ -1205,7 +1206,7 @@ impl App {
                 let fy = TOP_H + IY_FONT;
                 draw_section_sep(&mut ui, ix, self.win_w, fy - 8.0);
                 label(&mut ui, "Font", ix + 12.0, fy, 10.0, C_SECTION);
-                // ---- typography row (mockup/Figma: size, letter spacing,
+                // ---- typography row (X-Native: size, letter spacing,
                 // line height as editable steppers) ----
                 {
                     let ty2 = fy + 152.0 + 118.0; // painted BELOW the browser block
@@ -1415,9 +1416,9 @@ impl App {
                 }
             }
             } // end Design tab
-            // ---- prototype link section (Prototype tab, Figma-style) ----
+            // ---- prototype link section (Prototype tab, X-Native style) ----
             if self.inspector_tab == 1 {
-                let py = TOP_H + 40.0;
+                let py = TOP_H + 44.0;
                 label(&mut ui, "Prototype", ix + 12.0, py, 10.0, C_DIM);
                 let current_dest = n.prototype.as_ref().map(|a| a.destination.clone());
                 // one button per OTHER page + NONE
@@ -1469,7 +1470,7 @@ impl App {
                     let iy = TOP_H + IY_SEC;
                     label(&mut ui, "Image", ix + 12.0, iy, 10.0, C_DIM);
                     label(&mut ui, asset, ix + 60.0, iy, 8.5, C_TEXT);
-                    // fit-mode chips (Figma fill/fit/crop/tile)
+                    // fit-mode chips (X-Native fill/fit/crop/tile)
                     let cur = match fit { arco_native::ImageFit::Fill => 0, arco_native::ImageFit::Fit => 1, arco_native::ImageFit::Crop => 2, arco_native::ImageFit::Tile => 3 };
                     for (i, name) in ["FILL", "FIT", "CROP", "TILE"].iter().enumerate() {
                         let bx = ix + 12.0 + i as f64 * 48.0;
@@ -1512,7 +1513,7 @@ impl App {
                     label(&mut ui, "RESET", ix + 181.0, zy - 1.0, 7.0, C_TEXT);
                 }
             }
-            // ---- styles (Figma reusable paint/text/effect styles);
+            // ---- styles (X-Native reusable paint/text/effect styles);
             // text nodes hand the slot to the font browser ----
             if self.inspector_tab == 0 && !matches!(n.kind, arco_native::NodeKind::Text { .. }) {
                 let sy0 = TOP_H + IY_STYLES;
@@ -1579,10 +1580,10 @@ impl App {
             // third tab; Design tab matches the mockup's section list) ----
             if self.inspector_tab == 4 {
                 let cy = TOP_H + IY_CONSTRAINTS;
-                label(&mut ui, &format!("{}  ({})", n.id, kind_label(n)), ix + 12.0, TOP_H + 40.0, 9.0, C_TEXT);
+                label(&mut ui, &format!("{}  ({})", n.id, kind_label(n)), ix + 12.0, TOP_H + 44.0, 9.0, C_TEXT);
                 label(&mut ui, &format!("X {:.0}  Y {:.0}  W {:.0}  H {:.0}  ROT {:.0}°",
                     n.transform.x, n.transform.y, n.w, n.h, n.transform.rotation.to_degrees()),
-                    ix + 12.0, TOP_H + 58.0, 8.0, C_DIM);
+                    ix + 12.0, TOP_H + 64.0, 8.0, C_DIM);
                 let fill_hex = match &n.fill {
                     Paint::Solid(c) => arco_native::color_to_hex(*c),
                     Paint::LinearGradient { .. } => "linear-gradient".into(),
@@ -1591,9 +1592,9 @@ impl App {
                 };
                 label(&mut ui, &format!("FILL {fill_hex}   STROKE {} / {:.0}",
                     arco_native::color_to_hex(n.stroke.color), n.stroke.width),
-                    ix + 12.0, TOP_H + 74.0, 8.0, C_DIM);
+                    ix + 12.0, TOP_H + 80.0, 8.0, C_DIM);
                 label(&mut ui, &format!("OPACITY {:.0}%   EFFECTS {}", n.opacity * 100.0, n.effects.len()),
-                    ix + 12.0, TOP_H + 90.0, 8.0, C_DIM);
+                    ix + 12.0, TOP_H + 96.0, 8.0, C_DIM);
                 label(&mut ui, "Constraints", ix + 12.0, cy, 10.0, C_SECTION);
                 let hpins = ["L", "R", "CH", "SH", "SC"];
                 let vpins = ["T", "B", "CV", "SV", "SC"];
@@ -1647,16 +1648,16 @@ impl App {
                 }
             }
         } else if self.tool == Tool::Frame {
-            // Figma: frame presets in the right panel when Frame tool active
-            label(&mut ui, "FRAME PRESETS", ix + 12.0, TOP_H + 30.0, 10.0, C_DIM);
+            // X-Native: frame presets in the right panel when Frame tool active
+            label(&mut ui, "FRAME PRESETS", ix + 12.0, TOP_H + 34.0, 10.0, C_DIM);
             for (i, (name, _, _)) in FRAME_PRESETS.iter().enumerate() {
-                let y = TOP_H + 50.0 + i as f64 * 24.0;
+                let y = TOP_H + 56.0 + i as f64 * 24.0;
                 let r = Rect::new(ix + 12.0, y, ix + INSPECTOR_W - 24.0, y + 19.0);
                 stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0);
                 label(&mut ui, name, ix + 18.0, y + 4.0, 8.5, C_TEXT);
             }
         } else if matches!(self.tool, Tool::Rectangle | Tool::Polygon | Tool::Star) {
-            label(&mut ui, "TOOL OPTIONS", ix + 12.0, TOP_H + 34.0, 10.0, C_SECTION);
+            label(&mut ui, "TOOL OPTIONS", ix + 12.0, TOP_H + 40.0, 10.0, C_SECTION);
             let rows: Vec<(&str, String)> = match self.tool {
                 Tool::Rectangle => vec![("Corner radius", format!("{:.0}", self.rect_radius))],
                 Tool::Polygon => vec![("Sides", self.polygon_sides.to_string())],
@@ -1664,7 +1665,7 @@ impl App {
                 _ => vec![],
             };
             for (i, (name, value)) in rows.iter().enumerate() {
-                let y = TOP_H + 58.0 + i as f64 * 30.0;
+                let y = TOP_H + 64.0 + i as f64 * 30.0;
                 label(&mut ui, name, ix + 12.0, y + 4.0, 9.0, C_DIM);
                 let field = Rect::new(ix + 132.0, y, ix + 208.0, y + 22.0);
                 fill_rrect(&mut ui, field, 4.0, C_FIELD);
@@ -1700,7 +1701,7 @@ impl App {
         }
 
 
-        // ---------- rulers (Figma Shift+R) ----------
+        // ---------- rulers (X-Native Shift+R) ----------
         if self.rulers {
             let c = self.canvas_rect();
             fill_rect(&mut ui, Rect::new(c.x0, c.y0, c.x1, c.y0 + 16.0), Color::rgba8(0x1a, 0x1a, 0x1a, 240));
@@ -1932,7 +1933,7 @@ impl App {
             label(&mut ui, "PRESS ? OR ESC TO CLOSE", panel.x0 + 20.0, panel.y1 - 24.0, 8.0, C_DIM);
         }
 
-        // ---------- minimap (Sketch; OFF by default — mockup has none;
+        // ---------- minimap (X-Native; OFF by default — mockup has none;
         // toggle via View ▸ Minimap) ----------
         if self.minimap {
             let mm = self.minimap_rect();
@@ -2048,7 +2049,7 @@ impl App {
         let mut ui = Scene::new();
         // Base surface reads slightly darker than the editor's panel so the
         // grid of cards (drawn a step lighter) reads as the focal layer —
-        // an identity choice, not a copy of Figma's flat white home screen.
+        // an identity choice, not a copy of any competitor's home screen.
         fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::rgb8(0x0f, 0x10, 0x13));
 
         // ---- header: wordmark + tagline, search pill, primary action ----

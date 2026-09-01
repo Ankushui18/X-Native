@@ -7,7 +7,7 @@ use crate::*;
 // ---------------------------------------------------------------- documents
 
 /// Phase 6.5 / 7: a document is a set of pages plus its variable collection.
-/// A reusable style: named paint / text / effect presets (Figma styles).
+/// A reusable style: named paint / text / effect presets (standard styles).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Style {
     Paint { fill: Paint },
@@ -22,7 +22,7 @@ impl Style {
 }
 
 /// Binding keys a node can carry in `bindings` to stay LINKED to a named
-/// style (Figma semantics: edit the style -> every consumer updates).
+/// style (standard semantics: edit the style -> every consumer updates).
 pub const STYLE_BINDING_KEYS: [(&str, &str); 3] = [
     ("style:paint", "PAINT"), ("style:text", "TEXT"), ("style:fx", "FX"),
 ];
@@ -40,7 +40,7 @@ pub fn bind_style(n: &mut Node, name: &str, s: &Style) {
 }
 
 /// Remove the style link of `kind_key` ("style:paint"/"style:text"/
-/// "style:fx") from a node — values stay as-is (Figma "detach style").
+/// "style:fx") from a node — values stay as-is (detach style).
 pub fn detach_style(n: &mut Node, kind_key: &str) -> bool {
     n.bindings.remove(kind_key).is_some()
 }
@@ -96,7 +96,7 @@ pub fn resolve_styles(n: &mut Node, styles: &HashMap<String, Style>) -> usize {
     count
 }
 
-/// Apply a named style to a node (Figma "apply style"). Paint styles set
+/// Apply a named style to a node (apply style). Paint styles set
 /// the fill, text styles set the font binding + size (text size == node.h
 /// in this engine), effect styles replace the effect list.
 pub fn apply_style(n: &mut Node, s: &Style) {
