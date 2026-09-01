@@ -96,13 +96,12 @@ fn parse_kind(v: &V) -> NodeKind {
                 space_between: l.get("space_between").and_then(V::boolean).unwrap_or(false),
                 gap_var: l.get("gap_var").and_then(V::str).map(String::from),
                 padding_var: l.get("padding_var").and_then(V::str).map(String::from),
-                max_height: f64::INFINITY,
-                max_width: f64::INFINITY,
-                min_height: 0.0,
-                min_width: 0.0,
-                wrap: false,
+                max_height: Some(f64::INFINITY),
+                max_width: Some(f64::INFINITY),
+                min_height: Some(0.0),
+                min_width: Some(0.0),
+                wrap: x_core::AutoLayoutWrap::NoWrap,
                 resize_on_wrap: true,
-                alignment_baseline: false,
             });
             NodeKind::Frame { layout }
         }
