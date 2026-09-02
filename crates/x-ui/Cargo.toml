@@ -3,5 +3,4 @@ name = "x-ui"
 version = "0.34.0"
 edition = "2021"
 [dependencies]
-vello = "0.1"
 x-text = { path = "../x-text" }

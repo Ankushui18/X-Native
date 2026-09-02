@@ -24,7 +24,7 @@ fn find_mut<'a>(n: &'a mut Node, id: &str) -> Option<&'a mut Node> {
 }
 
 fn hug(dir: LayoutDirection, gap: f64, pad: f64) -> AutoLayout {
-    AutoLayout { direction: dir, gap, padding: pad, sizing: Sizing::Hug, ..Default::default() }
+    AutoLayout { direction: dir, gap, padding: [pad; 4], sizing: Sizing::Hug, ..Default::default() }
 }
 
 // ---------------------------------------------------------- nested hugging
@@ -135,7 +135,7 @@ fn two_instances_same_master_resize_independently() {
 fn space_between_with_cross_center_in_fixed_frame() {
     let mut d = Node::frame("bar", 400.0, 60.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Horizontal, padding: 10.0,
+            direction: LayoutDirection::Horizontal, padding: [10.0; 4],
             align: CrossAlign::Center, space_between: true, sizing: Sizing::Fixed,
             ..Default::default()
         })
@@ -156,7 +156,7 @@ fn space_between_with_cross_center_in_fixed_frame() {
 fn cross_align_end_and_vertical_direction() {
     let mut d = Node::frame("col", 100.0, 300.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Vertical, gap: 10.0, padding: 5.0,
+            direction: LayoutDirection::Vertical, gap: 10.0, padding: [5.0; 4],
             align: CrossAlign::End, sizing: Sizing::Fixed, ..Default::default()
         })
         .child(Node::rect("a", 0.0, 0.0, 30.0, 40.0, Color::WHITE))
@@ -178,7 +178,7 @@ fn gap_and_padding_variables_cascade_through_nesting() {
     vars.numbers.insert("space-l".into(), 32.0);
     let inner = Node::frame("inner", 0.0, 0.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Horizontal, gap: 1.0, padding: 1.0,
+            direction: LayoutDirection::Horizontal, gap: 1.0, padding: [1.0; 4],
             sizing: Sizing::Hug, gap_var: Some("space-m".into()), padding_var: Some("space-m".into()),
             ..Default::default()
         })
@@ -186,7 +186,7 @@ fn gap_and_padding_variables_cascade_through_nesting() {
         .child(Node::rect("b", 0.0, 0.0, 10.0, 10.0, Color::WHITE));
     let mut outer = Node::frame("outer", 0.0, 0.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Vertical, gap: 1.0, padding: 1.0,
+            direction: LayoutDirection::Vertical, gap: 1.0, padding: [1.0; 4],
             sizing: Sizing::Hug, padding_var: Some("space-l".into()), ..Default::default()
         })
         .child(inner);
@@ -236,7 +236,7 @@ fn degenerate_documents_never_panic_or_go_negative() {
     // space-between with children WIDER than the frame -> gap clamps to 0
     let mut tight = Node::frame("t", 50.0, 20.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Horizontal, padding: 0.0,
+            direction: LayoutDirection::Horizontal, padding: [0.0; 4],
             space_between: true, sizing: Sizing::Fixed, ..Default::default()
         })
         .child(Node::rect("x", 0.0, 0.0, 40.0, 10.0, Color::WHITE))
@@ -268,4 +268,53 @@ fn layout_is_idempotent() {
     let snapshot = format!("{:?}", page);
     apply_layout_recursive(&mut page, &Variables::default());
     assert_eq!(snapshot, format!("{:?}", page), "second solve must be a no-op");
+}
+
+// ------------------------------------------------- per-side padding + cross sizing
+
+#[test]
+fn per_side_padding_positions_and_hug_horizontal() {
+    // asymmetric padding L10 R4 T6 B2, gap 5, children 30x20 + 20x10
+    let row = Node::frame("row", 0.0, 0.0)
+        .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 5.0, padding: [10.0, 4.0, 6.0, 2.0], sizing: Sizing::Hug, ..Default::default() })
+        .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE))
+        .child(Node::rect("b", 0.0, 0.0, 20.0, 10.0, Color::WHITE));
+    let mut page = Node::frame("page", 0.0, 0.0).child(row);
+    apply_layout_recursive(&mut page, &Variables::default());
+    let row = find(&page, "row").unwrap();
+    // hug width = L10 + 30 + 5 + 20 + R4 = 69; hug height = 20 (tallest) + T6 + B2 = 28
+    assert_eq!((row.w, row.h), (69.0, 28.0), "per-side hug includes the right sides");
+    let a = find(&page, "a").unwrap();
+    assert_eq!((a.transform.x, a.transform.y), (10.0, 6.0), "cursor starts at L/T padding");
+    let b = find(&page, "b").unwrap();
+    assert_eq!((b.transform.x, b.transform.y), (45.0, 6.0), "gap after first child; Start align uses T padding");
+}
+
+#[test]
+fn per_side_padding_vertical_end_align() {
+    // vertical col, padding L1 R7 T3 B9, cross-axis (x) End align, fixed 40x50
+    let col = Node::frame("col", 40.0, 50.0)
+        .auto_layout(AutoLayout { direction: LayoutDirection::Vertical, gap: 2.0, padding: [1.0, 7.0, 3.0, 9.0], sizing: Sizing::Fixed, align: CrossAlign::End, ..Default::default() })
+        .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
+    let mut page = Node::frame("page", 0.0, 0.0).child(col);
+    apply_layout_recursive(&mut page, &Variables::default());
+    let a = find(&page, "a").unwrap();
+    // End align: x = w - R7 - 30 = 3; y cursor starts at T3
+    assert_eq!((a.transform.x, a.transform.y), (3.0, 3.0), "End align offsets by the RIGHT padding, cursor by TOP");
+}
+
+#[test]
+fn independent_cross_axis_sizing() {
+    // fixed main + hug cross: width stays, height hugs content
+    let row = Node::frame("row", 100.0, 999.0)
+        .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: [0.0; 4], sizing: Sizing::Fixed, cross_sizing: Some(Sizing::Hug), ..Default::default() })
+        .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
+    // hug main + fixed cross: width hugs, height stays
+    let row2 = Node::frame("row2", 999.0, 50.0)
+        .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: [0.0; 4], sizing: Sizing::Hug, cross_sizing: Some(Sizing::Fixed), ..Default::default() })
+        .child(Node::rect("b", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
+    let mut page = Node::frame("page", 0.0, 0.0).child(row).child(row2);
+    apply_layout_recursive(&mut page, &Variables::default());
+    assert_eq!((find(&page, "row").unwrap().w, find(&page, "row").unwrap().h), (100.0, 20.0), "fixed main keeps w, hug cross sizes h");
+    assert_eq!((find(&page, "row2").unwrap().w, find(&page, "row2").unwrap().h), (30.0, 50.0), "hug main sizes w, fixed cross keeps h");
 }

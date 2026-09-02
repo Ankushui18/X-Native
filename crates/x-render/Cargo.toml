@@ -3,7 +3,7 @@ name = "x-render"
 version = "0.34.0"
 edition = "2021"
 [dependencies]
-vello = "0.1"
+vello = "0.10"
 png = "0.18.1"
 miniz_oxide = "0.8"
 x-core = { path = "../x-core" }

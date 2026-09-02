@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Brush, Color, Fill, Gradient, Mix};
+use kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
+use peniko::{Brush, Color, Fill, Gradient, Mix};
 #[allow(unused_imports)]
 use crate::*;
 
@@ -18,8 +18,8 @@ pub enum PathCmd {
     Close,
 }
 
-pub fn path_to_bez(cmds: &[PathCmd]) -> vello::kurbo::BezPath {
-    let mut p = vello::kurbo::BezPath::new();
+pub fn path_to_bez(cmds: &[PathCmd]) -> kurbo::BezPath {
+    let mut p = kurbo::BezPath::new();
     for c in cmds {
         match *c {
             PathCmd::MoveTo(x, y) => p.move_to((x, y)),
@@ -76,39 +76,12 @@ pub struct TextMetrics {
     pub caret_positions: Vec<(usize, f64, f64)>, // (char_index, x, y) in local coords
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PointType {
-    Corner,
-    Smooth,
-    Mirror,
-    Auto,
-}
-
-/// Phase P0: Vector network point with bezier handles
-#[derive(Debug, Clone, PartialEq)]
-pub struct VectorPoint {
-    pub id: usize,
-    pub position: (f64, f64),
-    pub incoming: Option<(f64, f64)>, // bezier handle relative to position
-    pub outgoing: Option<(f64, f64)>,
-    pub point_type: PointType,
-}
-
-/// Phase P0: Segment connecting vector points
-#[derive(Debug, Clone, PartialEq)]
-pub struct VectorSegment {
-    pub start_point_id: usize,
-    pub end_point_id: usize,
-    pub stroke_width: f64,
-    pub stroke_color: Color,
-}
-
-/// Phase P0: Vector network data structure
-#[derive(Debug, Clone, PartialEq)]
-pub struct VectorNetwork {
-    pub points: Vec<VectorPoint>,
-    pub segments: Vec<VectorSegment>,
-}
+// NOTE: the Phase-P0 `VectorNetwork` experiment (VectorPoint/VectorSegment/
+// PointType + the NodeKind::VectorNetwork variant) was removed 2026-09-02:
+// it was never constructed anywhere (no importer, no editor op, no test)
+// and every renderer carried a TODO for it. Vector paths are served by
+// NodeKind::Vector. The .x deserializer never had a "vector_network" case
+// (unknown tags load as frames), so no file-format compatibility is lost.
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKind {
@@ -120,7 +93,6 @@ pub enum NodeKind {
     Text { text: String },
     Image { asset: String, fit: ImageFit, placement: ImagePlacement },
     Vector { path: Vec<PathCmd> },
-    VectorNetwork(VectorNetwork),
     Component { name: String },
     Instance { component: String },
 }
@@ -167,6 +139,65 @@ pub struct Node {
     pub bindings: HashMap<String, String>,
     /// Phase P0: text metrics for selection and hit-testing
     pub text_metrics: Option<TextMetrics>,
+    /// Rich text: styled sub-ranges of a Text node's string (CHAR-index
+    /// based: start/len into the text's char vector). Empty = plain text.
+    /// Only applies to Text nodes (like corner_radii only applies to
+    /// Rects). Editing the text clears these — ranges would be stale.
+    pub text_runs: Vec<TextRun>,
+}
+
+/// A styled sub-range of a Text node's string. `start`/`len` are CHAR
+/// indices; out-of-range parts are ignored by the resolver (hostile or
+/// hand-edited files can never panic the renderer).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextRun {
+    pub start: usize,
+    pub len: usize,
+    pub color: Option<Color>,
+    pub size: Option<f64>,
+    pub font: Option<String>,
+}
+
+/// One resolved styled chunk of a Text node (renderer/sink facing).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextPart {
+    pub text: String,
+    pub color: Option<Color>,
+    pub size: Option<f64>,
+    pub font: Option<String>,
+}
+
+/// Split a Text node's string into styled parts. Unstyled ranges produce
+/// parts with all-None styling; runs are clipped to the text; overlapping
+/// runs are applied in order (last wins per range). Empty/absent runs
+/// degrade to a single plain part.
+pub fn resolve_text_parts(text: &str, runs: &[TextRun]) -> Vec<TextPart> {
+    let total = text.chars().count();
+    if runs.is_empty() || total == 0 { return vec![TextPart { text: text.to_string(), color: None, size: None, font: None }]; }
+    // char-index -> style lookup, last run wins
+    let mut at: Vec<Option<usize>> = vec![None; total];
+    for (i, r) in runs.iter().enumerate() {
+        let end = r.start.saturating_add(r.len).min(total);
+        for a in &mut at[r.start.min(total)..end] {
+            *a = Some(i);
+        }
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<TextPart> = vec![];
+    let mut i = 0;
+    while i < total {
+        let style = at[i];
+        let mut j = i + 1;
+        while j < total && at[j] == style { j += 1; }
+        let (color, size, font) = match style.and_then(|k| runs.get(k)) {
+            Some(r) => (r.color, r.size, r.font.clone()),
+            None => (None, None, None),
+        };
+        out.push(TextPart { text: chars[i..j].iter().collect(), color, size, font });
+        i = j;
+    }
+    if out.is_empty() { out.push(TextPart { text: text.to_string(), color: None, size: None, font: None }); }
+    out
 }
 
 impl Node {
@@ -182,15 +213,16 @@ impl Node {
             pin: (HPin::Left, VPin::Top),
             bindings: HashMap::new(),
             text_metrics: None,
+            text_runs: vec![],
         }
     }
     pub fn frame(id: &str, w: f64, h: f64) -> Self { Self::base(id, NodeKind::Frame { layout: None }, 0.0, 0.0, w, h, Paint::Solid(Color::TRANSPARENT)) }
     pub fn group(id: &str, w: f64, h: f64) -> Self { Self::base(id, NodeKind::Group, 0.0, 0.0, w, h, Paint::Solid(Color::TRANSPARENT)) }
     pub fn rect(id: &str, x: f64, y: f64, w: f64, h: f64, fill: Color) -> Self { Self::base(id, NodeKind::Rect { radius: 0.0 }, x, y, w, h, Paint::Solid(fill)) }
     pub fn ellipse(id: &str, x: f64, y: f64, w: f64, h: f64, fill: Color) -> Self { Self::base(id, NodeKind::Ellipse, x, y, w, h, Paint::Solid(fill)) }
-    pub fn line(id: &str, x: f64, y: f64, w: f64, h: f64, color: Color) -> Self { Self::base(id, NodeKind::Line, x, y, w, h, Paint::Solid(Color::TRANSPARENT)).stroke(Stroke { color, width: 2.0 }) }
+    pub fn line(id: &str, x: f64, y: f64, w: f64, h: f64, color: Color) -> Self { Self::base(id, NodeKind::Line, x, y, w, h, Paint::Solid(Color::TRANSPARENT)).stroke(Stroke::solid(color, 2.0)) }
     pub fn text(id: &str, x: f64, y: f64, w: f64, h: f64, text: &str) -> Self { Self::base(id, NodeKind::Text { text: text.into() }, x, y, w, h, Paint::Solid(Color::BLACK)) }
-    pub fn image(id: &str, x: f64, y: f64, w: f64, h: f64, asset: &str) -> Self { Self::base(id, NodeKind::Image { asset: asset.into(), fit: ImageFit::default(), placement: ImagePlacement::default() }, x, y, w, h, Paint::Solid(Color::rgb8(0xdd, 0xdd, 0xdd))) }
+    pub fn image(id: &str, x: f64, y: f64, w: f64, h: f64, asset: &str) -> Self { Self::base(id, NodeKind::Image { asset: asset.into(), fit: ImageFit::default(), placement: ImagePlacement::default() }, x, y, w, h, Paint::Solid(Color::from_rgb8(0xdd, 0xdd, 0xdd))) }
     pub fn vector(id: &str, x: f64, y: f64, w: f64, h: f64, path: Vec<PathCmd>) -> Self { Self::base(id, NodeKind::Vector { path }, x, y, w, h, Paint::Solid(Color::BLACK)) }
     pub fn component(id: &str, name: &str, w: f64, h: f64) -> Self { Self::base(id, NodeKind::Component { name: name.into() }, 0.0, 0.0, w, h, Paint::Solid(Color::TRANSPARENT)) }
     pub fn instance(id: &str, component: &str, x: f64, y: f64, w: f64, h: f64) -> Self { Self::base(id, NodeKind::Instance { component: component.into() }, x, y, w, h, Paint::Solid(Color::TRANSPARENT)) }
@@ -208,7 +240,7 @@ impl Node {
     pub fn materialize_visual_stacks(&mut self) {
         if self.visual_stacks_materialized { return; }
         if self.fill_layers.is_empty() { self.fill_layers.push(PaintLayer::new(self.fill.clone())); }
-        if self.stroke_layers.is_empty() && self.stroke.width > 0.0 { self.stroke_layers.push(StrokeLayer::new(self.stroke)); }
+        if self.stroke_layers.is_empty() && self.stroke.width > 0.0 { self.stroke_layers.push(StrokeLayer::new(self.stroke.clone())); }
         if self.effect_layers.is_empty() { self.effect_layers = self.effects.iter().cloned().map(EffectLayer::new).collect(); }
         self.visual_stacks_materialized = true;
     }
@@ -219,7 +251,7 @@ impl Node {
     }
     pub fn active_strokes(&self) -> Vec<StrokeLayer> {
         if !self.visual_stacks_materialized {
-            if self.stroke.width > 0.0 { vec![StrokeLayer::new(self.stroke)] } else { vec![] }
+            if self.stroke.width > 0.0 { vec![StrokeLayer::new(self.stroke.clone())] } else { vec![] }
         } else { self.stroke_layers.iter().filter(|l| l.visible && l.opacity > 0.0 && l.stroke.width > 0.0).cloned().collect() }
     }
     pub fn active_effects(&self) -> Vec<EffectLayer> {
@@ -242,5 +274,71 @@ impl Node {
             Some(name) => vars.number(name, fallback),
             None => fallback,
         }
+    }
+}
+
+#[cfg(test)]
+mod text_run_tests {
+    use super::*;
+
+    fn part(text: &str, color: Option<Color>, size: Option<f64>) -> TextPart {
+        TextPart { text: text.into(), color, size, font: None }
+    }
+
+    #[test]
+    fn no_runs_degrades_to_a_single_plain_part() {
+        let parts = resolve_text_parts("Hello", &[]);
+        assert_eq!(parts, vec![part("Hello", None, None)]);
+    }
+
+    #[test]
+    fn empty_text_degrades_to_a_single_plain_part() {
+        let parts = resolve_text_parts("", &[TextRun { start: 0, len: 5, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }]);
+        assert_eq!(parts, vec![part("", None, None)]);
+    }
+
+    #[test]
+    fn styled_range_splits_into_three_parts() {
+        // "hello": chars 1..3 styled red
+        let runs = [TextRun { start: 1, len: 2, color: Some(Color::from_rgb8(255, 0, 0)), size: Some(30.0), font: None }];
+        let parts = resolve_text_parts("hello", &runs);
+        assert_eq!(parts, vec![
+            part("h", None, None),
+            part("el", Some(Color::from_rgb8(255, 0, 0)), Some(30.0)),
+            part("lo", None, None),
+        ]);
+    }
+
+    #[test]
+    fn out_of_range_runs_are_clamped_not_panicking() {
+        // hostile/hand-edited files: run far past the end
+        let runs = [TextRun { start: 10, len: 50, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let parts = resolve_text_parts("abc", &runs);
+        // range fully outside -> plain
+        assert_eq!(parts, vec![part("abc", None, None)]);
+        // partially outside clips to the text end
+        let runs = [TextRun { start: 2, len: 50, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let parts = resolve_text_parts("abc", &runs);
+        assert_eq!(parts, vec![part("ab", None, None), part("c", Some(Color::from_rgb8(255, 0, 0)), None)]);
+    }
+
+    #[test]
+    fn overlapping_runs_last_wins() {
+        let runs = [
+            TextRun { start: 0, len: 4, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None },
+            TextRun { start: 2, len: 2, color: Some(Color::from_rgb8(0, 0, 255)), size: None, font: None },
+        ];
+        let parts = resolve_text_parts("abcd", &runs);
+        assert_eq!(parts, vec![
+            part("ab", Some(Color::from_rgb8(255, 0, 0)), None),
+            part("cd", Some(Color::from_rgb8(0, 0, 255)), None),
+        ]);
+    }
+
+    #[test]
+    fn whole_text_run_covers_every_char() {
+        let runs = [TextRun { start: 0, len: 5, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let parts = resolve_text_parts("hello", &runs);
+        assert_eq!(parts, vec![part("hello", Some(Color::from_rgb8(255, 0, 0)), None)]);
     }
 }

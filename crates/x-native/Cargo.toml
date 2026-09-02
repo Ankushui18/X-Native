@@ -1,9 +1,9 @@
 [package]
-name = "arco_native"
+name = "x-native"
 version = "0.34.0"
 edition = "2021"
 [lib]
-name = "arco_native"
+name = "x_native"
 [dependencies]
 x-core = { path = "../x-core" }
 x-components = { path = "../x-components" }
@@ -12,6 +12,6 @@ x-text = { path = "../x-text" }
 x-editor = { path = "../x-editor" }
 x-format = { path = "../x-format" }
 x-ui = { path = "../x-ui" }
-vello = "0.1"
+vello = "0.10"
 
 [dev-dependencies]

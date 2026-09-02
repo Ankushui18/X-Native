@@ -12,6 +12,9 @@ pub mod assets;
 pub mod image_transform;
 pub mod library;
 pub mod geometry;
+pub mod booleans;
+pub mod clip;
+pub mod bezier_clip;
 pub mod auto_layout;
 pub mod variables;
 pub mod registry;
@@ -35,4 +38,9 @@ pub use components::*;
 pub use p0_features::*;
 
 pub use std::f64::consts::PI;
-pub use vello::peniko::Color;
+
+// geometry + color live here (audit F12): x-core is the canonical provider
+// of kurbo/peniko so pure-model crates never need the vello GPU stack.
+pub use kurbo;
+pub use peniko;
+pub use peniko::Color;

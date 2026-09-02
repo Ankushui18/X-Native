@@ -30,6 +30,9 @@ pub fn import_svg(svg: &str) -> Result<Node, String> {
     }
 }
 
+// `Text`'s payload is kept for the upcoming <text> import path; the
+// current lexer emits it but the importer does not consume it yet.
+#[allow(dead_code)]
 enum XmlTag { Open(String, Vec<(String, String)>), SelfClose(String, Vec<(String, String)>), Close(String), Text(String), Eof }
 
 struct XmlLexer<'a> { s: &'a [u8], i: usize }
@@ -101,12 +104,12 @@ fn apply_transform_attr(node: &mut ImportNode, attrs: &[(String, String)]) {
         // SVG rotate() is clockwise-positive in y-down space, which IS
         // the native convention: no sign flip (unlike Sketch).
         if let Some(rest) = t.split("translate(").nth(1) {
-            let args: Vec<f64> = rest.split(')').next().unwrap_or("").split(|c| c == ' ' || c == ',').filter_map(|v| v.trim().parse().ok()).collect();
+            let args: Vec<f64> = rest.split(')').next().unwrap_or("").split([' ', ',']).filter_map(|v| v.trim().parse().ok()).collect();
             if let Some(x) = args.first() { node.x += x; }
             if let Some(y) = args.get(1) { node.y += y; }
         }
         if let Some(rest) = t.split("rotate(").nth(1) {
-            if let Some(deg) = rest.split(')').next().unwrap_or("").split(|c| c == ' ' || c == ',').next().and_then(|v| v.trim().parse::<f64>().ok()) {
+            if let Some(deg) = rest.split(')').next().unwrap_or("").split([' ', ',']).next().and_then(|v| v.trim().parse::<f64>().ok()) {
                 node.rotation += deg.to_radians();
             }
         }
@@ -119,7 +122,7 @@ pub(crate) fn parse_path_d(d: &str) -> Vec<PathCmd> {
     let mut nums: Vec<f64> = vec![];
     let mut cmd = ' ';
     let (mut cx, mut cy) = (0.0f64, 0.0f64);
-    let mut flush = |cmd: char, nums: &mut Vec<f64>, out: &mut Vec<PathCmd>, cx: &mut f64, cy: &mut f64| {
+    let flush = |cmd: char, nums: &mut Vec<f64>, out: &mut Vec<PathCmd>, cx: &mut f64, cy: &mut f64| {
         let rel = cmd.is_ascii_lowercase();
         match cmd.to_ascii_uppercase() {
             'M' => for pair in nums.chunks(2) { if pair.len() == 2 {
@@ -144,7 +147,7 @@ pub(crate) fn parse_path_d(d: &str) -> Vec<PathCmd> {
         nums.clear();
     };
     let mut num_buf = String::new();
-    let mut push_num = |num_buf: &mut String, nums: &mut Vec<f64>| {
+    let push_num = |num_buf: &mut String, nums: &mut Vec<f64>| {
         if !num_buf.is_empty() { if let Ok(v) = num_buf.parse() { nums.push(v); } num_buf.clear(); }
     };
     for ch in d.chars() {
@@ -178,7 +181,7 @@ fn parse_children(lexer: &mut XmlLexer, parent: &mut ImportNode) -> Result<(), S
             }
             XmlTag::Text(content) => {
                 if let Some(mut t) = pending_text_node.take() {
-                    if let ImportKind::Text { content: c } = &mut t.kind { *c = content; }
+                    if let ImportKind::Text { content: c, .. } = &mut t.kind { *c = content; }
                     parent.children.push(t);
                 }
             }
@@ -228,7 +231,7 @@ fn parse_children(lexer: &mut XmlLexer, parent: &mut ImportNode) -> Result<(), S
                         let stroke_c = attr(&attrs, "stroke").and_then(parse_hex_color).unwrap_or(Color::BLACK);
                         let mut n = with_id(ImportNode::new(ImportKind::Line))
                             .at(x1, y1).size((x2 - x1).abs().max(1.0), 1.0);
-                        n.stroke = Some((stroke_c, attr_num(&attrs, "stroke-width").unwrap_or(1.0)));
+                        n.stroke = Some((Paint::Solid(stroke_c), attr_num(&attrs, "stroke-width").unwrap_or(1.0)));
                         apply_transform_attr(&mut n, &attrs);
                         if !self_closed { skip_element(lexer)?; }
                         parent.children.push(n);
@@ -250,7 +253,7 @@ fn parse_children(lexer: &mut XmlLexer, parent: &mut ImportNode) -> Result<(), S
                             .size(w, h)
                             .fill(Paint::Solid(attr_fill(&attrs)));
                         if let (Some(sc), Some(sw)) = (attr(&attrs, "stroke").and_then(parse_hex_color), attr_num(&attrs, "stroke-width")) {
-                            n.stroke = Some((sc, sw));
+                            n.stroke = Some((Paint::Solid(sc), sw));
                         }
                         apply_transform_attr(&mut n, &attrs);
                         if !self_closed { skip_element(lexer)?; }
@@ -258,7 +261,7 @@ fn parse_children(lexer: &mut XmlLexer, parent: &mut ImportNode) -> Result<(), S
                     }
                     "text" => {
                         let size = attr_num(&attrs, "font-size").unwrap_or(16.0);
-                        let mut n = with_id(ImportNode::new(ImportKind::Text { content: String::new() }))
+                        let mut n = with_id(ImportNode::new(ImportKind::Text { content: String::new(), size: None, font: None, line_height: None, letter_spacing: None, runs: vec![] }))
                             .at(attr_num(&attrs, "x").unwrap_or(0.0), attr_num(&attrs, "y").unwrap_or(0.0) - size * 0.8)
                             .size(10.0 * size, size * 1.25)
                             .fill(Paint::Solid(attr_fill(&attrs)));

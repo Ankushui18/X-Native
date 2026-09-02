@@ -6,13 +6,13 @@
 //! then: full Undo to empty, full Redo to final, Save, Reload — the
 //! reloaded document must byte-match the saved final state.
 
-use arco_native::editor::{BoolOp, Editor};
-use arco_native::fileio::{load_x, save_x};
-use arco_native::{
+use x_native::editor::{BoolOp, Editor};
+use x_native::fileio::{load_x, save_x};
+use x_native::{
     bind_style, build_render_tree, export_pdf, AutoLayout, Color, CrossAlign, Document,
     ImageFit, ImagePlacement, LayoutDirection, Node, NodeKind, Paint, Style, Variables,
 };
-use arco_native::fileio::export_svg;
+use x_native::fileio::export_svg;
 use std::collections::HashMap;
 
 fn snapshot(ed: &Editor) -> String {
@@ -26,22 +26,22 @@ fn full_workflow_chain_undo_redo_save_reload() {
     let mut vars = Variables::default();
     vars.numbers.insert("gap".into(), 12.0);
     let mut styles: HashMap<String, Style> = HashMap::new();
-    styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x0d, 0x99, 0xff)) });
+    styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x0d, 0x99, 0xff)) });
 
     let mut ed = Editor::new(Node::frame("page", 800.0, 600.0));
     let empty_snapshot = snapshot(&ed);
 
     // 1. CREATE: rect + ellipse + a frame with children + an image
-    ed.insert_node("page", Node::rect("r1", 20.0, 20.0, 100.0, 80.0, Color::rgb8(255, 0, 0)));
-    ed.insert_node("page", Node::ellipse("e1", 80.0, 40.0, 100.0, 100.0, Color::rgb8(0, 0, 255)));
+    ed.insert_node("page", Node::rect("r1", 20.0, 20.0, 100.0, 80.0, Color::from_rgb8(255, 0, 0)));
+    ed.insert_node("page", Node::ellipse("e1", 80.0, 40.0, 100.0, 100.0, Color::from_rgb8(0, 0, 255)));
     ed.insert_node("page", Node::frame("row", 220.0, 90.0)
-        .child(Node::rect("c1", 0.0, 0.0, 40.0, 40.0, Color::rgb8(0, 200, 0)))
-        .child(Node::rect("c2", 0.0, 0.0, 40.0, 40.0, Color::rgb8(200, 0, 200))));
+        .child(Node::rect("c1", 0.0, 0.0, 40.0, 40.0, Color::from_rgb8(0, 200, 0)))
+        .child(Node::rect("c2", 0.0, 0.0, 40.0, 40.0, Color::from_rgb8(200, 0, 200))));
     ed.insert_node("page", Node::image("img", 400.0, 40.0, 160.0, 120.0, "checker"));
 
     // 2. AUTO LAYOUT on the row (undoable ReplaceNode), gap bound to variable
     assert!(ed.set_auto_layout("row", Some(AutoLayout {
-        direction: LayoutDirection::Horizontal, gap: 8.0, padding: 10.0,
+        direction: LayoutDirection::Horizontal, gap: 8.0, padding: [10.0; 4],
         align: CrossAlign::Center, gap_var: Some("gap".into()), ..Default::default()
     }), &vars));
 
@@ -52,19 +52,19 @@ fn full_workflow_chain_undo_redo_save_reload() {
     // 3b. VARIANT: build a Button variant set + an instance, then switch
     // the instance variant through an undoable ReplaceNode
     ed.insert_node("page", Node::component("m-def", "Button/Default", 80.0, 30.0)
-        .child(Node::rect("bg-d", 0.0, 0.0, 80.0, 30.0, Color::rgb8(0x44, 0x44, 0x44))));
+        .child(Node::rect("bg-d", 0.0, 0.0, 80.0, 30.0, Color::from_rgb8(0x44, 0x44, 0x44))));
     ed.insert_node("page", Node::component("m-pri", "Button/Primary", 80.0, 30.0)
-        .child(Node::rect("bg-p", 0.0, 0.0, 80.0, 30.0, Color::rgb8(0x0d, 0x99, 0xff))));
+        .child(Node::rect("bg-p", 0.0, 0.0, 80.0, 30.0, Color::from_rgb8(0x0d, 0x99, 0xff))));
     ed.insert_node("page", Node::instance("btn", "Button/Default", 500.0, 300.0, 80.0, 30.0));
     {
-        let n = arco_native::editor::find(&ed.root, "btn").unwrap().clone();
+        let n = x_native::editor::find(&ed.root, "btn").unwrap().clone();
         let mut after = n.clone();
-        assert!(arco_native::components::switch_variant(&mut after, "Button/Primary"));
+        assert!(x_native::components::switch_variant(&mut after, "Button/Primary"));
         ed.replace_node("btn", after);
     }
 
     // 4. VARIABLE: bind r1's fill to a color variable (undoable SetFill)
-    vars.colors.insert("accent".into(), Color::rgb8(0xf3, 0x9c, 0x12));
+    vars.colors.insert("accent".into(), Color::from_rgb8(0xf3, 0x9c, 0x12));
     ed.set_fill("r1", Paint::Variable("accent".into()));
 
     // 5. BOOLEAN: union r1 + e1 -> vector node
@@ -73,7 +73,7 @@ fn full_workflow_chain_undo_redo_save_reload() {
 
     // 6. MASK: mark the boolean result as a mask (undoable ReplaceNode)
     {
-        let n = arco_native::editor::find(&ed.root, &bool_id).unwrap().clone();
+        let n = x_native::editor::find(&ed.root, &bool_id).unwrap().clone();
         let mut after = n.clone();
         after.is_mask = true;
         ed.replace_node(&bool_id, after);
@@ -81,7 +81,7 @@ fn full_workflow_chain_undo_redo_save_reload() {
 
     // 7. IMAGE PLACEMENT: crop fit + focal + flip (undoable ReplaceNode)
     {
-        let n = arco_native::editor::find(&ed.root, "img").unwrap().clone();
+        let n = x_native::editor::find(&ed.root, "img").unwrap().clone();
         let mut after = n.clone();
         if let NodeKind::Image { fit, placement, .. } = &mut after.kind {
             *fit = ImageFit::Crop;
@@ -92,7 +92,7 @@ fn full_workflow_chain_undo_redo_save_reload() {
 
     // 8. STYLE: bind the Brand paint style to c2 (undoable via ReplaceNode)
     {
-        let n = arco_native::editor::find(&ed.root, "c2").unwrap().clone();
+        let n = x_native::editor::find(&ed.root, "c2").unwrap().clone();
         let mut after = n.clone();
         bind_style(&mut after, "Brand", &styles["Brand"]);
         ed.replace_node("c2", after);
@@ -120,7 +120,7 @@ fn full_workflow_chain_undo_redo_save_reload() {
     assert_eq!(snapshot(&ed), final_snapshot, "redo chain returns to the final document");
 
     // spot-check semantic state after redo
-    let img = arco_native::editor::find(&ed.root, "img").unwrap();
+    let img = x_native::editor::find(&ed.root, "img").unwrap();
     match &img.kind {
         NodeKind::Image { fit, placement, .. } => {
             assert_eq!(*fit, ImageFit::Crop);
@@ -129,12 +129,12 @@ fn full_workflow_chain_undo_redo_save_reload() {
         }
         k => panic!("img is {k:?}"),
     }
-    let b = arco_native::editor::find(&ed.root, &bool_id).unwrap();
+    let b = x_native::editor::find(&ed.root, &bool_id).unwrap();
     assert!(b.is_mask, "boolean-result mask survived undo/redo");
-    let c2 = arco_native::editor::find(&ed.root, "c2").unwrap();
+    let c2 = x_native::editor::find(&ed.root, "c2").unwrap();
     assert_eq!(c2.bindings.get("style:paint").map(String::as_str), Some("Brand"));
-    assert_eq!(c2.fill, Paint::Solid(Color::rgb8(0x0d, 0x99, 0xff)));
-    let btn = arco_native::editor::find(&ed.root, "btn").unwrap();
+    assert_eq!(c2.fill, Paint::Solid(Color::from_rgb8(0x0d, 0x99, 0xff)));
+    let btn = x_native::editor::find(&ed.root, "btn").unwrap();
     match &btn.kind {
         NodeKind::Instance { component } => assert_eq!(component, "Button/Primary", "variant switch survived undo/redo"),
         k => panic!("btn is {k:?}"),
@@ -149,7 +149,7 @@ fn full_workflow_chain_undo_redo_save_reload() {
     let re = load_x(&text).expect("reload");
     assert_eq!(save_x(&re), text, "save(load(save)) byte-identical");
     // placement survived disk round trip
-    let img2 = arco_native::editor::find(&re.pages[0], "img").unwrap();
+    let img2 = x_native::editor::find(&re.pages[0], "img").unwrap();
     match &img2.kind {
         NodeKind::Image { placement, .. } => {
             assert_eq!(placement.focal, (0.3, 0.7));

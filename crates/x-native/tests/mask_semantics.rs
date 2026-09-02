@@ -5,13 +5,13 @@
 //! composes with images, vectors, groups, components+auto-layout, booleans,
 //! gradients, effects, and both exporters (SVG structural, PDF sink runs).
 
-use arco_native::{
+use x_native::{
     apply_layout_recursive, build_render_tree, export_pdf, AutoLayout, Color, CrossAlign,
     Effect, LayoutDirection, Node, Paint, PathCmd, RenderCommand, Variables,
 };
-use arco_native::fileio::export_svg;
+use x_native::fileio::export_svg;
 
-fn kinds(tree: &arco_native::RenderTree) -> Vec<&'static str> {
+fn kinds(tree: &x_native::RenderTree) -> Vec<&'static str> {
     tree.commands.iter().map(|c| match c {
         RenderCommand::FillPath { .. } => "fill",
         RenderCommand::StrokePath { .. } => "stroke",
@@ -24,7 +24,7 @@ fn kinds(tree: &arco_native::RenderTree) -> Vec<&'static str> {
 }
 
 /// clip must open before the masked sibling's paint and close after it
-fn assert_clip_wraps(tree: &arco_native::RenderTree, inner: &str) {
+fn assert_clip_wraps(tree: &x_native::RenderTree, inner: &str) {
     let ks = kinds(tree);
     let ci = ks.iter().position(|k| *k == "clip").expect("mask emits PushClip");
     let ii = ks.iter().position(|k| *k == inner).unwrap_or_else(|| panic!("no {inner} command"));
@@ -58,8 +58,8 @@ fn mask_clips_group_subtree() {
     let doc = Node::frame("page", 400.0, 300.0)
         .child(Node::ellipse("m", 0.0, 0.0, 120.0, 120.0, Color::WHITE).mask(true))
         .child(Node::group("g", 120.0, 60.0)
-            .child(Node::rect("r1", 0.0, 0.0, 50.0, 50.0, Color::rgb8(255, 0, 0)))
-            .child(Node::rect("r2", 60.0, 0.0, 50.0, 50.0, Color::rgb8(0, 255, 0))));
+            .child(Node::rect("r1", 0.0, 0.0, 50.0, 50.0, Color::from_rgb8(255, 0, 0)))
+            .child(Node::rect("r2", 60.0, 0.0, 50.0, 50.0, Color::from_rgb8(0, 255, 0))));
     let tree = build_render_tree(&doc, &Variables::default());
     let ks = kinds(&tree);
     let ci = ks.iter().position(|k| *k == "clip").expect("clip");
@@ -77,11 +77,11 @@ fn mask_clips_component_instance_with_auto_layout() {
         .child({
             let mut row = Node::frame("row", 160.0, 40.0)
                 .auto_layout(AutoLayout {
-                    direction: LayoutDirection::Horizontal, gap: 8.0, padding: 6.0,
+                    direction: LayoutDirection::Horizontal, gap: 8.0, padding: [6.0; 4],
                     align: CrossAlign::Center, ..Default::default()
                 })
-                .child(Node::rect("dot", 0.0, 0.0, 20.0, 20.0, Color::rgb8(0, 0, 255)))
-                .child(Node::rect("bar", 0.0, 0.0, 60.0, 20.0, Color::rgb8(255, 0, 255)));
+                .child(Node::rect("dot", 0.0, 0.0, 20.0, 20.0, Color::from_rgb8(0, 0, 255)))
+                .child(Node::rect("bar", 0.0, 0.0, 60.0, 20.0, Color::from_rgb8(255, 0, 255)));
             apply_layout_recursive(&mut row, &Variables::default());
             row
         });
@@ -106,21 +106,21 @@ fn mask_clips_component_instance_with_auto_layout() {
 fn mask_boolean_gradient_effect_chain_survives_export() {
     // boolean two shapes -> gradient fill + shadow on result -> put it
     // after a mask -> SVG + PDF export both must succeed and contain it.
-    use arco_native::editor::{BoolOp, Editor};
+    use x_native::editor::{BoolOp, Editor};
     let page = Node::frame("page", 400.0, 300.0)
-        .child(Node::rect("a", 40.0, 40.0, 120.0, 120.0, Color::rgb8(255, 0, 0)))
-        .child(Node::ellipse("b", 100.0, 100.0, 120.0, 120.0, Color::rgb8(0, 0, 255)));
+        .child(Node::rect("a", 40.0, 40.0, 120.0, 120.0, Color::from_rgb8(255, 0, 0)))
+        .child(Node::ellipse("b", 100.0, 100.0, 120.0, 120.0, Color::from_rgb8(0, 0, 255)));
     let mut ed = Editor::new(page);
     ed.selection = vec!["a".into(), "b".into()];
     let bool_id = ed.boolean_selected(BoolOp::Union).expect("boolean produced a node");
     // style the boolean result: gradient + drop shadow
     {
-        let n = arco_native::editor::find_mut(&mut ed.root, &bool_id).unwrap();
+        let n = x_native::editor::find_mut(&mut ed.root, &bool_id).unwrap();
         n.fill = Paint::LinearGradient {
             start: (0.0, 0.0), end: (n.w, 0.0),
-            stops: vec![(0.0, Color::rgb8(255, 90, 0)), (1.0, Color::rgb8(142, 45, 226))],
+            stops: vec![(0.0, Color::from_rgb8(255, 90, 0)), (1.0, Color::from_rgb8(142, 45, 226))],
         };
-        n.effects.push(Effect::DropShadow { dx: 3.0, dy: 4.0, blur: 8.0, color: Color::rgba8(0, 0, 0, 120) });
+        n.effects.push(Effect::DropShadow { dx: 3.0, dy: 4.0, blur: 8.0, color: Color::from_rgba8(0, 0, 0, 120) });
     }
     // insert a mask BEFORE it (clips it, standard order)
     let idx = ed.root.children.iter().position(|c| c.id == bool_id).unwrap();

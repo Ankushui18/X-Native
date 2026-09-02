@@ -6,7 +6,6 @@
 //!   changed_keys (cached rendering / partial redraw)
 
 use crate::ir::{RenderCommand, RenderTree, VelloSink};
-use std::collections::HashMap;
 use vello::kurbo::{Affine, Rect, Shape};
 use vello::peniko::Brush;
 use vello::Scene;
@@ -46,8 +45,11 @@ pub fn export_pdf_with_assets(tree: &RenderTree, page_w: f64, page_h: f64, asset
 /// Without fonts, falls back to Helvetica Tj text ops.
 pub fn export_pdf_full(tree: &RenderTree, page_w: f64, page_h: f64, assets: Option<&crate::Assets>, fonts: Option<&x_text::FontManager>) -> Vec<u8> {
     let mut content = String::new();
-    let mut images: Vec<(String, vello::peniko::Image)> = vec![];
+    let mut images: Vec<(String, vello::peniko::ImageBrush)> = vec![];
     let mut shadings: Vec<String> = vec![];
+    // /PN pattern dicts (PatternType 2) wrapping shading /ShM for gradient
+    // strokes; entries are indices into `shadings`
+    let mut patterns: Vec<usize> = vec![];
     // PDF y-axis is bottom-up: flip
     content.push_str(&format!("1 0 0 -1 0 {page_h} cm\n"));
     for cmd in &tree.commands {
@@ -69,18 +71,64 @@ pub fn export_pdf_full(tree: &RenderTree, page_w: f64, page_h: f64, assets: Opti
                 emit_path(&mut content, transform, path);
                 content.push_str("f\n");
             }
-            RenderCommand::StrokePath { transform, path, color, width, .. } => {
-                let (r, g, b) = (color.r as f64 / 255.0, color.g as f64 / 255.0, color.b as f64 / 255.0);
+            RenderCommand::StrokePath { transform, path, brush, width, .. } => {
+                if let Brush::Gradient(grad) = brush {
+                    // gradient stroke: PDF can't stroke with a raw shading,
+                    // so wrap it in a PatternType 2 (shading) pattern and
+                    // stroke in the Pattern color space — same geometry as
+                    // the fill path above
+                    if let Some(sh) = shading_for(grad, transform) {
+                        let idx = shadings.len();
+                        shadings.push(sh);
+                        patterns.push(idx);
+                        content.push_str(&format!("/Pattern cs /P{} SCN {width} w\n", patterns.len() - 1));
+                        emit_path(&mut content, transform, path);
+                        content.push_str("S\n");
+                        continue;
+                    }
+                }
+                let (r, g, b) = brush_rgb(brush);
                 content.push_str(&format!("{r} {g} {b} RG {width} w\n"));
                 emit_path(&mut content, transform, path);
                 content.push_str("S\n");
             }
-            RenderCommand::Glyphs { transform, text, size, brush, max_width, font, letter_spacing, line_height, .. } => {
+            RenderCommand::Glyphs { transform, text, size, brush, max_width, font, letter_spacing, line_height, runs, .. } => {
                 // TEXT PARITY: shaped glyph outlines via the exact canvas
                 // pipeline when a FontManager is available.
                 let mut drew = false;
                 if let Some(fm) = fonts {
-                    if let Some((glyphs, _)) = x_text::node_text_outlines_styled(fm, text, *size, *max_width, font.as_deref(), Color::WHITE, *letter_spacing, *line_height) {
+                    // rich runs: per-glyph fill color — the shaped
+                    // TRANSPARENT marker means "no explicit color" and
+                    // falls back to the command brush (incl. gradients)
+                    if !runs.is_empty() {
+                        if let Some((glyphs, _)) = x_text::node_text_outlines_rich(fm, runs, *size, *max_width, font.as_deref(), *letter_spacing, *line_height) {
+                            for gl in glyphs {
+                                let full = *transform * gl.transform;
+                                let explicit = gl.color.components[3] > 0.0;
+                                if !explicit {
+                                    if let Brush::Gradient(grad) = brush {
+                                        if let Some(sh) = shading_for(grad, transform) {
+                                            let idx = shadings.len();
+                                            shadings.push(sh);
+                                            content.push_str("q\n");
+                                            emit_path(&mut content, &full, &gl.path);
+                                            content.push_str(&format!("W n /Sh{idx} sh\nQ\n"));
+                                            continue;
+                                        }
+                                    }
+                                }
+                                let (r, g, b) = if explicit {
+                                    let c = gl.color;
+                                    (c.components[0] as f64, c.components[1] as f64, c.components[2] as f64)
+                                } else { brush_rgb(brush) };
+                                content.push_str(&format!("{r} {g} {b} rg\n"));
+                                emit_path(&mut content, &full, &gl.path);
+                                content.push_str("f\n");
+                            }
+                            drew = true;
+                        }
+                    }
+                    else if let Some((glyphs, _)) = x_text::node_text_outlines_styled(fm, text, *size, *max_width, font.as_deref(), Color::WHITE, *letter_spacing, *line_height) {
                         for gl in glyphs {
                             // full transform = node world * glyph local;
                             // the global top-down flip is already the CTM.
@@ -135,7 +183,7 @@ pub fn export_pdf_full(tree: &RenderTree, page_w: f64, page_h: f64, assets: Opti
                     // each image-pixel-space affine to a PDF CTM. A PDF
                     // image is a UNIT square, so append pixel->unit
                     // scaling with a y-flip (image data is top-down).
-                    let (iw, ih) = (img.width as f64, img.height as f64);
+                    let (iw, ih) = (img.image.width as f64, img.image.height as f64);
                     let resolved = x_core::resolve_image_placement(*fit, placement, *w, *h, iw, ih);
                     let t = transform.as_coeffs(); // node world (page is already y-flipped)
                     content.push_str("q\n");
@@ -155,14 +203,14 @@ pub fn export_pdf_full(tree: &RenderTree, page_w: f64, page_h: f64, assets: Opti
             }
         }
     }
-    build_pdf_with_images(&content, page_w, page_h, &images, &shadings)
+    build_pdf_with_images(&content, page_w, page_h, &images, &shadings, &patterns)
 }
 
 fn brush_rgb(b: &Brush) -> (f64, f64, f64) {
     match b {
-        Brush::Solid(c) => (c.r as f64 / 255.0, c.g as f64 / 255.0, c.b as f64 / 255.0),
+        Brush::Solid(c) => (c.components[0] as f64, c.components[1] as f64, c.components[2] as f64),
         Brush::Gradient(g) => g.stops.first()
-            .map(|s| (s.color.r as f64 / 255.0, s.color.g as f64 / 255.0, s.color.b as f64 / 255.0))
+            .map(|s| (s.color.components[0] as f64, s.color.components[1] as f64, s.color.components[2] as f64))
             .unwrap_or((0.0, 0.0, 0.0)),
         _ => (0.0, 0.0, 0.0),
     }
@@ -205,7 +253,7 @@ fn shading_for(g: &vello::peniko::Gradient, transform: &Affine) -> Option<String
     if g.stops.is_empty() { return None; }
     let stop_color = |i: usize| -> (f64, f64, f64) {
         let c = g.stops[i].color;
-        (c.r as f64 / 255.0, c.g as f64 / 255.0, c.b as f64 / 255.0)
+        (c.components[0] as f64, c.components[1] as f64, c.components[2] as f64)
     };
     // color function over the whole 0..1 domain
     let func = if g.stops.len() == 1 {
@@ -230,16 +278,16 @@ fn shading_for(g: &vello::peniko::Gradient, transform: &Affine) -> Option<String
             bounds.join(" "), encode.trim_end())
     };
     match g.kind {
-        GradientKind::Linear { start, end } => {
-            let s = *transform * vello::kurbo::Point::new(start.x as f64, start.y as f64);
-            let e = *transform * vello::kurbo::Point::new(end.x as f64, end.y as f64);
+        GradientKind::Linear(vello::peniko::LinearGradientPosition { start, end }) => {
+            let s = *transform * vello::kurbo::Point::new(start.x, start.y);
+            let e = *transform * vello::kurbo::Point::new(end.x, end.y);
             Some(format!(
                 "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [{} {} {} {}] /Function {func} /Extend [true true] >>",
                 s.x, s.y, e.x, e.y))
         }
-        GradientKind::Radial { start_center, start_radius, end_center, end_radius } => {
-            let c0 = *transform * vello::kurbo::Point::new(start_center.x as f64, start_center.y as f64);
-            let c1 = *transform * vello::kurbo::Point::new(end_center.x as f64, end_center.y as f64);
+        GradientKind::Radial(vello::peniko::RadialGradientPosition { start_center, start_radius, end_center, end_radius }) => {
+            let c0 = *transform * vello::kurbo::Point::new(start_center.x, start_center.y);
+            let c1 = *transform * vello::kurbo::Point::new(end_center.x, end_center.y);
             // scale radii by the transform's average scale factor
             let co = transform.as_coeffs();
             let sc = ((co[0] * co[0] + co[1] * co[1]).sqrt() + (co[2] * co[2] + co[3] * co[3]).sqrt()) / 2.0;
@@ -247,11 +295,11 @@ fn shading_for(g: &vello::peniko::Gradient, transform: &Affine) -> Option<String
                 "<< /ShadingType 3 /ColorSpace /DeviceRGB /Coords [{} {} {} {} {} {}] /Function {func} /Extend [true true] >>",
                 c0.x, c0.y, start_radius as f64 * sc, c1.x, c1.y, end_radius as f64 * sc))
         }
-        GradientKind::Sweep { .. } => None,
+        GradientKind::Sweep(_) => None,
     }
 }
 
-fn build_pdf_with_images(content: &str, w: f64, h: f64, images: &[(String, vello::peniko::Image)], shadings: &[String]) -> Vec<u8> {
+fn build_pdf_with_images(content: &str, w: f64, h: f64, images: &[(String, vello::peniko::ImageBrush)], shadings: &[String], patterns: &[usize]) -> Vec<u8> {
     let stream = content.as_bytes();
     let mut pdf: Vec<u8> = Vec::new();
     let mut offsets: Vec<usize> = vec![];
@@ -262,12 +310,15 @@ fn build_pdf_with_images(content: &str, w: f64, h: f64, images: &[(String, vello
     let n_img = images.len();
     let ximgs: String = (0..n_img).map(|i| format!("/Im{i} {} 0 R ", 6 + i)).collect();
     let xshs: String = (0..shadings.len()).map(|i| format!("/Sh{i} {} 0 R ", 6 + n_img + i)).collect();
+    // pattern dicts come after the shading objects in the numbering
+    let xpats: String = (0..patterns.len()).map(|i| format!("/P{i} {} 0 R ", 6 + n_img + shadings.len() + i)).collect();
     let xobj = if images.is_empty() { String::new() } else { format!("/XObject << {ximgs}>> ") };
     let shd = if shadings.is_empty() { String::new() } else { format!("/Shading << {xshs}>> ") };
+    let pat = if patterns.is_empty() { String::new() } else { format!("/Pattern << {xpats}>> ") };
     let head = [
         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string(),
         "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n".to_string(),
-        format!("3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> {xobj}{shd}>> >> endobj\n"),
+        format!("3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> {xobj}{shd}{pat}>> >> endobj\n"),
         format!("4 0 obj << /Length {} >> stream\n{}\nendstream endobj\n", stream.len(), content),
         "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
     ];
@@ -276,13 +327,13 @@ fn build_pdf_with_images(content: &str, w: f64, h: f64, images: &[(String, vello
     // (was uncompressed — the third review item)
     for (i, (_, img)) in images.iter().enumerate() {
         offsets.push(pdf.len());
-        let rgba = img.data.data();
+        let rgba = img.image.data.data();
         let mut rgb = Vec::with_capacity(rgba.len() / 4 * 3);
         for px in rgba.chunks(4) { rgb.extend_from_slice(&px[..3]); }
         let compressed = miniz_oxide::deflate::compress_to_vec_zlib(&rgb, 6);
         push(&mut pdf, &format!(
             "{} 0 obj << /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length {} >> stream\n",
-            6 + i, img.width, img.height, compressed.len()));
+            6 + i, img.image.width, img.image.height, compressed.len()));
         pdf.extend_from_slice(&compressed);
         push(&mut pdf, "\nendstream endobj\n");
     }
@@ -291,7 +342,13 @@ fn build_pdf_with_images(content: &str, w: f64, h: f64, images: &[(String, vello
         offsets.push(pdf.len());
         push(&mut pdf, &format!("{} 0 obj {sh} endobj\n", 6 + n_img + i));
     }
-    let total = 6 + n_img + shadings.len();
+    // shading patterns for gradient STROKES: /PN wraps /ShM (PatternType 2,
+    // identity matrix — the shading coords are already device-space)
+    for (i, sh_idx) in patterns.iter().enumerate() {
+        offsets.push(pdf.len());
+        push(&mut pdf, &format!("{} 0 obj << /PatternType 2 /Shading /Sh{sh_idx} 0 R >> endobj\n", 6 + n_img + shadings.len() + i));
+    }
+    let total = 6 + n_img + shadings.len() + patterns.len();
     let xref_at = pdf.len();
     push(&mut pdf, &format!("xref\n0 {total}\n0000000000 65535 f \n"));
     for off in &offsets { push(&mut pdf, &format!("{off:010} 00000 n \n")); }
@@ -368,8 +425,8 @@ mod tests {
 
     fn doc() -> (Node, Variables) {
         let d = Node::frame("page", 400.0, 300.0)
-            .child(Node::rect("a", 10.0, 10.0, 100.0, 60.0, Color::rgb8(255, 0, 0)))
-            .child(Node::rect("b", 200.0, 100.0, 80.0, 40.0, Color::rgb8(0, 0, 255)))
+            .child(Node::rect("a", 10.0, 10.0, 100.0, 60.0, Color::from_rgb8(255, 0, 0)))
+            .child(Node::rect("b", 200.0, 100.0, 80.0, 40.0, Color::from_rgb8(0, 0, 255)))
             .child(Node::text("t", 10.0, 200.0, 200.0, 20.0, "hello"));
         (d, Variables::default())
     }
@@ -432,14 +489,43 @@ mod tests {
 mod pdf_quality_tests {
     use super::*;
     use crate::ir::build_render_tree;
-    use x_core::*;
+    
+
+    #[test]
+    fn rich_text_runs_paint_per_glyph_colors_in_pdf() {
+        let mut fm = x_text::FontManager::new();
+        assert!(fm.load_system_fonts() > 0);
+        let mut t = Node::text("t", 10.0, 10.0, 200.0, 20.0, "Red ink");
+        t.text_runs = vec![TextRun { start: 0, len: 3, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let d = Node::frame("page", 300.0, 100.0).child(t);
+        let tree = build_render_tree(&d, &Variables::default());
+        let pdf = export_pdf_full(&tree, 300.0, 100.0, None, Some(&fm));
+        let txt = String::from_utf8_lossy(&pdf);
+        assert!(txt.contains("1 0 0 rg"), "explicit run color painted per glyph");
+        assert!(txt.contains("0 0 0 rg"), "unstyled glyphs fall back to the command brush (black)");
+        // and no Helvetica Tj fallback for the shaped rich path
+        assert!(!txt.contains("Tj"), "shaped outlines, not text ops");
+    }
+
+    #[test]
+    fn vello_sink_renders_rich_text_runs() {
+        let mut fm = x_text::FontManager::new();
+        assert!(fm.load_system_fonts() > 0);
+        let mut t = Node::text("t", 10.0, 10.0, 200.0, 20.0, "Big little");
+        t.text_runs = vec![TextRun { start: 0, len: 3, color: Some(Color::from_rgb8(255, 0, 0)), size: Some(40.0), font: None }];
+        let d = Node::frame("page", 300.0, 100.0).child(t);
+        let tree = build_render_tree(&d, &Variables::default());
+        let sink = VelloSink { assets: None, fonts: Some(&fm) };
+        let scene = sink.render(&tree);
+        assert!(scene.encoding().n_paths > 3, "rich glyphs drew as paths: {}", scene.encoding().n_paths);
+    }
 
     #[test]
     fn gradient_emits_shading_dict_not_flatten() {
         let doc = Node::frame("page", 200.0, 100.0)
             .child(Node::rect("g", 10.0, 10.0, 100.0, 50.0, Color::WHITE).fill_paint(Paint::LinearGradient {
                 start: (0.0, 0.0), end: (100.0, 0.0),
-                stops: vec![(0.0, Color::rgb8(255, 0, 0)), (0.5, Color::rgb8(0, 255, 0)), (1.0, Color::rgb8(0, 0, 255))],
+                stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (0.5, Color::from_rgb8(0, 255, 0)), (1.0, Color::from_rgb8(0, 0, 255))],
             }));
         let tree = build_render_tree(&doc, &Variables::default());
         let pdf = export_pdf(&tree, 200.0, 100.0);
@@ -448,6 +534,30 @@ mod pdf_quality_tests {
         assert!(txt.contains("/FunctionType 3"), "3 stops -> stitching function");
         assert!(txt.contains(" sh\n"), "shading paint op used");
         assert!(txt.contains("/Shading <<"), "page resources expose it");
+    }
+
+    #[test]
+    fn gradient_strokes_use_pattern_colorspace() {
+        // PDF can't stroke with a raw shading — the sink wraps it in a
+        // PatternType 2 pattern and strokes in the Pattern color space
+        let doc = Node::frame("page", 200.0, 100.0).child(
+            Node::rect("r", 10.0, 10.0, 100.0, 50.0, Color::WHITE).stroke(Stroke {
+                paint: Paint::LinearGradient {
+                    start: (0.0, 0.0), end: (100.0, 0.0),
+                    stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (1.0, Color::from_rgb8(0, 0, 255))],
+                },
+                width: 4.0,
+            }),
+        );
+        let tree = build_render_tree(&doc, &Variables::default());
+        // the IR keeps the gradient (no flattening to a solid)
+        assert!(tree.commands.iter().any(|c| matches!(c, RenderCommand::StrokePath { brush: Brush::Gradient(_), .. })), "IR stroke is a gradient brush");
+        let pdf = export_pdf(&tree, 200.0, 100.0);
+        let txt = String::from_utf8_lossy(&pdf);
+        assert!(txt.contains("/Pattern cs /P0 SCN"), "strokes in the pattern color space");
+        assert!(txt.contains("/PatternType 2"), "shading pattern object present");
+        assert!(txt.contains("/Pattern <<"), "page resources expose the pattern");
+        assert!(txt.contains("/Shading /Sh0 0 R"), "pattern wraps the shading dict");
     }
 
     #[test]
@@ -469,7 +579,16 @@ mod pdf_quality_tests {
         // 4x4 solid png via the png crate is overkill; feed raw RGBA through
         // the store-less path: build a tiny Image directly
         let rgba: Vec<u8> = (0..4 * 4 * 4).map(|i| (i % 255) as u8).collect();
-        let img = vello::peniko::Image::new(vello::peniko::Blob::from(rgba), vello::peniko::Format::Rgba8, 4, 4);
+        let img = vello::peniko::ImageBrush {
+            image: vello::peniko::ImageData {
+                data: vello::peniko::Blob::from(rgba),
+                format: vello::peniko::ImageFormat::Rgba8,
+                alpha_type: vello::peniko::ImageAlphaType::Alpha,
+                width: 4,
+                height: 4,
+            },
+            sampler: Default::default(),
+        };
         assets.insert_raw("tiny", img);
         let mut n = Node::image("i", 0.0, 0.0, 16.0, 16.0, "tiny");
         if let NodeKind::Image { fit, .. } = &mut n.kind { *fit = ImageFit::Tile; }
@@ -487,14 +606,14 @@ mod pdf_quality_tests {
 mod incremental_tests {
     use super::*;
     use crate::ir::build_render_tree;
-    use x_core::*;
+    
 
     fn doc(n_rects: usize, moved: Option<(usize, f64)>) -> Node {
         let mut page = Node::frame("page", 2000.0, 2000.0);
         for i in 0..n_rects {
             let x = if moved == Some((i, 0.0)) { 999.0 } else { (i * 20) as f64 }
                 + moved.filter(|(mi, _)| *mi == i).map(|(_, dx)| dx).unwrap_or(0.0);
-            page.children.push(Node::rect(&format!("r{i}"), x, 10.0, 15.0, 15.0, Color::rgb8(50, 100, 200)));
+            page.children.push(Node::rect(&format!("r{i}"), x, 10.0, 15.0, 15.0, Color::from_rgb8(50, 100, 200)));
         }
         page
     }

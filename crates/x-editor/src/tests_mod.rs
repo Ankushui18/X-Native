@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use vello::kurbo::{Affine, Point, Rect};
-use vello::peniko::Color;
+use x_core::kurbo::{Point, Rect};
 use x_core::*;
 #[allow(unused_imports)]
 use crate::*;
@@ -14,9 +12,9 @@ mod tests {
 
     fn doc() -> Node {
         Node::frame("page", 800.0, 600.0)
-            .child(Node::rect("a", 10.0, 10.0, 100.0, 50.0, Color::rgb8(255, 0, 0)))
-            .child(Node::rect("b", 200.0, 10.0, 100.0, 50.0, Color::rgb8(0, 255, 0)))
-            .child(Node::ellipse("c", 400.0, 10.0, 80.0, 80.0, Color::rgb8(0, 0, 255)))
+            .child(Node::rect("a", 10.0, 10.0, 100.0, 50.0, Color::from_rgb8(255, 0, 0)))
+            .child(Node::rect("b", 200.0, 10.0, 100.0, 50.0, Color::from_rgb8(0, 255, 0)))
+            .child(Node::ellipse("c", 400.0, 10.0, 80.0, 80.0, Color::from_rgb8(0, 0, 255)))
     }
 
     #[test]
@@ -70,18 +68,29 @@ mod tests {
     }
 
     #[test]
+    fn set_text_clears_rich_runs() {
+        // editing text invalidates rich-run char ranges
+        let mut t = Node::text("t", 0.0, 200.0, 100.0, 20.0, "OLD");
+        t.text_runs = vec![TextRun { start: 0, len: 3, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let mut e = Editor::new(doc().child(t));
+        e.set_text("t", "NEW");
+        assert!(matches!(&find(&e.root, "t").unwrap().kind, NodeKind::Text{text} if text=="NEW"));
+        assert!(find(&e.root, "t").unwrap().text_runs.is_empty(), "edited text carries no stale runs");
+    }
+
+    #[test]
     fn resize_rotate_fill_text_are_undoable() {
         let mut e = Editor::new(doc().child(Node::text("t", 0.0, 200.0, 100.0, 20.0, "OLD")));
         e.resize("a", 150.0, 75.0);
         e.rotate("a", 0.5);
-        e.set_fill("a", Paint::Solid(Color::rgb8(1, 2, 3)));
+        e.set_fill("a", Paint::Solid(Color::from_rgb8(1, 2, 3)));
         e.set_text("t", "NEW");
         assert_eq!(find(&e.root, "a").unwrap().w, 150.0);
         assert!(matches!(&find(&e.root, "t").unwrap().kind, NodeKind::Text{text} if text=="NEW"));
         e.undo(); e.undo(); e.undo(); e.undo();
         let a = find(&e.root, "a").unwrap();
         assert_eq!((a.w, a.transform.rotation), (100.0, 0.0));
-        assert!(matches!(&a.fill, Paint::Solid(c) if c.r==255));
+        assert!(matches!(&a.fill, Paint::Solid(c) if (c.components[0]*255.0).round() as u8 == 255));
         assert!(matches!(&find(&e.root, "t").unwrap().kind, NodeKind::Text{text} if text=="OLD"));
     }
 
@@ -265,10 +274,10 @@ mod tests {
     #[test]
     fn smart_animate_interpolates_matching_ids() {
         let from = Node::frame("s1", 400.0, 400.0)
-            .child(Node::rect("box", 0.0, 0.0, 100.0, 100.0, Color::rgb8(255, 0, 0)))
+            .child(Node::rect("box", 0.0, 0.0, 100.0, 100.0, Color::from_rgb8(255, 0, 0)))
             .child(Node::rect("leaving", 300.0, 300.0, 50.0, 50.0, Color::WHITE));
         let to = Node::frame("s2", 400.0, 400.0)
-            .child(Node::rect("box", 200.0, 100.0, 200.0, 100.0, Color::rgb8(0, 0, 255)))
+            .child(Node::rect("box", 200.0, 100.0, 200.0, 100.0, Color::from_rgb8(0, 0, 255)))
             .child(Node::rect("entering", 0.0, 300.0, 50.0, 50.0, Color::WHITE));
         let mid = smart_animate(&from, &to, 0.5);
         let boxn = find(&mid, "box").unwrap();
@@ -276,7 +285,7 @@ mod tests {
         assert_eq!(boxn.transform.y, 50.0);
         assert_eq!(boxn.w, 150.0);
         if let Paint::Solid(c) = &boxn.fill {
-            assert_eq!((c.r, c.b), (128, 128)); // red->blue midpoint
+            assert_eq!(((c.components[0]*255.0).round() as u8, (c.components[2]*255.0).round() as u8), (128, 128)); // red->blue midpoint
         } else { panic!("expected solid fill") }
         // entering fades in, leaving fades out
         assert!((find(&mid, "entering").unwrap().opacity - 0.5).abs() < 1e-6);
@@ -336,7 +345,7 @@ mod tests {
         );
         let vars = Variables::default();
         assert!(e.set_auto_layout("f", Some(AutoLayout {
-            direction: LayoutDirection::Horizontal, gap: 10.0, padding: 8.0,
+            direction: LayoutDirection::Horizontal, gap: 10.0, padding: [8.0; 4],
             sizing: Sizing::Fixed, ..Default::default()
         }), &vars));
         // children re-stacked: a at padding, b after a + gap
@@ -519,16 +528,16 @@ mod tests {
         comp.visible = false;
         comp.children.push(Node::rect("chip-bg", 0.0, 0.0, 60.0, 24.0, Color::BLACK));
         let mut inst = Node::instance("i1", "Chip", 100.0, 100.0, 60.0, 24.0);
-        set_override(&mut inst, "chip-bg", OverrideValue::Fill(Color::rgb8(0, 0xff, 0)));
+        set_override(&mut inst, "chip-bg", OverrideValue::Fill(Color::from_rgb8(0, 0xff, 0)));
         let mut e = Editor::new(Node::frame("page", 400.0, 300.0).child(comp).child(inst));
-        assert!(e.detach_selected_instance(&Variables::default()) == false); // nothing selected
+        assert!(!e.detach_selected_instance(&Variables::default())); // nothing selected
         e.selection = vec!["i1".into()];
         assert!(e.detach_selected_instance(&Variables::default()));
         assert!(find(&e.root, "i1").is_none());
         let g = find(&e.root, "i1-detached").unwrap();
         assert_eq!(g.transform.x, 100.0);
         let bg = g.children.iter().find(|c| c.id == "chip-bg").unwrap();
-        assert!(matches!(&bg.fill, Paint::Solid(c) if c.g == 0xff));
+        assert!(matches!(&bg.fill, Paint::Solid(c) if (c.components[1]*255.0).round() as u8 == 0xff));
         e.undo();
         assert!(find(&e.root, "i1").is_some());
         assert!(find(&e.root, "i1-detached").is_none());
@@ -559,14 +568,70 @@ mod tests {
 
     #[test]
     fn dev_mode_css_export() {
-        let n = Node::rect("card", 0.0, 0.0, 240.0, 120.0, Color::rgb8(0x0d, 0x99, 0xff))
+        let n = Node::rect("card", 0.0, 0.0, 240.0, 120.0, Color::from_rgb8(0x0d, 0x99, 0xff))
             .radius(16.0).opacity(0.9)
-            .effect(x_core::Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::rgba8(0, 0, 0, 128) });
+            .effect(x_core::Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::from_rgba8(0, 0, 0, 128) });
         let css = node_to_css(&n, &Variables::default());
         assert!(css.contains("width: 240px"));
         assert!(css.contains("background: #0d99ff"));
         assert!(css.contains("border-radius: 16px"));
         assert!(css.contains("box-shadow: 0px 4px 12px"));
+    }
+
+    #[test]
+    fn dev_mode_css_includes_position_pins_and_image_fills() {
+        let mut img = Node::image("hero", 12.0, 34.0, 100.0, 50.0, "asset://abc123");
+        img.pin = (HPin::StretchH, VPin::ScaleV);
+        let css = node_to_css(&img, &Variables::default());
+        assert!(css.contains("position: absolute;"));
+        assert!(css.contains("left: 12px;"));
+        assert!(css.contains("top: 34px;"));
+        assert!(css.contains("background-image: url(\"asset://abc123\")"));
+        assert!(css.contains("/* resize: pinned stretch-h / scale-v */"));
+        // default pins stay silent
+        let plain = node_to_css(&Node::rect("r", 0.0, 0.0, 10.0, 10.0, Color::BLACK), &Variables::default());
+        assert!(!plain.contains("resize"));
+    }
+
+    #[test]
+    fn dev_mode_css_hints_rich_text_runs() {
+        let mut t = Node::text("t1", 0.0, 0.0, 200.0, 18.0, "Mixed style");
+        t.text_runs = vec![
+            TextRun { start: 0, len: 5, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None },
+            TextRun { start: 6, len: 5, color: None, size: Some(28.0), font: None },
+        ];
+        let css = node_to_css(&t, &Variables::default());
+        assert!(css.contains("2 rich text run(s)"), "dev mode surfaces the run count: {css}");
+        let plain = node_to_css(&Node::text("t2", 0.0, 0.0, 100.0, 18.0, "plain"), &Variables::default());
+        assert!(!plain.contains("rich text run"), "plain text gets no hint");
+    }
+
+    #[test]
+    fn dev_mode_css_emits_typography_for_text() {
+        let mut t = Node::text("t1", 0.0, 0.0, 200.0, 18.0, "Headline");
+        t.bindings.insert("font".into(), "Roboto-Medium".into());
+        t.bindings.insert("lh".into(), "1.5".into());
+        t.bindings.insert("ls".into(), "0.5".into());
+        let css = node_to_css(&t, &Variables::default());
+        assert!(css.contains("font-size: 18px;"));
+        assert!(css.contains("font-family: \"Roboto-Medium\";"));
+        assert!(css.contains("line-height: 1.5;"));
+        assert!(css.contains("letter-spacing: 0.5px;"));
+        // non-text nodes get no typography lines
+        let rect = node_to_css(&Node::rect("r", 0.0, 0.0, 10.0, 10.0, Color::BLACK), &Variables::default());
+        assert!(!rect.contains("font-size"));
+    }
+
+    #[test]
+    fn dev_mode_css_emits_borders() {
+        let mut n = Node::rect("r", 0.0, 0.0, 10.0, 10.0, Color::BLACK);
+        n.stroke = x_core::Stroke::solid(Color::from_rgb8(0x11, 0x22, 0x33), 2.0);
+        let css = node_to_css(&n, &Variables::default());
+        assert!(css.contains("border: 2px solid #112233;"));
+        // gradient stroke degrades to a commented hint
+        n.stroke = x_core::Stroke { paint: Paint::LinearGradient { start: (0.0, 0.0), end: (10.0, 0.0), stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)] }, width: 3.0 };
+        let css = node_to_css(&n, &Variables::default());
+        assert!(css.contains("border: 3px solid; /* gradient stroke */"));
     }
 }
 

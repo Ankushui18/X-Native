@@ -4,6 +4,11 @@
 
 // ------------------------------------------------------------------- parser
 
+/// Recursion ceiling for untrusted documents (.sketch packages, Figma
+/// REST JSON). Every legitimate file nests far below this; a hostile
+/// deeply-nested input errors cleanly instead of overflowing the stack.
+pub(crate) const MAX_JSON_DEPTH: usize = 512;
+
 pub(crate) struct P<'a> { s: &'a [u8], i: usize }
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum V { Null, Bool(bool), Num(f64), Str(String), Arr(Vec<V>), Obj(Vec<(String, V)>) }
@@ -23,16 +28,19 @@ impl<'a> P<'a> {
         self.ws();
         if self.s.get(self.i) == Some(&c) { self.i += 1; Ok(()) } else { Err(format!("expected '{}' at {}", c as char, self.i)) }
     }
-    pub(crate) fn value(&mut self) -> Result<V, String> {
+    pub(crate) fn value(&mut self) -> Result<V, String> { self.value_at_depth(0) }
+
+    fn value_at_depth(&mut self, depth: usize) -> Result<V, String> {
+        if depth > MAX_JSON_DEPTH { return Err(format!("JSON nesting deeper than {MAX_JSON_DEPTH}")); }
         match self.peek().ok_or("eof")? {
             b'{' => {
                 self.eat(b'{')?;
                 let mut m = vec![];
                 if self.peek() == Some(b'}') { self.eat(b'}')?; return Ok(V::Obj(m)); }
                 loop {
-                    let k = match self.value()? { V::Str(s) => s, _ => return Err("key must be string".into()) };
+                    let k = match self.value_at_depth(depth + 1)? { V::Str(s) => s, _ => return Err("key must be string".into()) };
                     self.eat(b':')?;
-                    m.push((k, self.value()?));
+                    m.push((k, self.value_at_depth(depth + 1)?));
                     match self.peek() { Some(b',') => { self.eat(b',')?; } _ => break }
                 }
                 self.eat(b'}')?;
@@ -43,7 +51,7 @@ impl<'a> P<'a> {
                 let mut a = vec![];
                 if self.peek() == Some(b']') { self.eat(b']')?; return Ok(V::Arr(a)); }
                 loop {
-                    a.push(self.value()?);
+                    a.push(self.value_at_depth(depth + 1)?);
                     match self.peek() { Some(b',') => { self.eat(b',')?; } _ => break }
                 }
                 self.eat(b']')?;
@@ -64,8 +72,28 @@ impl<'a> P<'a> {
                                 b'u' => {
                                     let hex = std::str::from_utf8(self.s.get(self.i..self.i + 4).ok_or("bad \\u")?).map_err(|_| "bad utf8")?;
                                     let cp = u32::from_str_radix(hex, 16).map_err(|_| "bad hex")?;
-                                    out.push(char::from_u32(cp).unwrap_or('\u{fffd}'));
                                     self.i += 4;
+                                    // UTF-16 surrogate pair: a high surrogate
+                                    // followed by \uDC00-\uDFFF combines into one
+                                    // astral char (emoji in Sketch/Figma text)
+                                    let ch = if (0xD800..0xDC00).contains(&cp) {
+                                        let low = self.s.get(self.i..self.i + 2)
+                                            .filter(|sl| *sl == b"\\u")
+                                            .and_then(|_| self.s.get(self.i + 2..self.i + 6))
+                                            .and_then(|h| std::str::from_utf8(h).ok())
+                                            .and_then(|h| u32::from_str_radix(h, 16).ok())
+                                            .filter(|lo| (0xDC00..0xE000).contains(lo));
+                                        match low {
+                                            Some(lo) => {
+                                                self.i += 6;
+                                                char::from_u32(0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)).unwrap_or('\u{fffd}')
+                                            }
+                                            None => '\u{fffd}',
+                                        }
+                                    } else {
+                                        char::from_u32(cp).unwrap_or('\u{fffd}')
+                                    };
+                                    out.push(ch);
                                 }
                                 other => out.push(other as char),
                             }
@@ -101,3 +129,39 @@ impl<'a> P<'a> {
 
 /// Parse a complete JSON document.
 pub(crate) fn parse(text: &str) -> Result<V, String> { P::new(text).value() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deeply_nested_hostile_input_errors_instead_of_overflowing() {
+        // 100k nested arrays: far past MAX_JSON_DEPTH. Without the depth
+        // ceiling this overflows the stack (adversarial .sketch/Figma file);
+        // with it, the parser errors cleanly.
+        let hostile = format!("{}1{}", "[".repeat(100_000), "]".repeat(100_000));
+        let err = parse(&hostile).expect_err("must hit the depth ceiling");
+        assert!(err.contains("nesting"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn nesting_within_the_limit_still_parses() {
+        let ok = format!("{}0{}", "[".repeat(500), "]".repeat(500));
+        assert!(parse(&ok).is_ok());
+    }
+
+    #[test]
+    fn surrogate_pairs_decode_to_astral_chars() {
+        // \uD83D\uDE00 is the UTF-16 encoding of U+1F600
+        let v = parse("\"a\\ud83d\\ude00b\"").expect("surrogate pair");
+        assert_eq!(v, V::Str("a\u{1F600}b".into()));
+    }
+
+    #[test]
+    fn unicode_escapes_decode_to_control_chars() {
+        let v = parse(r#""a\tb""#).expect("tab escape");
+        assert_eq!(v, V::Str("a\tb".into()));
+        let v = parse("\"a\\u0009b\"").expect("\\u0009 escape");
+        assert_eq!(v, V::Str("a\tb".into()));
+    }
+}

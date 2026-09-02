@@ -1,5 +1,5 @@
 
-use vello::kurbo::{Affine, Point, Rect};
+use x_core::kurbo::{Affine, Point, Rect};
 
 use x_core::*;
 #[allow(unused_imports)]

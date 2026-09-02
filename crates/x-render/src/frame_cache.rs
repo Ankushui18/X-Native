@@ -16,7 +16,7 @@
 //! Correctness fallbacks: top-level masks or a non-Normal root blend
 //! bypass segment reuse entirely (order-dependent clipping).
 
-use crate::ir::{build_render_tree, RenderCommand, RenderTree, VelloSink};
+use crate::ir::{build_render_tree, VelloSink};
 use std::collections::HashMap;
 use std::sync::Arc;
 use vello::kurbo::Affine;
@@ -37,7 +37,8 @@ fn smix(h: &mut u64, s: &str) {
     mix(h, 0x1f);
 }
 fn cmix(h: &mut u64, c: &Color) {
-    mix(h, u64::from_le_bytes([c.r, c.g, c.b, c.a, 0, 0, 0, 0]));
+    let rgba = c.to_rgba8();
+    mix(h, u64::from_le_bytes([rgba.r, rgba.g, rgba.b, rgba.a, 0, 0, 0, 0]));
 }
 fn paint_mix(h: &mut u64, p: &Paint) {
     match p {
@@ -67,11 +68,11 @@ fn hash_subtree(n: &Node) -> (u64, bool, bool) {
         fmix(h, n.transform.rotation); fmix(h, n.transform.scale_x); fmix(h, n.transform.scale_y);
         fmix(h, n.w); fmix(h, n.h);
         paint_mix(h, &n.fill);
-        cmix(h, &n.stroke.color); fmix(h, n.stroke.width);
+        paint_mix(h, &n.stroke.paint); fmix(h, n.stroke.width);
         mix(h, n.visual_stacks_materialized as u64);
         for l in &n.fill_layers { paint_mix(h, &l.paint); fmix(h, l.opacity as f64); mix(h, l.visible as u64); mix(h, l.blend as u64); }
         for l in &n.stroke_layers {
-            cmix(h, &l.stroke.color); fmix(h, l.stroke.width); fmix(h, l.opacity as f64); mix(h, l.visible as u64); mix(h, l.blend as u64);
+            paint_mix(h, &l.stroke.paint); fmix(h, l.stroke.width); fmix(h, l.opacity as f64); mix(h, l.visible as u64); mix(h, l.blend as u64);
             mix(h, l.options.align as u64); mix(h, l.options.cap_start as u64); mix(h, l.options.cap_end as u64); mix(h, l.options.join as u64);
             fmix(h, l.options.dash_offset); fmix(h, l.options.miter_limit); for d in &l.options.dash { fmix(h, *d); }
         }
@@ -103,12 +104,20 @@ fn hash_subtree(n: &Node) -> (u64, bool, bool) {
         ovr.sort();
         for (k, v) in ovr { smix(h, k); smix(h, v); }
         match &n.kind {
-            NodeKind::Frame { layout } => { mix(h, 21); if let Some(l) = layout { fmix(h, l.gap); fmix(h, l.padding); mix(h, l.direction as u64); } }
+            NodeKind::Frame { layout } => { mix(h, 21); if let Some(l) = layout { fmix(h, l.gap); for p in l.padding { fmix(h, p); } mix(h, l.direction as u64); mix(h, if l.cross_sizing == Some(Sizing::Hug) { 2u64 } else if l.cross_sizing.is_some() { 1u64 } else { 0u64 }); } }
             NodeKind::Group => mix(h, 22),
             NodeKind::Rect { radius } => { mix(h, 23); fmix(h, *radius); }
             NodeKind::Ellipse => mix(h, 24),
             NodeKind::Line => mix(h, 25),
-            NodeKind::Text { text } => { mix(h, 26); smix(h, text); }
+            NodeKind::Text { text } => {
+                mix(h, 26); smix(h, text);
+                // rich runs change glyphs without changing `text`
+                for r in &n.text_runs { smix(h, &r.start.to_string()); smix(h, &r.len.to_string());
+                    if let Some(c) = r.color { for b in c.components { fmix(h, b as f64); } }
+                    if let Some(sz) = r.size { fmix(h, sz); }
+                    if let Some(f) = &r.font { smix(h, f); }
+                }
+            }
             NodeKind::Image { asset, fit, placement } => {
                 mix(h, 27); smix(h, asset); mix(h, *fit as u64);
                 fmix(h, placement.focal.0); fmix(h, placement.focal.1);
@@ -127,7 +136,6 @@ fn hash_subtree(n: &Node) -> (u64, bool, bool) {
             }
             NodeKind::Component { name } => { mix(h, 29); smix(h, name); *has_comp = true; }
             NodeKind::Instance { component } => { mix(h, 30); smix(h, component); *has_inst = true; }
-            NodeKind::VectorNetwork(_) => { /* TODO: Handle vector network in frame cache */ }
         }
         for c in &n.children { walk(c, h, has_comp, has_inst); }
         mix(h, 0x2e);
@@ -143,7 +151,7 @@ pub fn subtree_bounds(n: &Node, parent: Affine) -> Option<vello::kurbo::Rect> {
     if !n.visible { return None; }
     let world = parent * n.transform.matrix(n.w, n.h);
     let mut acc: Option<vello::kurbo::Rect> = None;
-    let mut include = |r: vello::kurbo::Rect, acc: &mut Option<vello::kurbo::Rect>| {
+    let include = |r: vello::kurbo::Rect, acc: &mut Option<vello::kurbo::Rect>| {
         *acc = Some(match acc { Some(a) => a.union(r), None => r });
     };
     // own box (all paint kinds live inside it; effects add blur margin)
@@ -163,10 +171,10 @@ pub fn subtree_bounds(n: &Node, parent: Affine) -> Option<vello::kurbo::Rect> {
 fn vars_hash(vars: &Variables) -> u64 {
     let mut h = 0x9e37_79b9_7f4a_7c15u64;
     let mut cs: Vec<_> = vars.colors.iter().collect();
-    cs.sort_by_key(|(k, _)| k.clone());
+    cs.sort_by_key(|(k, _)| (*k).clone());
     for (k, v) in cs { smix(&mut h, k); cmix(&mut h, v); }
     let mut ns: Vec<_> = vars.numbers.iter().collect();
-    ns.sort_by_key(|(k, _)| k.clone());
+    ns.sort_by_key(|(k, _)| (*k).clone());
     for (k, v) in ns { smix(&mut h, k); fmix(&mut h, *v); }
     if let Some(m) = &vars.active_mode { smix(&mut h, m); }
     h
@@ -273,6 +281,11 @@ impl FrameCache {
                 segments_reused: root.children.len(),
                 hash_ms, lower_ms: 0.0, encode_ms: 0.0,
             };
+            // if-let here trips NLL's conditional-return-of-a-borrow
+            // limitation (the loan would outlive the later self.scene
+            // re-assignment on the miss path) — unwrap-at-return is the
+            // shape the borrow checker can prove.
+            #[allow(clippy::unnecessary_unwrap)]
             return self.scene.as_ref().unwrap();
         }
 
@@ -347,9 +360,9 @@ impl FrameCache {
                 Some((k, sc)) if *k == key => { reused += hi - lo; sc.clone() }
                 _ => {
                     let tl = std::time::Instant::now();
-                    for i in lo..hi {
-                        if root.children[i].visible && visible_mask[i] {
-                            lower_shell.children.push(root.children[i].clone());
+                    for (i, child) in root.children.iter().enumerate().take(hi).skip(lo) {
+                        if child.visible && visible_mask[i] {
+                            lower_shell.children.push(child.clone());
                         }
                     }
                     let sub_tree = build_render_tree(&lower_shell, vars);
@@ -384,11 +397,13 @@ impl FrameCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // used only by tests (the lib itself no longer needs these names)
+    use crate::ir::RenderCommand;
 
     fn doc(n: usize) -> Node {
         let mut page = Node::frame("page", 2000.0, 2000.0);
         for i in 0..n {
-            page.children.push(Node::rect(&format!("r{i}"), (i * 20) as f64, 10.0, 15.0, 15.0, Color::rgb8(50, 100, 200)));
+            page.children.push(Node::rect(&format!("r{i}"), (i * 20) as f64, 10.0, 15.0, 15.0, Color::from_rgb8(50, 100, 200)));
         }
         page
     }
@@ -428,7 +443,7 @@ mod tests {
     fn instance_segments_invalidate_when_component_changes() {
         let vars = Variables::default();
         let sink = VelloSink { assets: None, fonts: None };
-        let mut make = |fill: Color| {
+        let make = |fill: Color| {
             Node::frame("page", 1000.0, 1000.0)
                 .child(Node::component("m", "Chip", 50.0, 20.0)
                     .child(Node::rect("m-bg", 0.0, 0.0, 50.0, 20.0, fill)))
@@ -436,10 +451,10 @@ mod tests {
                 .child(Node::rect("plain", 300.0, 300.0, 40.0, 40.0, Color::BLACK))
         };
         let mut fc = FrameCache::new();
-        fc.render(&make(Color::rgb8(255, 0, 0)), &vars, &sink);
+        fc.render(&make(Color::from_rgb8(255, 0, 0)), &vars, &sink);
         // recolor the COMPONENT: the bucket containing the instance must
         // re-lower even though the instance node itself is unchanged
-        fc.render(&make(Color::rgb8(0, 255, 0)), &vars, &sink);
+        fc.render(&make(Color::from_rgb8(0, 255, 0)), &vars, &sink);
         assert!(!fc.stats.full_hit);
         assert_eq!(fc.stats.segments_reused, 0, "component change re-lowered the (single) bucket");
     }
@@ -467,8 +482,8 @@ mod tests {
         let vars = Variables::default();
         let sink = VelloSink { assets: None, fonts: None };
         let page = Node::frame("page", 1000.0, 1000.0)
-            .child(Node::rect("a", 10.0, 10.0, 50.0, 50.0, Color::rgb8(255, 0, 0)).radius(4.0))
-            .child(Node::ellipse("b", 100.0, 10.0, 50.0, 50.0, Color::rgb8(0, 255, 0)))
+            .child(Node::rect("a", 10.0, 10.0, 50.0, 50.0, Color::from_rgb8(255, 0, 0)).radius(4.0))
+            .child(Node::ellipse("b", 100.0, 10.0, 50.0, 50.0, Color::from_rgb8(0, 255, 0)))
             .child(Node::text("t", 10.0, 100.0, 200.0, 16.0, "hello"));
         let mut fc = FrameCache::new();
         fc.render(&page, &vars, &sink);
@@ -494,7 +509,7 @@ mod culling_tests {
         for i in 0..n {
             let x = (i % 100) as f64 * 1000.0;
             let y = (i / 100) as f64 * 1000.0;
-            page.children.push(Node::rect(&format!("r{i}"), x, y, 50.0, 50.0, Color::rgb8(9, 9, 9)));
+            page.children.push(Node::rect(&format!("r{i}"), x, y, 50.0, 50.0, Color::from_rgb8(9, 9, 9)));
         }
         page
     }
@@ -518,7 +533,7 @@ mod culling_tests {
         // (its blur bleeds in)
         let page = Node::frame("page", 5000.0, 5000.0)
             .child(Node::rect("sh", 2010.0, 100.0, 50.0, 50.0, Color::BLACK)
-                .effect(Effect::DropShadow { dx: -30.0, dy: 0.0, blur: 30.0, color: Color::rgba8(0, 0, 0, 128) }))
+                .effect(Effect::DropShadow { dx: -30.0, dy: 0.0, blur: 30.0, color: Color::from_rgba8(0, 0, 0, 128) }))
             .child(Node::rect("far", 4000.0, 4000.0, 50.0, 50.0, Color::BLACK));
         let mut fc = FrameCache::new();
         let vp = KRect::new(0.0, 0.0, 2000.0, 2000.0);

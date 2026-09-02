@@ -1,8 +1,5 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Blob, Brush, Color, Fill, Format, Gradient, Image, Mix};
-use vello::Scene;
-use x_core::*;
+use vello::peniko::{Blob, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
 #[allow(unused_imports)]
 use crate::*;
 
@@ -11,7 +8,7 @@ use crate::*;
 /// Phase 4.2: decoded image assets, keyed by the asset name that
 /// `NodeKind::Image` references. Load PNGs once, render everywhere.
 #[derive(Default)]
-pub struct Assets { images: HashMap<String, Image> }
+pub struct Assets { images: HashMap<String, ImageBrush> }
 impl Assets {
     pub fn new() -> Self { Self::default() }
     /// Decode a PNG (any bit depth/color type png-crate supports -> RGBA8).
@@ -34,7 +31,16 @@ impl Assets {
             png::ColorType::GrayscaleAlpha => buf[..info.buffer_size()].chunks(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
             other => return Err(format!("unsupported color type {other:?}")),
         };
-        self.images.insert(name.into(), Image::new(Blob::from(rgba), Format::Rgba8, w, h));
+        self.images.insert(name.into(), ImageBrush {
+            image: ImageData {
+                data: Blob::from(rgba),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::Alpha,
+                width: w,
+                height: h,
+            },
+            sampler: Default::default(),
+        });
         Ok(())
     }
     /// Sync from the document's content-addressed AssetStore: decode every
@@ -50,12 +56,12 @@ impl Assets {
     }
 
     /// direct insert of a decoded image (tests / procedural content)
-    pub fn insert_raw(&mut self, name: &str, img: Image) { self.images.insert(name.into(), img); }
+    pub fn insert_raw(&mut self, name: &str, img: ImageBrush) { self.images.insert(name.into(), img); }
 
     /// Resident decoded bytes (RGBA8: w*h*4 per image) — GPU-side cache
     /// footprint for the memory breakdown.
     pub fn memory_bytes(&self) -> usize {
-        self.images.values().map(|i| (i.width * i.height * 4) as usize).sum()
+        self.images.values().map(|i| (i.image.width * i.image.height * 4) as usize).sum()
     }
 
     /// Evict decoded images NOT in the keep set (e.g. thumbnails scrolled
@@ -66,7 +72,7 @@ impl Assets {
         self.images.retain(|k, _| keep.contains(k) || !k.starts_with("asset://"));
         before - self.memory_bytes()
     }
-    pub fn get(&self, name: &str) -> Option<&Image> { self.images.get(name) }
+    pub fn get(&self, name: &str) -> Option<&ImageBrush> { self.images.get(name) }
     /// Sorted asset names (image replace UI / pickers).
     pub fn names(&self) -> Vec<String> {
         let mut v: Vec<String> = self.images.keys().cloned().collect();

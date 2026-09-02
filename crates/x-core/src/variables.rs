@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Brush, Color, Fill, Gradient, Mix};
+use kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
+use peniko::{Brush, Color, Fill, Gradient, Mix};
 #[allow(unused_imports)]
 use crate::*;
 
@@ -96,10 +96,12 @@ pub fn parse_hex_color(s: &str) -> Option<Color> {
         8 => (u8::from_str_radix(&s[0..2], 16).ok()?, u8::from_str_radix(&s[2..4], 16).ok()?, u8::from_str_radix(&s[4..6], 16).ok()?, u8::from_str_radix(&s[6..8], 16).ok()?),
         _ => return None,
     };
-    Some(Color::rgba8(r, g, b, a))
+    Some(Color::from_rgba8(r, g, b, a))
 }
 pub fn color_to_hex(c: Color) -> String {
-    if c.a == 255 { format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b) } else { format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a) }
+    let rgba = c.to_rgba8();
+    let (r, g, b, a) = (rgba.r, rgba.g, rgba.b, rgba.a);
+    if a == 255 { format!("#{r:02x}{g:02x}{b:02x}") } else { format!("#{r:02x}{g:02x}{b:02x}{a:02x}") }
 }
 
 /// Typed instance overrides (Phase 5.3): an override value keyed by a node id

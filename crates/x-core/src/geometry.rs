@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-pub use vello::kurbo::{Affine, Rect};
-pub use vello::kurbo::Point;
-use vello::kurbo::{Circle, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Brush, Color, Fill, Gradient, Mix};
+pub use kurbo::{Affine, Rect};
+pub use kurbo::Point;
+use kurbo::{Circle, RoundedRect, RoundedRectRadii, Shape};
+use peniko::{Brush, Color, Fill, Gradient, Mix};
 #[allow(unused_imports)]
 use crate::*;
 
@@ -14,10 +14,10 @@ use crate::*;
 pub fn intersects(a: Rect, b: Rect) -> bool { a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0 }
 pub fn bounds(world: Affine, w: f64, h: f64) -> Rect {
     let p = [
-        world * vello::kurbo::Point::new(0.0, 0.0),
-        world * vello::kurbo::Point::new(w, 0.0),
-        world * vello::kurbo::Point::new(w, h),
-        world * vello::kurbo::Point::new(0.0, h),
+        world * kurbo::Point::new(0.0, 0.0),
+        world * kurbo::Point::new(w, 0.0),
+        world * kurbo::Point::new(w, h),
+        world * kurbo::Point::new(0.0, h),
     ];
     let xs = p.iter().map(|p| p.x);
     let ys = p.iter().map(|p| p.y);

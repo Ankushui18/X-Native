@@ -7,6 +7,7 @@
 //! - VelloSink   -> vello::Scene (the GPU path, used by the app)
 //! - Any future sink: SVG, PDF/print, thumbnails, hit-test caches,
 //!   accessibility trees, WebGPU-direct — same commands.
+//!
 //! Node uuid-stable `key`s make caching / partial redraw diffs possible.
 
 use std::collections::HashMap;
@@ -20,10 +21,10 @@ use x_core::*;
 #[derive(Debug, Clone)]
 pub enum RenderCommand {
     FillPath { key: String, transform: Affine, path: BezPath, brush: Brush },
-    StrokePath { key: String, transform: Affine, path: BezPath, color: Color, width: f64, options: StrokeOptions },
+    StrokePath { key: String, transform: Affine, path: BezPath, brush: Brush, width: f64, options: StrokeOptions },
     PushLayer { key: String, mix: Mix, alpha: f32, bounds: Rect },
     PopLayer,
-    Glyphs { key: String, transform: Affine, text: String, size: f64, brush: Brush, max_width: f64, font: Option<String>, letter_spacing: f64, line_height: f64 },
+    Glyphs { key: String, transform: Affine, text: String, size: f64, brush: Brush, max_width: f64, font: Option<String>, letter_spacing: f64, line_height: f64, runs: Vec<x_core::TextPart> },
     Image { key: String, transform: Affine, asset: String, w: f64, h: f64, fit: ImageFit, placement: ImagePlacement },
     /// clip layer from an arbitrary path (masks)
     PushClip { key: String, transform: Affine, path: BezPath },
@@ -89,16 +90,31 @@ fn mask_path_of(n: &Node) -> Option<BezPath> {
     }
 }
 
+/// A paint that cannot affect output: a fully transparent solid, or a
+/// variable resolving to one. Legacy single-fill nodes default to
+/// `Solid(TRANSPARENT)` (every frame, group, component and instance), so
+/// without this check the IR lowers a no-op FillPath/Glyphs command for
+/// each of them — wasted GPU work and noise in the diff/golden stream.
+/// (The direct encoder in scene.rs already skips `color.a == 0` fills;
+/// this brings the IR path back into lockstep with it.)
+fn paint_fully_transparent(p: &Paint, vars: &Variables) -> bool {
+    match p {
+        Paint::Solid(c) => c.components[3] == 0.0,
+        Paint::Variable(name) => vars.color(name, Color::BLACK).components[3] == 0.0,
+        _ => false,
+    }
+}
+
 fn layer_brush(paint: &Paint, vars: &Variables, opacity: f32) -> Brush {
     if opacity >= 1.0 { return paint_brush(paint, vars); }
     match paint {
-        Paint::Solid(c) => Brush::Solid(c.with_alpha_factor(opacity)),
-        Paint::Variable(name) => Brush::Solid(vars.color(name, Color::BLACK).with_alpha_factor(opacity)),
+        Paint::Solid(c) => Brush::Solid(c.multiply_alpha(opacity)),
+        Paint::Variable(name) => Brush::Solid(vars.color(name, Color::BLACK).multiply_alpha(opacity)),
         Paint::LinearGradient { start, end, stops } => paint_brush(&Paint::LinearGradient {
-            start: *start, end: *end, stops: stops.iter().map(|(t, c)| (*t, c.with_alpha_factor(opacity))).collect()
+            start: *start, end: *end, stops: stops.iter().map(|(t, c)| (*t, c.multiply_alpha(opacity))).collect()
         }, vars),
         Paint::RadialGradient { center, radius, stops } => paint_brush(&Paint::RadialGradient {
-            center: *center, radius: *radius, stops: stops.iter().map(|(t, c)| (*t, c.with_alpha_factor(opacity))).collect()
+            center: *center, radius: *radius, stops: stops.iter().map(|(t, c)| (*t, c.multiply_alpha(opacity))).collect()
         }, vars),
     }
 }
@@ -125,15 +141,16 @@ fn offset_command(command: &RenderCommand, dx: f64, dy: f64) -> RenderCommand {
     let shift = Affine::translate((dx, dy));
     match command {
         RenderCommand::FillPath { key, transform, path, brush } => RenderCommand::FillPath { key: format!("{key}/bg"), transform: shift * *transform, path: path.clone(), brush: brush.clone() },
-        RenderCommand::StrokePath { key, transform, path, color, width, options } => RenderCommand::StrokePath { key: format!("{key}/bg"), transform: shift * *transform, path: path.clone(), color: *color, width: *width, options: options.clone() },
+        RenderCommand::StrokePath { key, transform, path, brush, width, options } => RenderCommand::StrokePath { key: format!("{key}/bg"), transform: shift * *transform, path: path.clone(), brush: brush.clone(), width: *width, options: options.clone() },
         RenderCommand::PushLayer { key, mix, alpha, bounds } => RenderCommand::PushLayer { key: format!("{key}/bg"), mix: *mix, alpha: *alpha, bounds: Rect::new(bounds.x0 + dx, bounds.y0 + dy, bounds.x1 + dx, bounds.y1 + dy) },
         RenderCommand::PopLayer => RenderCommand::PopLayer,
-        RenderCommand::Glyphs { key, transform, text, size, brush, max_width, font, letter_spacing, line_height } => RenderCommand::Glyphs { key: format!("{key}/bg"), transform: shift * *transform, text: text.clone(), size: *size, brush: brush.clone(), max_width: *max_width, font: font.clone(), letter_spacing: *letter_spacing, line_height: *line_height },
+        RenderCommand::Glyphs { key, transform, text, size, brush, max_width, font, letter_spacing, line_height, runs } => RenderCommand::Glyphs { key: format!("{key}/bg"), transform: shift * *transform, text: text.clone(), size: *size, brush: brush.clone(), max_width: *max_width, font: font.clone(), letter_spacing: *letter_spacing, line_height: *line_height, runs: runs.clone() },
         RenderCommand::Image { key, transform, asset, w, h, fit, placement } => RenderCommand::Image { key: format!("{key}/bg"), transform: shift * *transform, asset: asset.clone(), w: *w, h: *h, fit: *fit, placement: *placement },
         RenderCommand::PushClip { key, transform, path } => RenderCommand::PushClip { key: format!("{key}/bg"), transform: shift * *transform, path: path.clone() },
     }
 }
 
+#[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
 fn emit_visual_layers(tree: &mut RenderTree, node: &Node, key: &str, world: Affine, path: &BezPath, vars: &Variables, opacity: f32, override_color: Option<Color>) {
     let effects = node.active_effects();
     let layer_blur = effects.iter().filter_map(|l| match &l.effect { Effect::LayerBlur { radius } => Some(*radius * l.opacity as f64), _ => None }).fold(0.0, f64::max);
@@ -155,21 +172,19 @@ fn emit_visual_layers(tree: &mut RenderTree, node: &Node, key: &str, world: Affi
         }
     }
     for (i, layer) in effects.iter().enumerate() {
-        match &layer.effect {
-            Effect::DropShadow { dx, dy, blur, color } => {
-                if let Some(mix) = layer.blend.mix() { tree.commands.push(RenderCommand::PushLayer { key: format!("{key}/effect-{i}/blend"), mix, alpha: 1.0, bounds: bounds(world, node.w, node.h).inflate(*blur * 1.5, *blur * 1.5) }); }
-                for (tap, (bx, by, weight)) in gaussian_taps(*blur).into_iter().enumerate() {
-                    tree.commands.push(RenderCommand::FillPath { key: format!("{key}/effect-{i}/tap-{tap}"), transform: Affine::translate((bx, by)) * world * Affine::translate((*dx, *dy)), path: path.clone(), brush: Brush::Solid(color.with_alpha_factor(opacity * layer.opacity.clamp(0.0, 1.0) * weight)) });
-                }
-                if layer.blend != BlendKind::Normal { tree.commands.push(RenderCommand::PopLayer); }
+        if let Effect::DropShadow { dx, dy, blur, color } = &layer.effect {
+            if let Some(mix) = layer.blend.mix() { tree.commands.push(RenderCommand::PushLayer { key: format!("{key}/effect-{i}/blend"), mix, alpha: 1.0, bounds: bounds(world, node.w, node.h).inflate(*blur * 1.5, *blur * 1.5) }); }
+            for (tap, (bx, by, weight)) in gaussian_taps(*blur).into_iter().enumerate() {
+                tree.commands.push(RenderCommand::FillPath { key: format!("{key}/effect-{i}/tap-{tap}"), transform: Affine::translate((bx, by)) * world * Affine::translate((*dx, *dy)), path: path.clone(), brush: Brush::Solid(color.multiply_alpha(opacity * layer.opacity.clamp(0.0, 1.0) * weight)) });
             }
-            _ => {}
+            if layer.blend != BlendKind::Normal { tree.commands.push(RenderCommand::PopLayer); }
         }
     }
     let fills = if let Some(color) = override_color {
         vec![PaintLayer::new(Paint::Solid(color))]
     } else { node.active_fills() };
     for (i, layer) in fills.iter().enumerate() {
+        if layer.opacity <= 0.0 || paint_fully_transparent(&layer.paint, vars) { continue; }
         let layer_key = format!("{key}/fill-{i}");
         if let Some(mix) = layer.blend.mix() {
             tree.commands.push(RenderCommand::PushLayer { key: layer_key.clone(), mix, alpha: 1.0, bounds: bounds(world, node.w, node.h) });
@@ -180,6 +195,7 @@ fn emit_visual_layers(tree: &mut RenderTree, node: &Node, key: &str, world: Affi
         if layer.blend != BlendKind::Normal { tree.commands.push(RenderCommand::PopLayer); }
     }
     for (i, layer) in node.active_strokes().iter().enumerate() {
+        if layer.opacity <= 0.0 || paint_fully_transparent(&layer.stroke.paint, vars) { continue; }
         let layer_key = format!("{key}/stroke-{i}");
         if let Some(mix) = layer.blend.mix() {
             tree.commands.push(RenderCommand::PushLayer { key: layer_key.clone(), mix, alpha: 1.0, bounds: bounds(world, node.w, node.h) });
@@ -189,7 +205,7 @@ fn emit_visual_layers(tree: &mut RenderTree, node: &Node, key: &str, world: Affi
                 key: if layer_blur > 0.01 { format!("{layer_key}/blur-{tap}") } else { layer_key.clone() },
                 transform: Affine::translate((dx, dy)) * world,
                 path: path.clone(),
-                color: layer.stroke.color.with_alpha_factor(opacity * layer.opacity.clamp(0.0, 1.0) * weight),
+                brush: layer_brush(&layer.stroke.paint, vars, opacity * layer.opacity.clamp(0.0, 1.0) * weight),
                 width: layer.stroke.width,
                 options: layer.options.clone(),
             });
@@ -204,7 +220,7 @@ fn emit_visual_layers(tree: &mut RenderTree, node: &Node, key: &str, world: Affi
             if let Some(mix) = layer.blend.mix() { tree.commands.push(RenderCommand::PushLayer { key: format!("{key}/effect-{i}/blend"), mix, alpha: 1.0, bounds: bounds(world, node.w, node.h) }); }
             tree.commands.push(RenderCommand::PushClip { key: format!("{key}/effect-{i}/inner-clip"), transform: world, path: path.clone() });
             for (tap, (bx, by, weight)) in gaussian_taps(*blur).into_iter().enumerate() {
-                tree.commands.push(RenderCommand::StrokePath { key: format!("{key}/effect-{i}/inner-tap-{tap}"), transform: Affine::translate((bx, by)) * world * Affine::translate((*dx, *dy)), path: path.clone(), color: color.with_alpha_factor(opacity * layer.opacity.clamp(0.0, 1.0) * weight), width: (*blur * 2.0).max(1.0), options: StrokeOptions::default() });
+                tree.commands.push(RenderCommand::StrokePath { key: format!("{key}/effect-{i}/inner-tap-{tap}"), transform: Affine::translate((bx, by)) * world * Affine::translate((*dx, *dy)), path: path.clone(), brush: Brush::Solid(color.multiply_alpha(opacity * layer.opacity.clamp(0.0, 1.0) * weight)), width: (*blur * 2.0).max(1.0), options: StrokeOptions::default() });
             }
             tree.commands.push(RenderCommand::PopLayer);
             if layer.blend != BlendKind::Normal { tree.commands.push(RenderCommand::PopLayer); }
@@ -216,11 +232,11 @@ fn fingerprint(c: &RenderCommand) -> String {
     match c {
         RenderCommand::FillPath { transform, path, brush, .. } =>
             format!("f{:?}{}{:?}", transform.as_coeffs(), path.elements().len(), brush),
-        RenderCommand::StrokePath { transform, color, width, options, .. } =>
-            format!("s{:?}{color:?}{width}{options:?}", transform.as_coeffs()),
+        RenderCommand::StrokePath { transform, brush, width, options, .. } =>
+            format!("s{:?}{brush:?}{width}{options:?}", transform.as_coeffs()),
         RenderCommand::PushLayer { mix, alpha, bounds, .. } => format!("l{mix:?}{alpha}{bounds:?}"),
-        RenderCommand::Glyphs { transform, text, size, brush, font, max_width, .. } =>
-            format!("g{:?}{text}{size}{max_width}{font:?}{brush:?}", transform.as_coeffs()),
+        RenderCommand::Glyphs { transform, text, size, brush, font, max_width, runs, .. } =>
+            format!("g{:?}{text}{size}{max_width}{font:?}{brush:?}{runs:?}", transform.as_coeffs()),
         RenderCommand::Image { transform, asset, fit, placement, .. } => format!("i{:?}{asset}{fit:?}{placement:?}", transform.as_coeffs()),
         RenderCommand::PushClip { transform, path, .. } => format!("c{:?}{}", transform.as_coeffs(), path.elements().len()),
         RenderCommand::PopLayer => String::new(),
@@ -264,13 +280,13 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
         tree.commands.push(RenderCommand::PushLayer { key: key.clone(), mix, alpha: 1.0, bounds: b });
     }
 
-    let brush = || {
+    let _brush = || {
         let stack_paint = node.active_fills().last().map(|l| l.paint.clone()).unwrap_or_else(|| node.fill.clone());
         let mut b = if let Some(raw) = overrides.get(&node.id) {
             if let Some(c) = parse_hex_color(raw) { Brush::Solid(c) } else { paint_brush(&stack_paint, vars) }
         } else { paint_brush(&stack_paint, vars) };
         if opacity < 1.0 {
-            if let Brush::Solid(c) = b { b = Brush::Solid(c.with_alpha_factor(opacity)); }
+            if let Brush::Solid(c) = b { b = Brush::Solid(c.multiply_alpha(opacity)); }
         }
         b
     };
@@ -302,7 +318,7 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
             for (i, layer) in node.active_strokes().iter().enumerate() {
                 let width = layer.stroke.width.max(1.0);
                 let shape = Rect::new(0.0, 0.0, node.w.max(width), width).into_path(0.1);
-                tree.commands.push(RenderCommand::FillPath { key: format!("{key}/stroke-{i}"), transform: world, path: shape, brush: Brush::Solid(layer.stroke.color.with_alpha_factor(opacity * layer.opacity)) });
+                tree.commands.push(RenderCommand::FillPath { key: format!("{key}/stroke-{i}"), transform: world, path: shape, brush: layer_brush(&layer.stroke.paint, vars, opacity * layer.opacity) });
             }
         }
         NodeKind::Vector { path: p } => {
@@ -320,13 +336,31 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
             let lh = node.bindings.get("lh").and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.2);
             let fills = node.active_fills();
             let text_blur = node.active_effects().iter().filter_map(|l| match &l.effect { Effect::LayerBlur { radius } => Some(*radius * l.opacity as f64), _ => None }).fold(0.0, f64::max);
+            // rich runs apply to the node's OWN text only — a "text:"
+            // override replaces the content and invalidates char ranges
+            let text_override = overrides.get(&node.id).and_then(|v| v.strip_prefix("text:"));
+            let base_parts: Option<Vec<TextPart>> = if text_override.is_none() && !node.text_runs.is_empty() {
+                Some(resolve_text_parts(content, &node.text_runs))
+            } else { None };
             for (i, layer) in fills.iter().enumerate() {
+                if layer.opacity <= 0.0 || paint_fully_transparent(&layer.paint, vars) { continue; }
                 let layer_key = format!("{key}/fill-{i}");
                 if let Some(mix) = layer.blend.mix() {
                     tree.commands.push(RenderCommand::PushLayer { key: layer_key.clone(), mix, alpha: 1.0, bounds: bounds(world, node.w, node.h) });
                 }
                 for (tap, (dx, dy, weight)) in gaussian_taps(text_blur).into_iter().enumerate() {
-                    tree.commands.push(RenderCommand::Glyphs { key: if text_blur > 0.01 { format!("{layer_key}/blur-{tap}") } else { layer_key.clone() }, transform: Affine::translate((dx, dy)) * world, text: content.into(), size: node.h, brush: layer_brush(&layer.paint, vars, opacity * layer.opacity * weight), max_width: node.w, font: node.bindings.get("font").cloned(), letter_spacing: ls, line_height: lh });
+                                        // per-run FINAL colors: explicit run colors fold the
+                    // layer/blur alpha; unstyled runs keep `color: None` so
+                    // every sink paints them with the command brush
+                    let runs: Vec<TextPart> = match &base_parts {
+                        Some(parts) => parts.iter().map(|p| TextPart {
+                            text: p.text.clone(),
+                            color: p.color.map(|c| c.multiply_alpha(opacity * layer.opacity * weight)),
+                            size: p.size, font: p.font.clone(),
+                        }).collect(),
+                        None => vec![],
+                    };
+                    tree.commands.push(RenderCommand::Glyphs { key: if text_blur > 0.01 { format!("{layer_key}/blur-{tap}") } else { layer_key.clone() }, transform: Affine::translate((dx, dy)) * world, text: content.into(), size: node.h, brush: layer_brush(&layer.paint, vars, opacity * layer.opacity * weight), max_width: node.w, font: node.bindings.get("font").cloned(), letter_spacing: ls, line_height: lh, runs });
                 }
                 if layer.blend != BlendKind::Normal { tree.commands.push(RenderCommand::PopLayer); }
             }
@@ -354,7 +388,16 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
             // no fill, matching how every other node kind handles effects.
             let override_color = overrides.get(&node.id).and_then(|raw| parse_hex_color(raw));
             emit_visual_layers(tree, node, &key, world, &shape, vars, opacity, override_color);
-            frame_clip_shape = Some(shape);
+            // A frame clips its children ONLY when it actually has rounded
+            // corners — the visually load-bearing case (content must not
+            // stick out of the radii). Square frames behave like groups:
+            // no unconditional clip, so a page-level frame never adds a
+            // clip layer to every document (the direct encoder in
+            // scene.rs applies the identical rule; see its Frame branch).
+            let rounded = node.corner_radii
+                .map(|[tl, tr, br, bl]| tl > 0.0 || tr > 0.0 || br > 0.0 || bl > 0.0)
+                .unwrap_or(false);
+            if rounded { frame_clip_shape = Some(shape); }
         }
         NodeKind::Instance { component } => {
             if depth < MAX_INSTANCE_DEPTH {
@@ -367,7 +410,6 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
             }
         }
         NodeKind::Group | NodeKind::Component { .. } => {}
-        NodeKind::VectorNetwork(_) => { /* TODO: Process vector network IR */ }
     }
     if let Some(shape) = &frame_clip_shape {
         tree.commands.push(RenderCommand::PushClip { key: format!("{key}#frame-clip"), transform: world, path: shape.clone() });
@@ -405,22 +447,38 @@ impl<'a> VelloSink<'a> {
             match cmd {
                 RenderCommand::FillPath { transform, path, brush, .. } =>
                     scene.fill(Fill::NonZero, *transform, brush, None, path),
-                RenderCommand::StrokePath { transform, path, color, width, options, .. } => {
+                RenderCommand::StrokePath { transform, path, brush, width, options, .. } => {
                     let cap = match options.cap_start { StrokeCap::Round => vello::kurbo::Cap::Round, StrokeCap::Square => vello::kurbo::Cap::Square, _ => vello::kurbo::Cap::Butt };
                     let join = match options.join { StrokeJoin::Round => vello::kurbo::Join::Round, StrokeJoin::Bevel => vello::kurbo::Join::Bevel, StrokeJoin::Miter => vello::kurbo::Join::Miter };
                     let mut stroke = vello::kurbo::Stroke::new(*width).with_caps(cap).with_join(join).with_miter_limit(options.miter_limit);
                     if !options.dash.is_empty() { stroke = stroke.with_dashes(options.dash_offset, options.dash.iter().copied()); }
-                    scene.stroke(&stroke, *transform, *color, None, path)
+                    scene.stroke(&stroke, *transform, brush, None, path)
                 }
                 RenderCommand::PushLayer { mix, alpha, bounds, .. } =>
-                    scene.push_layer(*mix, *alpha, Affine::IDENTITY, bounds),
+                    scene.push_layer(Fill::NonZero, *mix, *alpha, Affine::IDENTITY, bounds),
                 RenderCommand::PopLayer => scene.pop_layer(),
-                RenderCommand::Glyphs { transform, text, size, brush, max_width, font, letter_spacing, line_height, .. } => {
+                RenderCommand::Glyphs { transform, text, size, brush, max_width, font, letter_spacing, line_height, runs, .. } => {
                     // canonical text geometry via the ShapedTextCache:
                     // steady-state frames iterate the Arc'd shaped block
                     // ZERO-CLONE — moving text composes the world
                     // transform only (cache hit by construction).
+                    // Rich runs: the shaped TRANSPARENT color is the "no
+                    // explicit color" MARKER — paint those glyphs with the
+                    // command brush (gradient text keeps its gradient on
+                    // unstyled runs); explicit run colors paint Solid.
                     let drew = if let Some(fm) = self.fonts {
+                        if !runs.is_empty() {
+                            let key = x_text::TextLayoutKey::new_rich(runs, *size, *max_width, font.as_deref(), fm.epoch(), *letter_spacing, *line_height);
+                            if let Some(block) = x_text::ShapedTextCache::global().get_or_shape(fm, key) {
+                                for g in block.glyphs.iter() {
+                                    let solid;
+                                    let b: &Brush = if g.color.components[3] == 0.0 { brush }
+                                        else { solid = Brush::Solid(g.color); &solid };
+                                    scene.fill(Fill::NonZero, *transform * g.transform, b, None, &g.path);
+                                }
+                                true
+                            } else { false }
+                        } else {
                         let shape_color = Color::WHITE;
                         let key = x_text::TextLayoutKey::new_styled(text, *size, *max_width, font.as_deref(), shape_color, fm.epoch(), *letter_spacing, *line_height);
                         if let Some(block) = x_text::ShapedTextCache::global().get_or_shape(fm, key) {
@@ -429,6 +487,7 @@ impl<'a> VelloSink<'a> {
                             }
                             true
                         } else { false }
+                        }
                     } else { false };
                     if !drew {
                         let color = match brush { Brush::Solid(c) => *c, _ => Color::BLACK };
@@ -441,19 +500,19 @@ impl<'a> VelloSink<'a> {
                         // flip/tiling resolved ONCE in x-core; this sink
                         // only composes the world transform and clips.
                         let resolved = x_core::resolve_image_placement(
-                            *fit, placement, *w, *h, img.width as f64, img.height as f64);
+                            *fit, placement, *w, *h, img.image.width as f64, img.image.height as f64);
                         let box_rect = Rect::new(0.0, 0.0, *w, *h).into_path(0.1);
-                        scene.push_layer(Mix::Clip, 1.0, *transform, &box_rect);
+                        scene.push_clip_layer(Fill::NonZero, *transform, &box_rect);
                         for draw in &resolved.draws {
                             scene.draw_image(img, *transform * *draw);
                         }
                         scene.pop_layer();
                     } else {
-                        scene.fill(Fill::NonZero, *transform, Color::rgb8(0xdd, 0xdd, 0xdd), None, &Rect::new(0.0, 0.0, *w, *h).into_path(0.1));
+                        scene.fill(Fill::NonZero, *transform, Color::from_rgb8(0xdd, 0xdd, 0xdd), None, &Rect::new(0.0, 0.0, *w, *h).into_path(0.1));
                     }
                 }
                 RenderCommand::PushClip { transform, path, .. } => {
-                    scene.push_layer(Mix::Clip, 1.0, *transform, path);
+                    scene.push_clip_layer(Fill::NonZero, *transform, path);
                 }
             }
         }
@@ -474,11 +533,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn text_runs_flow_into_glyphs_commands() {
+        let mut t = Node::text("t", 10.0, 10.0, 200.0, 20.0, "Hello world");
+        t.text_runs = vec![
+            TextRun { start: 0, len: 5, color: Some(Color::from_rgb8(255, 0, 0)), size: Some(28.0), font: None },
+        ];
+        let d = Node::frame("page", 300.0, 100.0).child(t);
+        let tree = build_render_tree(&d, &Variables::default());
+        let runs = tree.commands.iter().find_map(|c| if let RenderCommand::Glyphs { runs, .. } = c { Some(runs) } else { None }).expect("glyphs command");
+        assert_eq!(runs.len(), 2, "styled + unstyled part, got {runs:?}");
+        assert_eq!(runs[0].text, "Hello");
+        let c = runs[0].color.expect("explicit run color survives");
+        assert!(c.components[0] > 0.99 && c.components[1] < 0.01, "run color: {c:?}");
+        assert_eq!(runs[0].size, Some(28.0));
+        assert_eq!(runs[1].text, " world");
+        assert!(runs[1].color.is_none(), "unstyled run keeps the command-brush fallback");
+    }
+
+    #[test]
+    fn plain_text_emits_empty_runs() {
+        let d = Node::frame("page", 300.0, 100.0).child(Node::text("t", 10.0, 10.0, 100.0, 20.0, "hi"));
+        let tree = build_render_tree(&d, &Variables::default());
+        let runs = tree.commands.iter().find_map(|c| if let RenderCommand::Glyphs { runs, .. } = c { Some(runs) } else { None }).expect("glyphs command");
+        assert!(runs.is_empty(), "plain text takes the unchanged plain path");
+    }
+
+    #[test]
+    fn text_override_on_instance_drops_stale_runs() {
+        // a component master's label carries rich runs; an instance text
+        // override replaces the CONTENT, so char ranges no longer apply
+        let mut label = Node::text("label", 0.0, 0.0, 100.0, 20.0, "Master");
+        label.text_runs = vec![TextRun { start: 0, len: 6, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let master = Node::frame("body", 120.0, 40.0).child(label);
+        let comp = Node::component("C", "C", 120.0, 40.0).child(master);
+        let inst = Node::instance("i", "C", 10.0, 60.0, 120.0, 40.0).override_prop("label", "text:Bye");
+        let page = Node::frame("page", 400.0, 300.0).child(comp).child(inst);
+        let tree = build_render_tree(&page, &Variables::default());
+        let all_runs: Vec<&Vec<TextPart>> = tree.commands.iter().filter_map(|c| if let RenderCommand::Glyphs { runs, text, .. } = c {
+            if text == "Bye" { Some(runs) } else { None }
+        } else { None }).collect();
+        assert!(!all_runs.is_empty(), "override text rendered");
+        assert!(all_runs.iter().all(|r| r.is_empty()), "overridden content carries no stale runs");
+        // the master's own render (component preview) keeps its runs
+        let master_runs: Vec<&Vec<TextPart>> = tree.commands.iter().filter_map(|c| if let RenderCommand::Glyphs { runs, text, .. } = c {
+            if text == "Master" { Some(runs) } else { None }
+        } else { None }).collect();
+        assert!(!master_runs.is_empty() && master_runs.iter().all(|r| !r.is_empty()), "master keeps its runs");
+    }
+
+    #[test]
     fn masks_clip_following_siblings() {
         // frame: [mask circle][rect] -> rect must render inside a clip layer
         let d = Node::frame("page", 200.0, 200.0)
             .child(Node::ellipse("m", 0.0, 0.0, 100.0, 100.0, Color::WHITE).mask(true))
-            .child(Node::rect("r", 0.0, 0.0, 200.0, 200.0, Color::rgb8(255, 0, 0)));
+            .child(Node::rect("r", 0.0, 0.0, 200.0, 200.0, Color::from_rgb8(255, 0, 0)));
         let tree = build_render_tree(&d, &Variables::default());
         let kinds: Vec<&str> = tree.commands.iter().map(|c| match c {
             RenderCommand::PushClip { .. } => "clip",
@@ -504,17 +612,18 @@ mod tests {
         let mut n = Node::rect("layered", 0.0, 0.0, 80.0, 60.0, Color::BLACK);
         n.visual_stacks_materialized = true;
         n.fill_layers = vec![
-            PaintLayer::new(Paint::Solid(Color::rgb8(255, 0, 0))),
-            PaintLayer { paint: Paint::Solid(Color::rgb8(0, 0, 255)), opacity: 0.5, visible: true, blend: BlendKind::Screen },
+            PaintLayer::new(Paint::Solid(Color::from_rgb8(255, 0, 0))),
+            PaintLayer { paint: Paint::Solid(Color::from_rgb8(0, 0, 255)), opacity: 0.5, visible: true, blend: BlendKind::Screen },
         ];
-        n.stroke_layers = vec![StrokeLayer::new(Stroke { color: Color::WHITE, width: 2.0 })];
+        n.stroke_layers = vec![StrokeLayer::new(Stroke::solid(Color::WHITE, 2.0))];
         n.effect_layers = vec![EffectLayer::new(Effect::DropShadow { dx: 2.0, dy: 3.0, blur: 8.0, color: Color::BLACK })];
         let tree = build_render_tree(&Node::frame("page", 100.0, 100.0).child(n), &Variables::default());
         let keys: Vec<_> = tree.commands.iter().map(RenderCommand::key).collect();
         assert!(keys.iter().any(|k| k.ends_with("/fill-0")));
         assert!(keys.iter().any(|k| k.ends_with("/fill-1")));
         assert!(keys.iter().any(|k| k.ends_with("/stroke-0")));
-        assert!(keys.iter().any(|k| k.ends_with("/effect-0")));
+        // drop shadows lower as gaussian TAP fills keyed /effect-0/tap-N
+        assert!(keys.iter().any(|k| k.contains("/effect-0/tap-")));
     }
 
     #[test]
@@ -537,13 +646,13 @@ mod tests {
         vars.numbers.insert("radius-lg".into(), 20.0);
         let mut master = Node::component("cb", "Chip", 40.0, 20.0);
         master.visible = false;
-        master.children.push(Node::rect("chip-bg", 0.0, 0.0, 40.0, 20.0, Color::rgb8(0, 0, 0xff)));
+        master.children.push(Node::rect("chip-bg", 0.0, 0.0, 40.0, 20.0, Color::from_rgb8(0, 0, 0xff)));
         let doc = Node::frame("page", 400.0, 300.0)
             .child(master)
-            .child(Node::rect("r", 10.0, 10.0, 100.0, 60.0, Color::rgb8(255, 0, 0)).radius(2.0).bind("radius", "radius-lg"))
+            .child(Node::rect("r", 10.0, 10.0, 100.0, 60.0, Color::from_rgb8(255, 0, 0)).radius(2.0).bind("radius", "radius-lg"))
             .child(Node::text("t", 0.0, 100.0, 200.0, 20.0, "hello ir"))
             .child(Node::instance("i", "Chip", 200.0, 0.0, 40.0, 20.0))
-            .child(Node::ellipse("e", 0.0, 200.0, 50.0, 50.0, Color::rgb8(0, 255, 0)).blend(BlendKind::Multiply));
+            .child(Node::ellipse("e", 0.0, 200.0, 50.0, 50.0, Color::from_rgb8(0, 255, 0)).blend(BlendKind::Multiply));
         (doc, vars)
     }
 
@@ -552,9 +661,11 @@ mod tests {
         let (doc, vars) = sample();
         let tree = build_render_tree(&doc, &vars);
         let keys: Vec<&str> = tree.commands.iter().map(|c| c.key()).filter(|k| !k.is_empty()).collect();
-        assert!(keys.contains(&"/page/r"));
-        assert!(keys.contains(&"/page/t"));
-        assert!(keys.contains(&"/page/i/chip-bg"), "instance resolution keys through the instance: {keys:?}");
+        // visual stacks: paint commands key as {node}/fill-{i} (a node can
+        // carry several fill layers), text as {node}/fill-{i} Glyphs
+        assert!(keys.contains(&"/page/r/fill-0"));
+        assert!(keys.contains(&"/page/t/fill-0"));
+        assert!(keys.contains(&"/page/i/chip-bg/fill-0"), "instance resolution keys through the instance: {keys:?}");
         // blend became a layer pair
         assert!(tree.commands.iter().any(|c| matches!(c, RenderCommand::PushLayer { .. })));
         assert!(tree.commands.iter().any(|c| matches!(c, RenderCommand::PopLayer)));
@@ -566,7 +677,7 @@ mod tests {
             RenderCommand::FillPath { key: k, path, .. } if k == key => Some(format!("{path:?}")),
             _ => None,
         }).unwrap();
-        assert_ne!(path_repr(&tree, "/page/r"), path_repr(&t2, "/page/r"), "different radii must yield different geometry");
+        assert_ne!(path_repr(&tree, "/page/r/fill-0"), path_repr(&t2, "/page/r/fill-0"), "different radii must yield different geometry");
     }
 
     #[test]
@@ -593,7 +704,7 @@ mod tests {
         find_mut(&mut doc2, "r").unwrap().transform.x += 5.0;
         let t2 = build_render_tree(&doc2, &vars);
         let changed = t2.changed_keys(&t1);
-        assert_eq!(changed, vec!["/page/r".to_string()], "only the moved node changed: {changed:?}");
+        assert_eq!(changed, vec!["/page/r/fill-0".to_string()], "only the moved node changed: {changed:?}");
         // identical trees -> no changes
         assert!(t1.changed_keys(&build_render_tree(&doc, &vars)).is_empty());
     }
@@ -602,13 +713,13 @@ mod tests {
     fn gpu_effects_lower_to_blur_taps_and_clips() {
         let mut card = Node::rect("card", 20.0, 20.0, 120.0, 80.0, Color::WHITE);
         card.effects = vec![
-            Effect::DropShadow { dx: 3.0, dy: 5.0, blur: 8.0, color: Color::rgba8(0, 0, 0, 128) },
-            Effect::InnerShadow { dx: 1.0, dy: 2.0, blur: 5.0, color: Color::rgba8(0, 0, 0, 96) },
+            Effect::DropShadow { dx: 3.0, dy: 5.0, blur: 8.0, color: Color::from_rgba8(0, 0, 0, 128) },
+            Effect::InnerShadow { dx: 1.0, dy: 2.0, blur: 5.0, color: Color::from_rgba8(0, 0, 0, 96) },
             Effect::LayerBlur { radius: 3.0 },
             Effect::BackgroundBlur { radius: 4.0 },
         ];
         let doc = Node::frame("page", 300.0, 200.0)
-            .child(Node::rect("background", 0.0, 0.0, 300.0, 200.0, Color::rgb8(40, 60, 90)))
+            .child(Node::rect("background", 0.0, 0.0, 300.0, 200.0, Color::from_rgb8(40, 60, 90)))
             .child(card);
         let tree = build_render_tree(&doc, &Variables::default());
         assert!(tree.commands.iter().any(|c| c.key().contains("background-clip")));

@@ -55,14 +55,17 @@ fn kind_json(k: &NodeKind) -> String {
     match k {
         NodeKind::Frame { layout: None } => "{\"t\":\"frame\"}".into(),
         NodeKind::Frame { layout: Some(l) } => format!(
-            "{{\"t\":\"frame\",\"layout\":{{\"dir\":\"{}\",\"gap\":{},\"padding\":{},\"sizing\":\"{}\",\"align\":\"{}\",\"space_between\":{}{}{}}}}}",
+            "{{\"t\":\"frame\",\"layout\":{{\"dir\":\"{}\",\"gap\":{},\"padding\":{},\"sizing\":\"{}\",\"align\":\"{}\",\"space_between\":{}{}{}{}}}}}",
             if l.direction == LayoutDirection::Horizontal { "h" } else { "v" },
-            l.gap, l.padding,
+            l.gap,
+            // uniform padding serializes as the legacy scalar (old files stay byte-stable)
+            if l.uniform_pad() { format!("{}", l.padding[0]) } else { format!("[{},{},{},{}]", l.padding[0], l.padding[1], l.padding[2], l.padding[3]) },
             if l.sizing == Sizing::Hug { "hug" } else { "fixed" },
             match l.align { CrossAlign::Start => "start", CrossAlign::Center => "center", CrossAlign::End => "end" },
             l.space_between,
             l.gap_var.as_deref().map(|v| format!(",\"gap_var\":\"{}\"", esc(v))).unwrap_or_default(),
             l.padding_var.as_deref().map(|v| format!(",\"padding_var\":\"{}\"", esc(v))).unwrap_or_default(),
+            l.cross_sizing.map(|s| format!(",\"cross_sizing\":\"{}\"", if s == Sizing::Hug { "hug" } else { "fixed" })).unwrap_or_default(),
         ),
         NodeKind::Group => "{\"t\":\"group\"}".into(),
         NodeKind::Rect { radius } => format!("{{\"t\":\"rect\",\"radius\":{radius}}}"),
@@ -89,7 +92,6 @@ fn kind_json(k: &NodeKind) -> String {
         }
         NodeKind::Component { name } => format!("{{\"t\":\"component\",\"name\":\"{}\"}}", esc(name)),
         NodeKind::Instance { component } => format!("{{\"t\":\"instance\",\"component\":\"{}\"}}", esc(component)),
-        NodeKind::VectorNetwork(_) => "{\"t\":\"vector_network\"}".into(),
     }
 }
 
@@ -101,7 +103,13 @@ pub(crate) fn node_json(n: &Node, out: &mut String) {
         paint_json(&n.fill),
     ));
     if n.stroke.width > 0.0 {
-        out.push_str(&format!(",\"stroke\":{{\"color\":\"{}\",\"width\":{}}}", color_to_hex(n.stroke.color), n.stroke.width));
+        // solid stays the byte-stable {"color","width"} shape; gradients
+        // add the "paint" object (same encoding as fills)
+        if let Paint::Solid(c) = &n.stroke.paint {
+            out.push_str(&format!(",\"stroke\":{{\"color\":\"{}\",\"width\":{}}}", color_to_hex(*c), n.stroke.width));
+        } else {
+            out.push_str(&format!(",\"stroke\":{{\"paint\":{},\"width\":{}}}", paint_json(&n.stroke.paint), n.stroke.width));
+        }
     }
     if n.visual_stacks_materialized {
         let layers = n.fill_layers.iter().map(|l| format!(
@@ -111,14 +119,22 @@ pub(crate) fn node_json(n: &Node, out: &mut String) {
         out.push_str(&format!(",\"fill_layers\":[{layers}]"));
     }
     if n.visual_stacks_materialized {
-        let layers = n.stroke_layers.iter().map(|l| format!(
-            "{{\"color\":\"{}\",\"width\":{},\"opacity\":{},\"visible\":{},\"blend\":\"{}\",\"align\":\"{}\",\"cap_start\":\"{}\",\"cap_end\":\"{}\",\"join\":\"{}\",\"dash\":[{}],\"dash_offset\":{},\"miter\":{}}}",
-            color_to_hex(l.stroke.color), l.stroke.width, l.opacity, l.visible, blend_name(l.blend),
+        let layers = n.stroke_layers.iter().map(|l| {
+            // solid keeps the legacy "color" key (byte-stable old files);
+            // gradient strokes serialize through "paint" like fills
+            let paint_part = match &l.stroke.paint {
+                Paint::Solid(c) => format!("\"color\":\"{}\"", color_to_hex(*c)),
+                other => format!("\"paint\":{}", paint_json(other)),
+            };
+            format!(
+            "{{{},\"width\":{},\"opacity\":{},\"visible\":{},\"blend\":\"{}\",\"align\":\"{}\",\"cap_start\":\"{}\",\"cap_end\":\"{}\",\"join\":\"{}\",\"dash\":[{}],\"dash_offset\":{},\"miter\":{}}}",
+            paint_part,
+            l.stroke.width, l.opacity, l.visible, blend_name(l.blend),
             match l.options.align { StrokeAlign::Inside => "inside", StrokeAlign::Center => "center", StrokeAlign::Outside => "outside" },
             cap_name(l.options.cap_start), cap_name(l.options.cap_end),
             match l.options.join { StrokeJoin::Miter => "miter", StrokeJoin::Bevel => "bevel", StrokeJoin::Round => "round" },
             l.options.dash.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(","), l.options.dash_offset, l.options.miter_limit
-        )).collect::<Vec<_>>().join(",");
+        )}).collect::<Vec<_>>().join(",");
         out.push_str(&format!(",\"stroke_layers\":[{layers}]"));
     }
     if n.visual_stacks_materialized {
@@ -129,6 +145,24 @@ pub(crate) fn node_json(n: &Node, out: &mut String) {
     }
     if let Some([tl, tr, br, bl]) = n.corner_radii {
         out.push_str(&format!(",\"corners\":[{tl},{tr},{br},{bl}]"));
+    }
+    // rich text runs (non-empty only — plain text stays byte-identical).
+    // start/len are CHAR indices into the text string.
+    if !n.text_runs.is_empty() {
+        let runs: Vec<String> = n.text_runs.iter().map(|r| {
+            let mut s = format!("{{\"start\":{},\"len\":{}", r.start, r.len);
+            if let Some(c) = r.color { s.push_str(&format!(",\"color\":\"{}\"", color_to_hex(c))); }
+            if let Some(sz) = r.size { s.push_str(&format!(",\"size\":{sz}")); }
+            if let Some(f) = &r.font { s.push_str(&format!(",\"font\":\"{}\"", esc(f))); }
+            s.push('}');
+            s
+        }).collect();
+        out.push_str(&format!(",\"textRuns\":[{}]", runs.join(",")));
+    }
+    if n.pin != (HPin::Left, VPin::Top) {
+        let h = match n.pin.0 { HPin::Left => "left", HPin::Right => "right", HPin::CenterH => "center", HPin::StretchH => "stretch", HPin::ScaleH => "scale" };
+        let v = match n.pin.1 { VPin::Top => "top", VPin::Bottom => "bottom", VPin::CenterV => "center", VPin::StretchV => "stretch", VPin::ScaleV => "scale" };
+        out.push_str(&format!(",\"pin\":\"{h} {v}\""));
     }
     if n.blend != BlendKind::Normal {
         let b = blend_name(n.blend);
@@ -170,27 +204,27 @@ pub fn save_x(doc: &Document) -> String {
     let mut out = format!("{{\"format\":\"x-native\",\"version\":{X_FORMAT_VERSION},");
     // variables
     let mut colors: Vec<_> = doc.variables.colors.iter().collect();
-    colors.sort_by_key(|(k, _)| k.clone());
+    colors.sort_by_key(|(k, _)| (*k).clone());
     let mut numbers: Vec<_> = doc.variables.numbers.iter().collect();
-    numbers.sort_by_key(|(k, _)| k.clone());
+    numbers.sort_by_key(|(k, _)| (*k).clone());
     out.push_str("\"variables\":{\"colors\":{");
     out.push_str(&colors.iter().map(|(k, v)| format!("\"{}\":\"{}\"", esc(k), color_to_hex(**v))).collect::<Vec<_>>().join(","));
     out.push_str("},\"numbers\":{");
     out.push_str(&numbers.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), v)).collect::<Vec<_>>().join(","));
     // strings, bools, collections, modes (P1 additions)
-    let mut strs: Vec<_> = doc.variables.strings.iter().collect(); strs.sort_by_key(|(k, _)| k.clone());
+    let mut strs: Vec<_> = doc.variables.strings.iter().collect(); strs.sort_by_key(|(k, _)| (*k).clone());
     out.push_str("},\"strings\":{");
     out.push_str(&strs.iter().map(|(k, v)| format!("\"{}\":\"{}\"", esc(k), esc(v))).collect::<Vec<_>>().join(","));
-    let mut bls: Vec<_> = doc.variables.bools.iter().collect(); bls.sort_by_key(|(k, _)| k.clone());
+    let mut bls: Vec<_> = doc.variables.bools.iter().collect(); bls.sort_by_key(|(k, _)| (*k).clone());
     out.push_str("},\"bools\":{");
     out.push_str(&bls.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), v)).collect::<Vec<_>>().join(","));
-    let mut cols: Vec<_> = doc.variables.collections.iter().collect(); cols.sort_by_key(|(k, _)| k.clone());
+    let mut cols: Vec<_> = doc.variables.collections.iter().collect(); cols.sort_by_key(|(k, _)| (*k).clone());
     out.push_str("},\"collections\":{");
     out.push_str(&cols.iter().map(|(k, v)| format!("\"{}\":\"{}\"", esc(k), esc(v))).collect::<Vec<_>>().join(","));
-    let mut mds: Vec<_> = doc.variables.modes.iter().collect(); mds.sort_by_key(|(k, _)| k.clone());
+    let mut mds: Vec<_> = doc.variables.modes.iter().collect(); mds.sort_by_key(|(k, _)| (*k).clone());
     out.push_str("},\"modes\":{");
     let mode_strs: Vec<String> = mds.iter().map(|(mode, table)| {
-        let mut entries: Vec<_> = table.iter().collect(); entries.sort_by_key(|(k, _)| k.clone());
+        let mut entries: Vec<_> = table.iter().collect(); entries.sort_by_key(|(k, _)| (*k).clone());
         let inner: Vec<String> = entries.iter().map(|(k, c)| format!("\"{}\":\"{}\"", esc(k), color_to_hex(**c))).collect();
         format!("\"{}\":{{{}}}", esc(mode), inner.join(","))
     }).collect();
@@ -221,7 +255,7 @@ pub fn save_x(doc: &Document) -> String {
     deps.sort_by(|a, b| a.library_id.cmp(&b.library_id));
     let dep_strs: Vec<String> = deps.iter().map(|d| {
         let snap = doc.library_snapshots.get(&d.library_id)
-            .map(|l| crate::xlib::save_xlib(l))
+            .map(crate::xlib::save_xlib)
             .unwrap_or_else(|| "null".into());
         format!("{{\"library_id\":\"{}\",\"resolved_version\":{},\"snapshot_hash\":\"{}\",\"source_path\":\"{}\",\"snapshot\":{}}}",
             esc(&d.library_id), d.resolved_version, esc(&d.snapshot_hash), esc(&d.source_path), snap)

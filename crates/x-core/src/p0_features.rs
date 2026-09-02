@@ -2,8 +2,8 @@
 // Aligned with current x-core structures (node.rs, geometry.rs)
 
 use std::collections::HashMap;
-use vello::peniko::Color; // Use vello Color directly
-use crate::node::{Node, NodeKind, VectorPoint, VectorSegment, VectorNetwork, PointType, TextMetrics};
+use peniko::Color; // Use vello Color directly
+use crate::node::{Node, NodeKind, TextMetrics};
 use crate::layout_types::AutoLayout;
 use crate::components::{ComponentProperty, ComponentPropertyType};
 
@@ -40,7 +40,7 @@ pub fn hit_test_text(node: &Node, x: f64, y: f64) -> Option<usize> {
         let col = (x / avg_char_width).clamp(0.0, text.len() as f64) as usize;
         let row = (y / line_height).clamp(0.0, metrics.line_count as f64) as usize;
         
-        let chars_per_line = if metrics.line_count > 0 { text.len() / metrics.line_count } else { text.len() };
+        let chars_per_line = text.len().checked_div(metrics.line_count).unwrap_or(text.len());
         Some((row * chars_per_line + col).min(text.len()))
     } else {
         None
@@ -146,55 +146,6 @@ fn apply_single_property(
             }
         },
         _ => {}
-    }
-}
-
-// -----------------------------------------------------------------------------
-// 4. Vector Network Operations
-// -----------------------------------------------------------------------------
-
-pub fn join_vector_points(network: &mut VectorNetwork, point_id_1: usize, point_id_2: usize) {
-    if point_id_1 == point_id_2 || point_id_2 >= network.points.len() { return; }
-    
-    let p1 = network.points[point_id_1].position;
-    let p2 = network.points[point_id_2].position;
-    let merged_pos = ((p1.0 + p2.0) / 2.0, (p1.1 + p2.1) / 2.0);
-    
-    for segment in &mut network.segments {
-        if segment.start_point_id == point_id_2 {
-            segment.start_point_id = point_id_1;
-        }
-        if segment.end_point_id == point_id_2 {
-            segment.end_point_id = point_id_1;
-        }
-    }
-    
-    if let Some(p) = network.points.get_mut(point_id_1) {
-        p.position = merged_pos;
-    }
-    
-    network.points.remove(point_id_2);
-}
-
-pub fn connect_vector_points(
-    network: &mut VectorNetwork, 
-    start_id: usize, 
-    end_id: usize,
-    stroke_width: f64,
-    stroke_color: Color
-) {
-    let exists = network.segments.iter().any(|s| 
-        (s.start_point_id == start_id && s.end_point_id == end_id) ||
-        (s.start_point_id == end_id && s.end_point_id == start_id)
-    );
-    
-    if !exists {
-        network.segments.push(VectorSegment {
-            start_point_id: start_id,
-            end_point_id: end_id,
-            stroke_width,
-            stroke_color,
-        });
     }
 }
 

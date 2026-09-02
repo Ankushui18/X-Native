@@ -12,22 +12,22 @@ mod tests {
 
     fn sample_doc() -> Document {
         let mut doc = Document::new();
-        doc.variables.colors.insert("brand".into(), Color::rgb8(0x0d, 0x99, 0xff));
+        doc.variables.colors.insert("brand".into(), Color::from_rgb8(0x0d, 0x99, 0xff));
         doc.variables.numbers.insert("gap-lg".into(), 28.0);
         let page = Node::frame("page-1", 800.0, 600.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 20.0, padding: 24.0, align: CrossAlign::Center, space_between: true, gap_var: Some("gap-lg".into()), ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 20.0, padding: [24.0; 4], align: CrossAlign::Center, space_between: true, gap_var: Some("gap-lg".into()), ..Default::default() })
             .child(
-                Node::rect("card", 10.0, 20.0, 240.0, 120.0, Color::rgb8(255, 0, 0))
+                Node::rect("card", 10.0, 20.0, 240.0, 120.0, Color::from_rgb8(255, 0, 0))
                     .radius(16.0).rotate(0.3).opacity(0.9)
                     .corners(1.0, 2.0, 3.0, 4.0)
                     .blend(BlendKind::Multiply)
-                    .effect(Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::rgba8(0, 0, 0, 128) })
+                    .effect(Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::from_rgba8(0, 0, 0, 128) })
                     .pin(HPin::Right, VPin::Bottom)
                     .prototype("page-2", 250),
             )
             .child(Node::text("label", 0.0, 0.0, 120.0, 20.0, "Hello \"X\"\nworld"))
             .child(Node::instance("i1", "Button", 0.0, 0.0, 100.0, 40.0).override_prop("bg", "#00ff00").override_prop("label", "text:Buy"))
-            .child(Node::rect("grad", 0.0, 0.0, 100.0, 100.0, Color::WHITE).fill_paint(Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::rgb8(255, 0, 0)), (1.0, Color::rgb8(0, 0, 255))] }));
+            .child(Node::rect("grad", 0.0, 0.0, 100.0, 100.0, Color::WHITE).fill_paint(Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (1.0, Color::from_rgb8(0, 0, 255))] }));
         doc.pages.push(page);
         doc.pages.push(Node::frame("page-2", 800.0, 600.0));
         doc
@@ -36,14 +36,14 @@ mod tests {
     #[test]
     fn styles_roundtrip_through_x_format() {
         let mut doc = sample_doc();
-        doc.styles.insert("Brand/Primary".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x0d, 0x99, 0xff)) });
-        doc.styles.insert("Brand/Grad".into(), Style::Paint { fill: Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::rgb8(255, 90, 0)), (1.0, Color::rgb8(142, 45, 226))] } });
+        doc.styles.insert("Brand/Primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x0d, 0x99, 0xff)) });
+        doc.styles.insert("Brand/Grad".into(), Style::Paint { fill: Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::from_rgb8(255, 90, 0)), (1.0, Color::from_rgb8(142, 45, 226))] } });
         doc.styles.insert("Heading/H1".into(), Style::Text { font: "Inter 700".into(), size: 34.0, letter_spacing: 0.5, line_height: 1.3 });
-        doc.styles.insert("Elevation/2".into(), Style::Effect { effects: vec![Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::rgba8(0, 0, 0, 128) }, Effect::LayerBlur { radius: 2.0 }] });
+        doc.styles.insert("Elevation/2".into(), Style::Effect { effects: vec![Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::from_rgba8(0, 0, 0, 128) }, Effect::LayerBlur { radius: 2.0 }] });
         let text = save_x(&doc);
         let loaded = load_x(&text).expect("load styles");
         assert_eq!(loaded.styles.len(), 4);
-        assert_eq!(loaded.styles["Brand/Primary"], Style::Paint { fill: Paint::Solid(Color::rgb8(0x0d, 0x99, 0xff)) });
+        assert_eq!(loaded.styles["Brand/Primary"], Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x0d, 0x99, 0xff)) });
         match &loaded.styles["Heading/H1"] {
             Style::Text { font, size, letter_spacing, line_height } => {
                 assert_eq!(font, "Inter 700");
@@ -67,7 +67,7 @@ mod tests {
         let text = save_x(&doc);
         let loaded = load_x(&text).expect("load");
         assert_eq!(loaded.pages.len(), 2);
-        assert_eq!(loaded.variables.colors.get("brand").unwrap().r, 0x0d);
+        assert_eq!(loaded.variables.colors.get("brand").unwrap().to_rgba8().r, 0x0d);
         assert_eq!(*loaded.variables.numbers.get("gap-lg").unwrap(), 28.0);
 
         let page = &loaded.pages[0];
@@ -96,6 +96,69 @@ mod tests {
 
         let grad = find(page, "grad").unwrap();
         assert!(matches!(&grad.fill, Paint::LinearGradient { stops, .. } if stops.len() == 2));
+    }
+
+    #[test]
+    fn text_runs_roundtrip_through_x_format() {
+        let mut doc = sample_doc();
+        let n = doc.pages[0].children.iter_mut().find(|c| c.id == "label").unwrap();
+        n.text_runs = vec![
+            TextRun { start: 0, len: 5, color: Some(Color::from_rgb8(255, 0, 0)), size: Some(28.0), font: Some("Inter".into()) },
+            TextRun { start: 6, len: 5, color: None, size: Some(14.0), font: None },
+        ];
+        let a = save_x(&doc);
+        assert!(a.contains("\"textRuns\""), "runs serialize");
+        let back = load_x(&a).unwrap();
+        let n2 = find(&back.pages[0], "label").unwrap();
+        assert_eq!(n2.text_runs.len(), 2);
+        assert_eq!(n2.text_runs[0].start, 0);
+        assert_eq!(n2.text_runs[0].len, 5);
+        let c = n2.text_runs[0].color.expect("color survives");
+        assert!(c.components[0] > 0.99 && c.components[1] < 0.01);
+        assert_eq!(n2.text_runs[0].size, Some(28.0));
+        assert_eq!(n2.text_runs[0].font.as_deref(), Some("Inter"));
+        assert_eq!(n2.text_runs[1].size, Some(14.0));
+        assert!(n2.text_runs[1].color.is_none());
+        // byte-stable double round-trip
+        assert_eq!(a, save_x(&back));
+    }
+
+    #[test]
+    fn plain_text_stays_byte_identical_without_runs() {
+        let doc = sample_doc();
+        let a = save_x(&doc);
+        assert!(!a.contains("textRuns"), "no runs key for plain text");
+        assert_eq!(a, save_x(&load_x(&a).unwrap()));
+    }
+
+    #[test]
+    fn gradient_strokes_survive_x_roundtrip() {
+        // gradient strokes serialize through "paint" (solid keeps the
+        // legacy "color" key, so old files stay byte-identical)
+        let mut doc = sample_doc();
+        let n = doc.pages[0].children.iter_mut().find(|c| c.id == "card").unwrap();
+        n.stroke = x_core::Stroke {
+            paint: Paint::LinearGradient {
+                start: (0.0, 0.0), end: (100.0, 0.0),
+                stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (1.0, Color::from_rgb8(0, 0, 255))],
+            },
+            width: 3.0,
+        };
+        let a = save_x(&doc);
+        let back = load_x(&a).unwrap();
+        let n2 = find(&back.pages[0], "card").unwrap();
+        match &n2.stroke.paint {
+            Paint::LinearGradient { start, end, stops } => {
+                assert_eq!(*start, (0.0, 0.0));
+                assert_eq!(*end, (100.0, 0.0));
+                assert_eq!(stops.len(), 2);
+            }
+            other => panic!("gradient stroke lost: {other:?}"),
+        }
+        assert_eq!(n2.stroke.width, 3.0);
+        // and the save is byte-stable across a second round-trip
+        let b = save_x(&back);
+        assert_eq!(a, b);
     }
 
     #[test]
@@ -160,7 +223,7 @@ mod tests {
         let bg = find(&root, "bg").unwrap();
         assert_eq!((bg.transform.x, bg.w), (10.0, 100.0));
         assert!(matches!(bg.kind, NodeKind::Rect { radius } if radius == 8.0));
-        assert!(matches!(&bg.fill, Paint::Solid(c) if c.r == 255 && c.g == 0));
+        assert!(matches!(&bg.fill, Paint::Solid(c) if c.to_rgba8().r == 255 && c.to_rgba8().g == 0));
         let c1 = find(&root, "c1").unwrap();
         assert_eq!((c1.transform.x, c1.w), (160.0, 80.0)); // cx-r, 2r
         let grp = find(&root, "grp").unwrap();
@@ -195,8 +258,8 @@ mod tests {
     fn svg_roundtrip_export_then_import() {
         // Export our own scene, re-import it, and check the shapes survive.
         let page = Node::frame("page", 500.0, 400.0)
-            .child(Node::rect("r1", 20.0, 30.0, 120.0, 60.0, Color::rgb8(0x0d, 0x99, 0xff)).radius(10.0))
-            .child(Node::ellipse("e1", 200.0, 50.0, 80.0, 80.0, Color::rgb8(0xf2, 0x48, 0x22)));
+            .child(Node::rect("r1", 20.0, 30.0, 120.0, 60.0, Color::from_rgb8(0x0d, 0x99, 0xff)).radius(10.0))
+            .child(Node::ellipse("e1", 200.0, 50.0, 80.0, 80.0, Color::from_rgb8(0xf2, 0x48, 0x22)));
         let svg = export_svg(&page, &Variables::default());
         let re = import_svg(&svg).expect("re-import own export");
         // our exporter wraps each node in <g transform=translate(...)>, so
@@ -214,14 +277,14 @@ mod tests {
     fn full_variable_engine_roundtrips() {
         let mut doc = Document::new();
         let v = &mut doc.variables;
-        v.colors.insert("bg".into(), Color::rgb8(0xff, 0xff, 0xff));
+        v.colors.insert("bg".into(), Color::from_rgb8(0xff, 0xff, 0xff));
         v.numbers.insert("gap".into(), 12.0);
         v.strings.insert("brand".into(), "X Native".into());
         v.bools.insert("beta".into(), true);
         v.collections.insert("bg".into(), "Semantic".into());
         v.collections.insert("gap".into(), "Primitives".into());
         let mut dark = std::collections::HashMap::new();
-        dark.insert("bg".to_string(), Color::rgb8(0x11, 0x11, 0x11));
+        dark.insert("bg".to_string(), Color::from_rgb8(0x11, 0x11, 0x11));
         v.modes.insert("dark".into(), dark);
         doc.pages.push(Node::frame("page", 100.0, 100.0));
         let text = save_x(&doc);
@@ -232,7 +295,7 @@ mod tests {
         assert_eq!(lv.collection_of("bg"), "Semantic");
         assert_eq!(lv.collection_of("gap"), "Primitives");
         assert_eq!(lv.collection_of("unknown"), "Local");
-        assert_eq!(lv.modes["dark"]["bg"].r, 0x11);
+        assert_eq!(lv.modes["dark"]["bg"].to_rgba8().r, 0x11);
         assert_eq!(save_x(&load_x(&text).unwrap()), text);
         // catalog groups by collection for the UI
         let cat = lv.catalog();
@@ -277,12 +340,12 @@ mod tests {
         // master with variants + typed overrides on instances
         let mut m1 = Node::component("c1", "Button/Primary", 100.0, 40.0);
         m1.visible = false;
-        m1.children.push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::rgb8(0, 0, 0xff)));
+        m1.children.push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::from_rgb8(0, 0, 0xff)));
         m1.children.push(Node::text("label", 8.0, 8.0, 80.0, 16.0, "OK"));
         m1.children.push(Node::instance("nested", "Icon", 4.0, 4.0, 16.0, 16.0));
         let mut inst = Node::instance("i1", "Button/Primary", 200.0, 100.0, 100.0, 40.0);
         set_override(&mut inst, "label", OverrideValue::Text("Buy now".into()));
-        set_override(&mut inst, "bg", OverrideValue::Fill(Color::rgb8(0xff, 0, 0)));
+        set_override(&mut inst, "bg", OverrideValue::Fill(Color::from_rgb8(0xff, 0, 0)));
         set_override(&mut inst, "icon", OverrideValue::Visible(false));
         set_override(&mut inst, "half", OverrideValue::Opacity(0.5));
         set_override(&mut inst, "nested", OverrideValue::Swap("Icon/Cross".into()));
@@ -294,7 +357,7 @@ mod tests {
         let li = find(page, "i1").unwrap();
         let t = typed_overrides(li);
         assert_eq!(t.get("label"), Some(&OverrideValue::Text("Buy now".into())));
-        assert_eq!(t.get("bg"), Some(&OverrideValue::Fill(Color::rgb8(0xff, 0, 0))));
+        assert_eq!(t.get("bg"), Some(&OverrideValue::Fill(Color::from_rgb8(0xff, 0, 0))));
         assert_eq!(t.get("icon"), Some(&OverrideValue::Visible(false)));
         assert_eq!(t.get("half"), Some(&OverrideValue::Opacity(0.5)));
         assert_eq!(t.get("nested"), Some(&OverrideValue::Swap("Icon/Cross".into())));
@@ -314,7 +377,7 @@ mod tests {
         comp.visible = false;
         comp.children.push(
             Node::frame("chip-root", 0.0, 0.0).auto_layout(AutoLayout {
-                direction: LayoutDirection::Horizontal, gap: 4.0, padding: 6.0,
+                direction: LayoutDirection::Horizontal, gap: 4.0, padding: [6.0; 4],
                 sizing: x_core::Sizing::Hug, ..Default::default()
             }).child(Node::text("chip-label", 0.0, 0.0, 30.0, 12.0, "tag")),
         );
@@ -343,10 +406,10 @@ mod tests {
         let mut node = Node::rect("stacked", 0.0, 0.0, 100.0, 80.0, Color::BLACK);
         node.visual_stacks_materialized = true;
         node.fill_layers = vec![
-            PaintLayer::new(Paint::Solid(Color::rgb8(255, 0, 0))),
+            PaintLayer::new(Paint::Solid(Color::from_rgb8(255, 0, 0))),
             PaintLayer { paint: Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::WHITE), (1.0, Color::BLACK)] }, opacity: 0.65, visible: false, blend: BlendKind::Screen },
         ];
-        node.stroke_layers = vec![StrokeLayer { stroke: Stroke { color: Color::WHITE, width: 3.0 }, opacity: 0.8, visible: true, blend: BlendKind::Multiply, options: StrokeOptions::default() }];
+        node.stroke_layers = vec![StrokeLayer { stroke: Stroke::solid(Color::WHITE, 3.0), opacity: 0.8, visible: true, blend: BlendKind::Multiply, options: StrokeOptions::default() }];
         node.effect_layers = vec![EffectLayer { effect: Effect::DropShadow { dx: 2.0, dy: 4.0, blur: 12.0, color: Color::BLACK }, opacity: 0.5, visible: false, blend: BlendKind::SoftLight }];
         let mut doc = Document::new();
         doc.pages.push(Node::frame("page", 200.0, 200.0).child(node));
@@ -372,5 +435,51 @@ mod tests {
             let loaded = load_x(&save_x(&doc)).expect("extended blend should deserialize");
             assert_eq!(loaded.pages[0].children[0].blend, blend);
         }
+    }
+
+    #[test]
+    fn per_side_padding_cross_sizing_and_pin_round_trip() {
+        let mut doc = Document::new();
+        let page = Node::frame("p", 200.0, 200.0).child(
+            Node::frame("f", 80.0, 60.0)
+                .auto_layout(AutoLayout {
+                    direction: LayoutDirection::Horizontal, gap: 4.0,
+                    padding: [10.0, 4.0, 6.0, 2.0], sizing: Sizing::Fixed,
+                    cross_sizing: Some(Sizing::Hug), ..Default::default()
+                })
+                .pin(HPin::StretchH, VPin::CenterV),
+        );
+        doc.pages.push(page);
+        let text = save_x(&doc);
+        // non-uniform padding + cross_sizing + pin must be written
+        assert!(text.contains("\"padding\":[10,4,6,2]"), "per-side padding serializes as an array: {text}");
+        assert!(text.contains("\"cross_sizing\":\"hug\""));
+        assert!(text.contains("\"pin\":\"stretch center\""));
+        let loaded = load_x(&text).expect("load");
+        let f = find(&loaded.pages[0], "f").unwrap();
+        let NodeKind::Frame { layout: Some(l) } = &f.kind else { panic!("frame layout") };
+        assert_eq!(l.padding, [10.0, 4.0, 6.0, 2.0]);
+        assert_eq!(l.cross_sizing, Some(Sizing::Hug));
+        assert_eq!(f.pin, (HPin::StretchH, VPin::CenterV));
+        // byte-stable across save/load
+        assert_eq!(save_x(&loaded), text);
+    }
+
+    #[test]
+    fn uniform_padding_and_default_pins_stay_legacy_shaped() {
+        let mut doc = Document::new();
+        doc.pages.push(Node::frame("p", 100.0, 100.0).child(
+            Node::frame("f", 40.0, 30.0)
+                .auto_layout(AutoLayout { direction: LayoutDirection::Vertical, gap: 2.0, padding: [8.0; 4], sizing: Sizing::Hug, ..Default::default() }),
+        ));
+        let text = save_x(&doc);
+        assert!(text.contains("\"padding\":8") && !text.contains("\"padding\":["), "uniform padding stays scalar: {text}");
+        assert!(!text.contains("\"pin\""), "default Left/Top pin is never written");
+        // legacy scalar parses back as all-four-sides
+        let legacy = text.replace("\"padding\":8", "\"padding\":12");
+        let loaded = load_x(&legacy).unwrap();
+        let f = find(&loaded.pages[0], "f").unwrap();
+        let NodeKind::Frame { layout: Some(l) } = &f.kind else { panic!("frame layout") };
+        assert_eq!(l.padding, [12.0; 4], "legacy scalar padding loads onto all four sides");
     }
 }

@@ -10,8 +10,8 @@
 //!   x-editor -> x-core, x-components
 //!   x-format -> x-core, x-components
 //!   x-ui -> x-text
-//!   arco_native (facade) -> all crates
-//!   x-designer -> arco_native only
+//!   x-native (facade) -> all crates
+//!   x-designer -> x-native only
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -25,7 +25,7 @@ fn internal_deps(toml: &str, dev: bool) -> Vec<String> {
             in_section = l == if dev { "[dev-dependencies]" } else { "[dependencies]" };
             continue;
         }
-        if in_section && (l.starts_with("x-") || l.starts_with("arco")) {
+        if in_section && l.starts_with("x-") {
             if let Some(name) = l.split('=').next() {
                 out.push(name.trim().to_string());
             }
@@ -60,12 +60,12 @@ fn dependency_direction_is_enforced() {
         ("x-core", vec![]),
         ("x-components", vec!["x-core"]),
         ("x-text", vec!["x-core"]),
-        ("x-render", vec!["x-core", "x-text", "x-components"]),
+        ("x-render", vec!["x-core", "x-text"]),
         ("x-editor", vec!["x-core", "x-components"]),
         ("x-format", vec!["x-core", "x-components"]),
         ("x-ui", vec!["x-text"]),
-        ("arco_native", vec!["x-core", "x-components", "x-render", "x-text", "x-editor", "x-format", "x-ui"]),
-        ("x-designer", vec!["arco_native"]),
+        ("x-native", vec!["x-core", "x-components", "x-render", "x-text", "x-editor", "x-format", "x-ui"]),
+        ("x-designer", vec!["x-native"]),
     ]);
     for (krate, deps) in &g {
         let Some(ok) = allowed.get(krate.as_str()) else {

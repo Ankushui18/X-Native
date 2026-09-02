@@ -3,7 +3,7 @@ name = "x-text"
 version = "0.34.0"
 edition = "2021"
 [dependencies]
-vello = "0.1"
+vello = "0.10"
 ttf-parser = "0.19"
 rustybuzz = "0.14"
 unicode-bidi = "0.3"

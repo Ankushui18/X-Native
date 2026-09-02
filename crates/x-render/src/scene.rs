@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Blob, Brush, Color, Fill, Format, Gradient, Image, Mix};
+use vello::peniko::{Brush, Fill};
 use vello::Scene;
 use x_core::*;
 #[allow(unused_imports)]
@@ -57,7 +57,7 @@ fn encode_drop_shadows(scene: &mut Scene, node: &Node, world: Affine, shape: &im
             let sx = if b.width() > 0.0 { (b.width() + grow * 2.0) / b.width() } else { 1.0 };
             let sy = if b.height() > 0.0 { (b.height() + grow * 2.0) / b.height() } else { 1.0 };
             let t = world * Affine::translate((dx - grow, dy - grow)) * Affine::scale_non_uniform(sx, sy);
-            scene.fill(Fill::NonZero, t, color.with_alpha_factor(0.55 * node.opacity), None, shape);
+            scene.fill(Fill::NonZero, t, color.multiply_alpha(0.55 * node.opacity), None, shape);
             stats.paths += 1;
         }
     }
@@ -111,7 +111,7 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
     // Phase 4: blend layer around this node + its subtree.
     let blend = node.blend.mix();
     if let Some(mix) = blend {
-        scene.push_layer(mix, 1.0, Affine::IDENTITY, &b);
+        scene.push_layer(Fill::NonZero, mix, 1.0, Affine::IDENTITY, &b);
     }
 
     let mut frame_clip_shape: Option<vello::kurbo::BezPath> = None;
@@ -123,7 +123,7 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
             encode_drop_shadows(scene, node, world, &shape, stats);
             scene.fill(Fill::NonZero, world, &brush_with_alpha(effective_brush(node, overrides, vars), node.opacity), None, &shape);
             if node.stroke.width > 0.0 {
-                scene.stroke(&vello::kurbo::Stroke::new(node.stroke.width), world, node.stroke.color.with_alpha_factor(node.opacity), None, &shape);
+                scene.stroke(&vello::kurbo::Stroke::new(node.stroke.width), world, &brush_with_alpha(paint_brush(&node.stroke.paint, vars), node.opacity), None, &shape);
                 stats.paths += 1;
             }
             stats.paths += 1;
@@ -138,14 +138,14 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
         }
         NodeKind::Line => {
             let shape = Rect::new(0.0, 0.0, node.w.max(node.stroke.width), node.stroke.width.max(1.0)).into_path(0.1);
-            scene.fill(Fill::NonZero, world, node.stroke.color.with_alpha_factor(node.opacity), None, &shape);
+            scene.fill(Fill::NonZero, world, &brush_with_alpha(paint_brush(&node.stroke.paint, vars), node.opacity), None, &shape);
             stats.paths += 1;
         }
         NodeKind::Image { asset, .. } => {
             if let Some(img) = ctx.assets.and_then(|a| a.get(asset)) {
                 // draw the decoded bitmap scaled into the node's box
-                let sx = node.w / img.width as f64;
-                let sy = node.h / img.height as f64;
+                let sx = node.w / img.image.width as f64;
+                let sy = node.h / img.image.height as f64;
                 scene.draw_image(img, world * Affine::scale_non_uniform(sx, sy));
                 stats.paths += 1;
             } else {
@@ -156,7 +156,7 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
         }
         NodeKind::Text { text } => {
             let content = effective_text(node, overrides).unwrap_or(text);
-            let color = effective_fill(node, overrides, vars).with_alpha_factor(node.opacity);
+            let color = effective_fill(node, overrides, vars).multiply_alpha(node.opacity);
             // Real typography when a FontManager is present; node.h is the
             // font size (em), node.w the wrap width.
             let drew = if let Some(fm) = ctx.fonts {
@@ -176,7 +176,7 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
                 encode_drop_shadows(scene, node, world, &bez, stats);
                 scene.fill(Fill::NonZero, world, &brush_with_alpha(effective_brush(node, overrides, vars), node.opacity), None, &bez);
                 if node.stroke.width > 0.0 {
-                    scene.stroke(&vello::kurbo::Stroke::new(node.stroke.width), world, node.stroke.color.with_alpha_factor(node.opacity), None, &bez);
+                    scene.stroke(&vello::kurbo::Stroke::new(node.stroke.width), world, &brush_with_alpha(paint_brush(&node.stroke.paint, vars), node.opacity), None, &bez);
                     stats.paths += 1;
                 }
                 stats.paths += 1;
@@ -200,21 +200,28 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
             // radii apply here too, same as a Rect node.
             let color = effective_fill(node, overrides, vars);
             let shape = shape_for_rect(node, 0.0);
-            if color.a > 0 {
+            if color.components[3] > 0.0 {
                 encode_drop_shadows(scene, node, world, &shape, stats);
                 scene.fill(Fill::NonZero, world, &brush_with_alpha(effective_brush(node, overrides, vars), node.opacity), None, &shape);
                 stats.paths += 1;
             }
-            frame_clip_shape = Some(shape);
+            // Clip children to the frame's own (rounded) bounds ONLY when
+            // it actually has corner radii — the case where clipping is
+            // visually load-bearing. Square frames behave like groups
+            // (no unconditional clip), which also keeps the direct
+            // encoder in lockstep with the IR lowering in ir.rs.
+            let rounded = node.corner_radii
+                .map(|[tl, tr, br, bl]| tl > 0.0 || tr > 0.0 || br > 0.0 || bl > 0.0)
+                .unwrap_or(false);
+            if rounded { frame_clip_shape = Some(shape); }
         }
         NodeKind::Group | NodeKind::Component { .. } => {}
-        NodeKind::VectorNetwork(_) => { /* TODO: Render vector network */ }
     }
-    // Clip children to the frame's own (possibly rounded) bounds, so a
-    // child's shadow/overflow can't bleed past the frame edge — matches
-    // Figma's default "clip content" behavior for frames.
+    // Clip children to the frame's own rounded bounds (only set when the
+    // frame has corner radii), so a child's shadow/overflow can't bleed
+    // past the rounded corner — see the Frame branch above.
     if let Some(shape) = &frame_clip_shape {
-        scene.push_layer(Mix::Clip, 1.0, world, shape);
+        scene.push_clip_layer(Fill::NonZero, world, shape);
     }
     for child in &node.children { encode(scene, child, world, viewport, vars, stats, registry, overrides, depth, ctx); }
     if frame_clip_shape.is_some() { scene.pop_layer(); }
@@ -225,9 +232,9 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
 fn brush_with_alpha(brush: Brush, alpha: f32) -> Brush {
     if alpha >= 1.0 { return brush; }
     match brush {
-        Brush::Solid(c) => Brush::Solid(c.with_alpha_factor(alpha)),
+        Brush::Solid(c) => Brush::Solid(c.multiply_alpha(alpha)),
         Brush::Gradient(mut g) => {
-            for stop in g.stops.iter_mut() { stop.color = stop.color.with_alpha_factor(alpha); }
+            for stop in g.stops.iter_mut() { stop.color = stop.color.multiply_alpha(alpha); }
             Brush::Gradient(g)
         }
         other => other,

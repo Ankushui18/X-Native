@@ -1,5 +1,5 @@
 
-use vello::kurbo::Rect;
+use x_core::kurbo::Rect;
 
 use x_core::*;
 #[allow(unused_imports)]
@@ -24,7 +24,7 @@ impl Snapper {
                     let d = edge - c;
                     if d.abs() <= self.threshold {
                         let corrected_x = match ci { 0 => edge, 1 => edge - moving_w / 2.0, _ => edge - moving_w };
-                        if best.as_ref().map_or(true, |(bd, _, _)| d.abs() < *bd) {
+                        if best.as_ref().is_none_or(|(bd, _, _)| d.abs() < *bd) {
                             best = Some((d.abs(), corrected_x, id.clone()));
                         }
                     }
@@ -92,6 +92,7 @@ pub fn snap_delta(root: &Node, moving_id: &str, tol: f64) -> (f64, f64) {
     let m_xs = [mb.x0, (mb.x0 + mb.x1) / 2.0, mb.x1];
     let m_ys = [mb.y0, (mb.y0 + mb.y1) / 2.0, mb.y1];
     let (mut best_dx, mut best_dy): (Option<f64>, Option<f64>) = (None, None);
+    #[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
     fn walk(node: &Node, parent: Affine, skip: &str, m_xs: &[f64; 3], m_ys: &[f64; 3], tol: f64, bx: &mut Option<f64>, by: &mut Option<f64>) {
         if !node.visible { return; }
         let world = parent * node.transform.matrix(node.w, node.h);
@@ -100,13 +101,13 @@ pub fn snap_delta(root: &Node, moving_id: &str, tol: f64) -> (f64, f64) {
             for edge in [b.x0, (b.x0 + b.x1) / 2.0, b.x1] {
                 for m in m_xs {
                     let d = edge - m;
-                    if d.abs() <= tol && bx.map_or(true, |cur| d.abs() < cur.abs()) { *bx = Some(d); }
+                    if d.abs() <= tol && bx.is_none_or(|cur| d.abs() < cur.abs()) { *bx = Some(d); }
                 }
             }
             for edge in [b.y0, (b.y0 + b.y1) / 2.0, b.y1] {
                 for m in m_ys {
                     let d = edge - m;
-                    if d.abs() <= tol && by.map_or(true, |cur| d.abs() < cur.abs()) { *by = Some(d); }
+                    if d.abs() <= tol && by.is_none_or(|cur| d.abs() < cur.abs()) { *by = Some(d); }
                 }
             }
         }

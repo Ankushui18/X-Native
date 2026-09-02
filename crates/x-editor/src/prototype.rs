@@ -1,6 +1,6 @@
 
-use vello::kurbo::Point;
-use vello::peniko::Color;
+use x_core::kurbo::Point;
+use x_core::peniko::Color;
 use x_core::*;
 #[allow(unused_imports)]
 use crate::*;
@@ -64,12 +64,14 @@ pub fn smart_animate(from: &Node, to: &Node, t: f64) -> Node {
 
     fn lerp(a: f64, b: f64, t: f64) -> f64 { a + (b - a) * t }
     fn lerp_color(a: Color, b: Color, t: f64) -> Color {
-        Color::rgba8(
-            (a.r as f64 + (b.r as f64 - a.r as f64) * t).round() as u8,
-            (a.g as f64 + (b.g as f64 - a.g as f64) * t).round() as u8,
-            (a.b as f64 + (b.b as f64 - a.b as f64) * t).round() as u8,
-            (a.a as f64 + (b.a as f64 - a.a as f64) * t).round() as u8,
-        )
+        // components are linear f32 rgba; interpolate per channel
+        let lerp = |x: f32, y: f32| (x as f64 + (y as f64 - x as f64) * t) as f32;
+        Color::new([
+            lerp(a.components[0], b.components[0]),
+            lerp(a.components[1], b.components[1]),
+            lerp(a.components[2], b.components[2]),
+            lerp(a.components[3], b.components[3]),
+        ])
     }
 
     fn blend_tree(node: &mut Node, from_map: &std::collections::HashMap<String, &Node>, t: f64) {

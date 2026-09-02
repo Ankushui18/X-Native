@@ -1,4 +1,4 @@
-//! x-native — facade crate: one `arco_native` surface over the workspace.
+//! x-native — facade crate: one `x_native` surface over the workspace.
 pub use x_core::*;
 pub mod components { pub use x_components::*; }
 pub use x_components::{resolve_instance_layout, sync_instance_sizes, MeasureFn};
@@ -17,17 +17,34 @@ pub use x_render::export_pdf_full;
 /// test-enforced): the exporter takes an injected callback, and this is
 /// the one canonical implementation of it — same `node_text_outlines`
 /// pipeline as the canvas and PDF sinks.
+/// What the SVG exporter asks for per glyph: path data + optional
+/// per-run color (None = paint with the layer fill).
+pub type SvgGlyphOutlines = Vec<(String, Option<Color>)>;
+
 pub fn svg_text_outliner(fonts: &x_text::FontManager)
-    -> impl Fn(&str, f64, f64, Option<&str>) -> Option<Vec<String>> + '_
+    -> impl Fn(&[TextPart], f64, f64, Option<&str>) -> Option<SvgGlyphOutlines> + '_
 {
-    move |text: &str, size: f64, max_width: f64, font: Option<&str>| {
-        let (glyphs, _) = x_text::node_text_outlines(fonts, text, size, max_width, font, vello::peniko::Color::BLACK)?;
+    move |parts: &[TextPart], size: f64, max_width: f64, font: Option<&str>| {
+        // unstyled single-part text keeps the plain pipeline (and its
+        // ls=0/lh=1.2 defaults); anything styled goes through the rich
+        // shaper (same 0.72 em + letter-spacing contract)
+        let plain = parts.len() == 1 && parts[0].color.is_none() && parts[0].size.is_none() && parts[0].font.is_none();
+        let glyphs = if plain {
+            let (glyphs, _) = x_text::node_text_outlines(fonts, &parts[0].text, size, max_width, font, vello::peniko::Color::BLACK)?;
+            glyphs
+        } else {
+            let (glyphs, _) = x_text::node_text_outlines_rich(fonts, parts, size, max_width, font, 0.0, 1.2)?;
+            glyphs
+        };
         Some(glyphs.iter().map(|g| {
             // apply the glyph's local transform to its path, then write
             // node-local SVG path data (the exporter's <g> handles x/y).
             let mut p = g.path.clone();
             p.apply_affine(g.transform);
-            svg_path_data(&p)
+            // plain text never carries per-run colors; rich text maps the
+            // fully-transparent "no explicit color" marker to None
+            let color = if !plain && g.color.components[3] != 0.0 { Some(g.color) } else { None };
+            (svg_path_data(&p), color)
         }).collect())
     }
 }

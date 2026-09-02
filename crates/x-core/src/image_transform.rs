@@ -13,7 +13,7 @@
 //! sink cannot get them wrong independently.
 
 use crate::node::{ImageFit, ImagePlacement};
-use vello::kurbo::Affine;
+use kurbo::Affine;
 
 /// The resolved placement: clip rect is always the node box; one draw
 /// per image instance (1 for fill/fit/crop, N for tile).
@@ -76,7 +76,7 @@ pub fn resolve_image_placement(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vello::kurbo::Point;
+    use kurbo::Point;
 
     fn map(a: &Affine, x: f64, y: f64) -> (f64, f64) {
         let p = *a * Point::new(x, y);
@@ -117,7 +117,7 @@ mod tests {
         assert_eq!(map(&r.draws[1], 0.0, 0.0), (25.0, 0.0));
         let zoomed = ImagePlacement { scale: 2.0, ..Default::default() };
         let r2 = resolve_image_placement(ImageFit::Tile, &zoomed, 100.0, 100.0, 25.0, 50.0);
-        assert_eq!(r2.draws.len(), 2 * 1, "2x zoom halves the grid");
+        assert_eq!(r2.draws.len(), 2, "2x zoom halves the grid");
         assert_eq!(map(&r2.draws[0], 25.0, 50.0), (50.0, 100.0), "tile drawn at 2x");
     }
 

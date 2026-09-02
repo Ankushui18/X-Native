@@ -33,11 +33,11 @@ pub enum ImportKind {
     Rect { radius: f64 },
     Ellipse,
     Line,
-    Text { content: String },
+    Text { content: String, size: Option<f64>, font: Option<String>, line_height: Option<f64>, letter_spacing: Option<f64>, runs: Vec<x_core::TextRun> },
     Path { cmds: Vec<PathCmd> },
     Image { asset: String },
     Component { name: String },
-    Instance { component: String, text_overrides: Vec<(String, String)> },
+    Instance { component: String, overrides: Vec<(String, String)> },
 }
 
 #[derive(Debug, Clone)]
@@ -55,20 +55,24 @@ pub struct ImportNode {
     pub rotation: f64,
     /// None = "source specified nothing" -> lower() picks the kind default
     pub fill: Option<Paint>,
-    /// Primary (first) stroke — kept as a plain tuple for backward
-    /// compatibility with every existing importer call site.
-    pub stroke: Option<(Color, f64)>,
+    /// Primary (first) stroke — (paint, width); Paint so gradient strokes
+    /// ride the same vocabulary as fills.
+    pub stroke: Option<(Paint, f64)>,
     /// Any strokes beyond the first (Figma/Sketch both support stacking
     /// multiple stroke paints on one layer). Same width convention as
     /// `stroke`; importers that don't support multi-stroke just leave
     /// this empty and nothing changes for them.
-    pub extra_strokes: Vec<(Color, f64)>,
+    pub extra_strokes: Vec<(Paint, f64)>,
     /// Layer effects (shadows/blurs). Empty = none, never guessed.
     pub effects: Vec<Effect>,
     /// Auto-layout (Figma "layoutMode" / Sketch resizing stacks). None =
     /// source has no auto-layout on this node — only meaningful on
     /// `ImportKind::Frame`; lower() ignores it for any other kind.
     pub layout: Option<AutoLayout>,
+    /// Resize constraints (Figma `constraints` / Sketch resizing rules).
+    /// None = source specified nothing -> lower() keeps the Left/Top
+    /// default; importers only set it when the source is explicit.
+    pub pin: Option<(x_core::HPin, x_core::VPin)>,
     pub opacity: f32,
     pub visible: bool,
     pub children: Vec<ImportNode>,
@@ -76,12 +80,13 @@ pub struct ImportNode {
 
 impl ImportNode {
     pub fn new(kind: ImportKind) -> Self {
-        Self { id: None, kind, x: 0.0, y: 0.0, w: 0.0, h: 0.0, rotation: 0.0, fill: None, stroke: None, extra_strokes: vec![], effects: vec![], layout: None, opacity: 1.0, visible: true, children: vec![] }
+        Self { id: None, kind, x: 0.0, y: 0.0, w: 0.0, h: 0.0, rotation: 0.0, fill: None, stroke: None, extra_strokes: vec![], effects: vec![], layout: None, pin: None, opacity: 1.0, visible: true, children: vec![] }
     }
     pub fn id(mut self, id: impl Into<String>) -> Self { self.id = Some(id.into()); self }
     pub fn at(mut self, x: f64, y: f64) -> Self { self.x = x; self.y = y; self }
     pub fn size(mut self, w: f64, h: f64) -> Self { self.w = w; self.h = h; self }
     pub fn fill(mut self, p: Paint) -> Self { self.fill = Some(p); self }
+    pub fn pin(mut self, h: x_core::HPin, v: x_core::VPin) -> Self { self.pin = Some((h, v)); self }
     pub fn child(mut self, c: ImportNode) -> Self { self.children.push(c); self }
 }
 
@@ -200,14 +205,27 @@ fn lower_node(ir: ImportNode, used: &mut HashSet<String>, counter: &mut usize, i
         ImportKind::Ellipse => Node::ellipse(&id, x, y, w, h, Color::TRANSPARENT)
             .fill_paint(ir.fill.clone().unwrap_or(Paint::Solid(Color::TRANSPARENT))),
         ImportKind::Line => {
-            let (c, sw) = ir.stroke.unwrap_or((Color::BLACK, 2.0));
-            let mut l = Node::line(&id, x, y, w.max(1.0), h, c);
+            let (paint, sw) = ir.stroke.clone().unwrap_or((Paint::Solid(Color::BLACK), 2.0));
+            let mut l = Node::line(&id, x, y, w.max(1.0), h, Color::BLACK);
+            l.stroke.paint = paint;
             l.stroke.width = sw.max(0.5);
             l
         }
-        ImportKind::Text { content } => Node::text(&id, x, y, w, h, &content)
-            // shared semantic: unstyled text is BLACK, never transparent
-            .fill_paint(ir.fill.clone().unwrap_or(Paint::Solid(Color::BLACK))),
+        ImportKind::Text { content, size, font, line_height, letter_spacing, runs } => {
+            let mut n = Node::text(&id, x, y, w, h, &content)
+                // shared semantic: unstyled text is BLACK, never transparent
+                .fill_paint(ir.fill.clone().unwrap_or(Paint::Solid(Color::BLACK)));
+            // typography rides the node: h IS the font size in this app's
+            // model (the inspector's Size row edits node.h), and font /
+            // letter-spacing (px) / line-height (multiplier) ride the
+            // bindings every render sink already honors
+            if let Some(fs) = size { n.h = fs; }
+            if let Some(f) = font { n.bindings.insert("font".into(), f); }
+            if let Some(lh) = line_height { n.bindings.insert("lh".into(), format!("{lh}")); }
+            if let Some(ls) = letter_spacing { n.bindings.insert("ls".into(), format!("{ls}")); }
+            n.text_runs = runs;
+            n
+        }
         ImportKind::Path { cmds } => {
             let cmds: Vec<PathCmd> = cmds.into_iter().map(|c| match c {
                 PathCmd::MoveTo(a, b) => PathCmd::MoveTo(clean(a), clean(b)),
@@ -231,33 +249,35 @@ fn lower_node(ir: ImportNode, used: &mut HashSet<String>, counter: &mut usize, i
             c.transform.x = x; c.transform.y = y;
             c
         }
-        ImportKind::Instance { component, text_overrides } => {
+        ImportKind::Instance { component, overrides } => {
             let mut inst = Node::instance(&id, &component, x, y, w, h);
-            for (target, value) in text_overrides {
-                // shared semantic: render-effective override encoding
-                inst.overrides.insert(sanitize_id(&target), format!("text:{value}"));
+            for (target, encoding) in overrides {
+                // shared semantic: render-effective override encodings
+                // ("text:...", "#rrggbb[aa]", "opacity:N", "visible:bool", "swap:name")
+                inst.overrides.insert(sanitize_id(&target), encoding);
             }
             inst
         }
     };
 
     // ---- shared scalar semantics
-    if let Some((c, sw)) = ir.stroke {
+    if let Some((paint, sw)) = ir.stroke.clone() {
         if !matches!(node.kind, NodeKind::Line) && sw > 0.0 {
-            node.stroke = Stroke { color: c, width: clean(sw) };
+            node.stroke = Stroke { paint, width: clean(sw) };
         }
     }
     if !ir.extra_strokes.is_empty() && !matches!(node.kind, NodeKind::Line) {
         node.materialize_visual_stacks();
-        for (c, sw) in &ir.extra_strokes {
+        for (paint, sw) in &ir.extra_strokes {
             if *sw > 0.0 {
-                node.stroke_layers.push(StrokeLayer::new(Stroke { color: *c, width: clean(*sw) }));
+                node.stroke_layers.push(StrokeLayer::new(Stroke { paint: paint.clone(), width: clean(*sw) }));
             }
         }
     }
     if !ir.effects.is_empty() {
         node.effects = ir.effects;
     }
+    if let Some((h, v)) = ir.pin { node.pin = (h, v); }
     node.transform.rotation = clean(ir.rotation);
     node.opacity = if ir.opacity.is_finite() { ir.opacity.clamp(0.0, 1.0) } else { 1.0 };
     node.visible = ir.visible;
@@ -306,7 +326,7 @@ mod tests {
     fn lower_pages_autosize_and_text_defaults_black() {
         let doc = ImportDoc {
             pages: vec![ImportNode::new(ImportKind::Frame).id("p")
-                .child(ImportNode::new(ImportKind::Text { content: "hi".into() }).id("t").at(900.0, 700.0).size(100.0, 20.0))],
+                .child(ImportNode::new(ImportKind::Text { content: "hi".into(), size: None, font: None, line_height: None, letter_spacing: None, runs: vec![] }).id("t").at(900.0, 700.0).size(100.0, 20.0))],
             ..Default::default()
         };
         let d = lower(doc);
@@ -320,7 +340,7 @@ mod tests {
             pages: vec![ImportNode::new(ImportKind::Frame).id("p")
                 .child(ImportNode::new(ImportKind::Instance {
                     component: "Button".into(),
-                    text_overrides: vec![("label".into(), "Buy now".into())],
+                    overrides: vec![("label".into(), "text:Buy now".into())],
                 }).id("i1").size(80.0, 30.0))],
             ..Default::default()
         };

@@ -25,8 +25,6 @@ pub mod spatial;
 pub mod devmode;
 pub mod vector_edit;
 pub mod booleans;
-pub mod clip;
-pub mod bezier_clip;
 #[cfg(test)]
 mod tests_mod;
 

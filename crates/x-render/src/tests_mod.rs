@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Blob, Brush, Color, Fill, Format, Gradient, Image, Mix};
-use vello::Scene;
+use vello::peniko::Color;
 use x_core::*;
 #[allow(unused_imports)]
 use crate::*;
@@ -11,7 +9,7 @@ use crate::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x_core::*;
+    
 
     #[test]
     fn feature_model_has_expected_nodes() {
@@ -26,7 +24,7 @@ mod tests {
     #[test]
     fn auto_layout_positions_children() {
         let mut d = Node::frame("r", 100.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: 5.0, sizing: Sizing::Fixed, ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: [5.0; 4], sizing: Sizing::Fixed, ..Default::default() })
             .child(Node::rect("a", 0.0, 0.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
         apply_auto_layout(&mut d, &Variables::default());
@@ -64,7 +62,7 @@ mod tests {
         let mut vars = Variables::default();
         vars.numbers.insert("gap".into(), 40.0);
         let mut d = Node::frame("r", 400.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: 0.0, gap_var: Some("gap".into()), ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: [0.0; 4], gap_var: Some("gap".into()), ..Default::default() })
             .child(Node::rect("a", 0.0, 0.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 20.0, 20.0, Color::WHITE));
         apply_auto_layout(&mut d, &vars);
@@ -74,7 +72,7 @@ mod tests {
     #[test]
     fn number_variable_missing_falls_back_to_literal() {
         let mut d = Node::frame("r", 400.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: 0.0, gap_var: Some("missing".into()), ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: [0.0; 4], gap_var: Some("missing".into()), ..Default::default() })
             .child(Node::rect("a", 0.0, 0.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 20.0, 20.0, Color::WHITE));
         apply_auto_layout(&mut d, &Variables::default());
@@ -99,7 +97,8 @@ mod tests {
         let mut ovr = HashMap::new();
         ovr.insert("bg".to_string(), "#ff0000".to_string());
         let c = effective_fill(&bg, &ovr, &Variables::default());
-        assert_eq!((c.r, c.g, c.b), (255, 0, 0));
+        let rgba = c.to_rgba8();
+        assert_eq!((rgba.r, rgba.g, rgba.b), (255, 0, 0));
     }
 
     #[test]
@@ -135,7 +134,7 @@ mod tests {
     #[test]
     fn gradient_paint_encodes() {
         let d = Node::rect("g", 0.0, 0.0, 100.0, 100.0, Color::WHITE)
-            .fill_paint(Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::rgb8(255, 0, 0)), (1.0, Color::rgb8(0, 0, 255))] });
+            .fill_paint(Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (1.0, Color::from_rgb8(0, 0, 255))] });
         let (scene, s) = build_scene(&d, None, &Variables::default());
         assert_eq!(s.paths, 1);
         assert_eq!(scene.encoding().n_paths, 1);
@@ -198,7 +197,7 @@ mod tests {
         let mut assets = Assets::new();
         assets.load_png("logo", path.to_str().unwrap()).expect("decode");
         assert_eq!(assets.len(), 1);
-        assert_eq!(assets.get("logo").unwrap().width, 2);
+        assert_eq!(assets.get("logo").unwrap().image.width, 2);
 
         let d = Node::image("img", 0.0, 0.0, 100.0, 100.0, "logo");
         let (_, s) = build_scene_with_assets(&d, None, &Variables::default(), Some(&assets));
@@ -219,7 +218,7 @@ mod tests {
     #[test]
     fn layout_v2_cross_axis_center_and_space_between() {
         let mut d = Node::frame("r", 400.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, padding: 0.0, align: CrossAlign::Center, space_between: true, ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, padding: [0.0; 4], align: CrossAlign::Center, space_between: true, ..Default::default() })
             .child(Node::rect("a", 0.0, 0.0, 50.0, 40.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 50.0, 60.0, Color::WHITE));
         apply_auto_layout(&mut d, &Variables::default());
@@ -231,11 +230,11 @@ mod tests {
     #[test]
     fn layout_v2_recursive_hug_propagates() {
         let inner = Node::frame("inner", 0.0, 0.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Vertical, gap: 10.0, padding: 5.0, sizing: Sizing::Hug, ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Vertical, gap: 10.0, padding: [5.0; 4], sizing: Sizing::Hug, ..Default::default() })
             .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
         let mut outer = Node::frame("outer", 0.0, 0.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: 0.0, sizing: Sizing::Hug, ..Default::default() })
+            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: [0.0; 4], sizing: Sizing::Hug, ..Default::default() })
             .child(inner);
         apply_layout_recursive(&mut outer, &Variables::default());
         // inner hugged: h = 5+20+10+20+5 = 60, w = 30+10 = 40
@@ -249,17 +248,17 @@ mod tests {
     #[test]
     fn variables_v2_modes_and_aliases() {
         let mut vars = Variables::default();
-        vars.colors.insert("bg".into(), Color::rgb8(255, 255, 255));
+        vars.colors.insert("bg".into(), Color::from_rgb8(255, 255, 255));
         let mut dark = HashMap::new();
-        dark.insert("bg".to_string(), Color::rgb8(0, 0, 0));
+        dark.insert("bg".to_string(), Color::from_rgb8(0, 0, 0));
         vars.modes.insert("dark".into(), dark);
         vars.aliases.insert("surface".into(), "bg".into());
 
         // no mode: alias chases to base value
-        assert_eq!(vars.color("surface", Color::TRANSPARENT).r, 255);
+        assert_eq!(vars.color("surface", Color::TRANSPARENT).to_rgba8().r, 255);
         // dark mode wins over base
         vars.active_mode = Some("dark".into());
-        assert_eq!(vars.color("surface", Color::TRANSPARENT).r, 0);
+        assert_eq!(vars.color("surface", Color::TRANSPARENT).to_rgba8().r, 0);
         // strings + bools exist
         vars.strings.insert("brand".into(), "X Native".into());
         vars.bools.insert("beta".into(), true);
@@ -273,7 +272,7 @@ mod tests {
         vars.aliases.insert("a".into(), "b".into());
         vars.aliases.insert("b".into(), "a".into());
         // must not hang; falls back
-        assert_eq!(vars.color("a", Color::rgb8(1, 2, 3)).r, 1);
+        assert_eq!((vars.color("a", Color::from_rgb8(1, 2, 3)).components[0] * 255.0).round() as u8, 1);
     }
 }
 
@@ -281,7 +280,7 @@ mod tests {
 #[cfg(test)]
 mod variable_bindings {
     use super::*;
-    use x_core::*;
+    
 
     #[test]
     fn radius_and_opacity_bind_to_number_variables() {
@@ -306,18 +305,18 @@ mod variable_bindings {
 #[cfg(test)]
 mod component2_render {
     use super::*;
-    use x_core::*;
+    
     use x_components::{set_override, OverrideValue};
 
     fn doc_with_masters() -> Node {
         let mut icon_a = Node::component("ca", "Icon/Check", 16.0, 16.0);
         icon_a.visible = false;
-        icon_a.children.push(Node::rect("ic-a", 0.0, 0.0, 16.0, 16.0, Color::rgb8(0, 0xff, 0)));
+        icon_a.children.push(Node::rect("ic-a", 0.0, 0.0, 16.0, 16.0, Color::from_rgb8(0, 0xff, 0)));
         let mut icon_b = Node::component("cb", "Icon/Cross", 16.0, 16.0);
         icon_b.visible = false;
         // cross = TWO rects so swap changes path count
-        icon_b.children.push(Node::rect("ic-b1", 0.0, 0.0, 16.0, 4.0, Color::rgb8(0xff, 0, 0)));
-        icon_b.children.push(Node::rect("ic-b2", 0.0, 6.0, 16.0, 4.0, Color::rgb8(0xff, 0, 0)));
+        icon_b.children.push(Node::rect("ic-b1", 0.0, 0.0, 16.0, 4.0, Color::from_rgb8(0xff, 0, 0)));
+        icon_b.children.push(Node::rect("ic-b2", 0.0, 6.0, 16.0, 4.0, Color::from_rgb8(0xff, 0, 0)));
         let mut btn = Node::component("cbtn", "Button", 100.0, 40.0);
         btn.visible = false;
         btn.children.push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::BLACK));
@@ -352,7 +351,7 @@ mod component2_render {
 #[cfg(test)]
 mod typography_integration {
     use super::*;
-    use x_core::*;
+    
 
     #[test]
     fn text_node_renders_with_real_font_when_available() {

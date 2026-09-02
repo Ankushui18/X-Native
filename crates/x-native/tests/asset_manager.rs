@@ -2,19 +2,20 @@
 //! flow Sketch → Import IR → content-addressed store → .x → render,
 //! with NO filesystem dependency — that's document portability.
 
-use arco_native::fileio::{import_sketch, load_x, save_x};
-use arco_native::{build_render_tree, Assets, AssetSource, NodeKind, RenderCommand, Variables, VelloSink};
+use x_native::fileio::{import_sketch, load_x, save_x};
+use x_native::{build_render_tree, Assets, AssetSource, NodeKind, RenderCommand, Variables, VelloSink};
 
 fn tiny_png(w: u32, h: u32) -> Vec<u8> {
     // real decodable 1-bit-ish PNG: header + zlib-deflated scanlines + IEND
     let mut raw = Vec::new();
     for _ in 0..h {
-        raw.push(0u8); // filter none
-        for x in 0..w { raw.extend_from_slice(&[(x * 40) as u8, 0x99, 0xff, 0xff]); }
+        let mut scanline = vec![0u8]; // filter none
+        for x in 0..w { scanline.extend_from_slice(&[(x * 40) as u8, 0x99, 0xff, 0xff]); }
+        raw.extend_from_slice(&scanline);
     }
     let compressed = miniz_oxide_stub_compress(&raw);
     let mut png = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    let mut chunk = |tag: &[u8; 4], data: &[u8], png: &mut Vec<u8>| {
+    let chunk = |tag: &[u8; 4], data: &[u8], png: &mut Vec<u8>| {
         png.extend_from_slice(&(data.len() as u32).to_be_bytes());
         png.extend_from_slice(tag);
         png.extend_from_slice(data);

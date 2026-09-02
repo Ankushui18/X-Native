@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Brush, Color, Fill, Gradient, Mix};
+use kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
+use peniko::{Brush, Color, Fill, Gradient, Mix};
 #[allow(unused_imports)]
 use crate::*;
 
@@ -150,7 +150,7 @@ impl Document {
             b + n.children.iter().map(node_bytes).sum::<usize>()
         }
         let pages: usize = self.pages.iter().map(node_bytes).sum();
-        let styles: usize = self.styles.iter().map(|(k, _)| k.len() + 128).sum();
+        let styles: usize = self.styles.keys().map(|k| k.len() + 128).sum();
         let variables = self.variables.colors.len() * 40
             + self.variables.numbers.len() * 32
             + self.variables.strings.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>();
@@ -173,9 +173,9 @@ mod style_tests {
     #[test]
     fn apply_paint_style_sets_fill() {
         let mut n = Node::rect("r", 0.0, 0.0, 10.0, 10.0, Color::BLACK);
-        let s = Style::Paint { fill: Paint::Solid(Color::rgb8(0x0d, 0x99, 0xff)) };
+        let s = Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x0d, 0x99, 0xff)) };
         apply_style(&mut n, &s);
-        assert_eq!(n.fill, Paint::Solid(Color::rgb8(0x0d, 0x99, 0xff)));
+        assert_eq!(n.fill, Paint::Solid(Color::from_rgb8(0x0d, 0x99, 0xff)));
         assert!(n.dirty);
     }
 
@@ -192,7 +192,7 @@ mod style_tests {
     fn style_mutation_updates_all_consumers() {
         // two rects + a text bound to styles; mutate definitions; resolve
         let mut styles: HashMap<String, Style> = HashMap::new();
-        styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(255, 0, 0)) });
+        styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(255, 0, 0)) });
         styles.insert("H1".into(), Style::Text { font: "Inter 400".into(), size: 20.0, letter_spacing: 0.0, line_height: 1.2 });
         let mut root = Node::frame("page", 800.0, 600.0)
             .child(Node::rect("a", 0.0, 0.0, 50.0, 50.0, Color::BLACK))
@@ -210,30 +210,30 @@ mod style_tests {
         bind_style(find_mut(&mut root, "a").unwrap(), "Brand", &brand);
         bind_style(find_mut(&mut root, "b").unwrap(), "Brand", &brand);
         bind_style(find_mut(&mut root, "t").unwrap(), "H1", &h1);
-        assert_eq!(find_mut(&mut root, "a").unwrap().fill, Paint::Solid(Color::rgb8(255, 0, 0)));
+        assert_eq!(find_mut(&mut root, "a").unwrap().fill, Paint::Solid(Color::from_rgb8(255, 0, 0)));
         // mutate the style definitions
-        styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0, 0, 255)) });
+        styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0, 0, 255)) });
         styles.insert("H1".into(), Style::Text { font: "Lobster 700".into(), size: 44.0, letter_spacing: 0.0, line_height: 1.2 });
         let updated = resolve_styles(&mut root, &styles);
         assert_eq!(updated, 3, "all three consumers re-resolved");
         // deep consumer (b, nested in a sub-frame) updated too
-        assert_eq!(find_mut(&mut root, "a").unwrap().fill, Paint::Solid(Color::rgb8(0, 0, 255)));
-        assert_eq!(find_mut(&mut root, "b").unwrap().fill, Paint::Solid(Color::rgb8(0, 0, 255)));
+        assert_eq!(find_mut(&mut root, "a").unwrap().fill, Paint::Solid(Color::from_rgb8(0, 0, 255)));
+        assert_eq!(find_mut(&mut root, "b").unwrap().fill, Paint::Solid(Color::from_rgb8(0, 0, 255)));
         let t = find_mut(&mut root, "t").unwrap();
         assert_eq!(t.bindings.get("font").map(String::as_str), Some("Lobster 700"));
         assert_eq!(t.h, 44.0);
         // unbinding stops updates
         find_mut(&mut root, "a").unwrap().bindings.remove("style:paint");
-        styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0, 255, 0)) });
+        styles.insert("Brand".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0, 255, 0)) });
         resolve_styles(&mut root, &styles);
-        assert_eq!(find_mut(&mut root, "a").unwrap().fill, Paint::Solid(Color::rgb8(0, 0, 255)), "detached node untouched");
-        assert_eq!(find_mut(&mut root, "b").unwrap().fill, Paint::Solid(Color::rgb8(0, 255, 0)));
+        assert_eq!(find_mut(&mut root, "a").unwrap().fill, Paint::Solid(Color::from_rgb8(0, 0, 255)), "detached node untouched");
+        assert_eq!(find_mut(&mut root, "b").unwrap().fill, Paint::Solid(Color::from_rgb8(0, 255, 0)));
     }
 
     #[test]
     fn style_management_rename_detach_usage() {
         let mut styles: HashMap<String, Style> = HashMap::new();
-        styles.insert("Primary".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x63, 0x66, 0xFF)) });
+        styles.insert("Primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x63, 0x66, 0xFF)) });
         let primary = styles["Primary"].clone();
         let mut pages = vec![
             Node::frame("p1", 100.0, 100.0)
@@ -268,10 +268,10 @@ mod style_tests {
         let before = a.fill.clone();
         assert!(detach_style(a, "style:paint"));
         assert!(!detach_style(a, "style:paint"), "second detach is a no-op");
-        styles.insert("Brand/Primary".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x7C, 0x3A, 0xED)) });
+        styles.insert("Brand/Primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x7C, 0x3A, 0xED)) });
         resolve_styles(&mut pages[0], &styles);
         assert_eq!(find_mut(&mut pages[0], "a").unwrap().fill, before, "detached node untouched");
-        assert_eq!(find_mut(&mut pages[0], "b").unwrap().fill, Paint::Solid(Color::rgb8(0x7C, 0x3A, 0xED)), "bound node updated");
+        assert_eq!(find_mut(&mut pages[0], "b").unwrap().fill, Paint::Solid(Color::from_rgb8(0x7C, 0x3A, 0xED)), "bound node updated");
         assert_eq!(style_usage(&pages[0], "Brand/Primary"), 1, "usage reflects detach");
     }
 

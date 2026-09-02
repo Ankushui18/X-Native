@@ -10,13 +10,15 @@ use crate::*;
 /// Asset resolver for image nodes: name -> raw PNG file bytes.
 pub type SvgAssetResolver<'a> = &'a dyn Fn(&str) -> Option<Vec<u8>>;
 
-/// Text outliner for text nodes (TEXT PARITY): given (text, size,
-/// max_width, font_binding), returns shaped glyph outlines as SVG path
-/// data strings, each pre-positioned in node-local coordinates. Injected
-/// by the caller (the arco_native facade wires x-text's shaping pipeline
-/// in) because x-format must not depend on x-text — the crate dependency
-/// graph is test-enforced.
-pub type SvgTextOutliner<'a> = &'a dyn Fn(&str, f64, f64, Option<&str>) -> Option<Vec<String>>;
+/// Text outliner for text nodes (TEXT PARITY): given the resolved text
+/// PARTS (plain text = one unstyled part), size, max_width and
+/// font_binding, returns shaped glyph outlines as (SVG path data,
+/// optional per-run color) — each path pre-positioned in node-local
+/// coordinates. `None` color = "no explicit run color": the exporter
+/// paints with the layer fill. Injected by the caller (the x_native
+/// facade wires x-text's shaping pipeline in) because x-format must not
+/// depend on x-text — the crate dependency graph is test-enforced.
+pub type SvgTextOutliner<'a> = &'a dyn Fn(&[x_core::TextPart], f64, f64, Option<&str>) -> Option<Vec<(String, Option<Color>)>>;
 
 pub fn export_svg(root: &Node, vars: &Variables) -> String {
     export_svg_full(root, vars, None, None)
@@ -50,7 +52,7 @@ pub fn export_svg_full(root: &Node, vars: &Variables, assets: Option<SvgAssetRes
 
 fn svg_fill(p: &Paint, vars: &Variables, defs: &mut String, grad_id: &mut usize) -> String {
     match p {
-        Paint::Solid(c) => if c.a == 0 { "none".into() } else { color_to_hex(*c) },
+        Paint::Solid(c) => if c.components[3] == 0.0 { "none".into() } else { color_to_hex(*c) },
         Paint::Variable(n) => color_to_hex(vars.color(n, Color::BLACK)),
         Paint::LinearGradient { start, end, stops } => {
             *grad_id += 1;
@@ -118,7 +120,7 @@ fn svg_node(n: &Node, vars: &Variables, body: &mut String, defs: &mut String, gr
                 body.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"{}\" opacity=\"{}\"{}/>", n.w, n.h, r, fill, layer.opacity, svg_blend(layer.blend)));
             }
             for layer in n.active_strokes() {
-                body.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", n.w, n.h, r, color_to_hex(layer.stroke.color), layer.stroke.width, layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer)));
+                body.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", n.w, n.h, r, svg_fill(&layer.stroke.paint, vars, defs, grad_id), layer.stroke.width, layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer)));
             }
         }
         NodeKind::Ellipse => {
@@ -127,21 +129,25 @@ fn svg_node(n: &Node, vars: &Variables, body: &mut String, defs: &mut String, gr
                 body.push_str(&format!("<ellipse cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\" fill=\"{}\" opacity=\"{}\"{}/>", n.w / 2.0, n.h / 2.0, n.w / 2.0, n.h / 2.0, fill, layer.opacity, svg_blend(layer.blend)));
             }
             for layer in n.active_strokes() {
-                body.push_str(&format!("<ellipse cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", n.w / 2.0, n.h / 2.0, n.w / 2.0, n.h / 2.0, color_to_hex(layer.stroke.color), layer.stroke.width, layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer)));
+                body.push_str(&format!("<ellipse cx=\"{}\" cy=\"{}\" rx=\"{}\" ry=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", n.w / 2.0, n.h / 2.0, n.w / 2.0, n.h / 2.0, svg_fill(&layer.stroke.paint, vars, defs, grad_id), layer.stroke.width, layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer)));
             }
         }
         NodeKind::Line => {
-            for layer in n.active_strokes() { body.push_str(&format!("<line x1=\"0\" y1=\"0\" x2=\"{}\" y2=\"0\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", n.w, color_to_hex(layer.stroke.color), layer.stroke.width.max(1.0), layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer))); }
+            for layer in n.active_strokes() { body.push_str(&format!("<line x1=\"0\" y1=\"0\" x2=\"{}\" y2=\"0\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", n.w, svg_fill(&layer.stroke.paint, vars, defs, grad_id), layer.stroke.width.max(1.0), layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer))); }
         }
         NodeKind::Text { text } => {
             // TEXT PARITY: shaped glyph outlines when an outliner is
-            // injected (identical geometry to the canvas render).
-            let outlines = text_outliner.and_then(|outline| outline(text, n.h, n.w, n.bindings.get("font").map(String::as_str)));
+            // injected (identical geometry to the canvas render). Rich
+            // runs resolve here — mixed per-run colors override the layer
+            // fill per glyph path.
+            let parts = x_core::resolve_text_parts(text, &n.text_runs);
+            let outlines = text_outliner.and_then(|outline| outline(&parts, n.h, n.w, n.bindings.get("font").map(String::as_str)));
             for layer in n.active_fills() {
                 let fill = svg_fill(&layer.paint, vars, defs, grad_id);
-                if let Some(paths) = &outlines {
-                    for d in paths {
-                        body.push_str(&format!("<path d=\"{d}\" fill=\"{fill}\" opacity=\"{}\"{}/>", layer.opacity, svg_blend(layer.blend)));
+                if let Some(entries) = &outlines {
+                    for (d, run_color) in entries {
+                        let path_fill = match run_color { Some(c) => color_to_hex(*c), None => fill.clone() };
+                        body.push_str(&format!("<path d=\"{d}\" fill=\"{path_fill}\" opacity=\"{}\"{}/>", layer.opacity, svg_blend(layer.blend)));
                     }
                 } else {
                     body.push_str(&format!("<text y=\"{}\" font-size=\"{}\" font-family=\"monospace\" fill=\"{}\" opacity=\"{}\"{}>{}</text>", n.h * 0.8, n.h * 0.8, fill, layer.opacity, svg_blend(layer.blend), text.replace('&', "&amp;").replace('<', "&lt;")));
@@ -162,7 +168,7 @@ fn svg_node(n: &Node, vars: &Variables, body: &mut String, defs: &mut String, gr
                 let fill = svg_fill(&layer.paint, vars, defs, grad_id);
                 body.push_str(&format!("<path d=\"{}\" fill=\"{}\" opacity=\"{}\"{}/>", d.trim_end(), fill, layer.opacity, svg_blend(layer.blend)));
             }
-            for layer in n.active_strokes() { body.push_str(&format!("<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", d.trim_end(), color_to_hex(layer.stroke.color), layer.stroke.width, layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer))); }
+            for layer in n.active_strokes() { body.push_str(&format!("<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"{}\" opacity=\"{}\"{}{}/>", d.trim_end(), svg_fill(&layer.stroke.paint, vars, defs, grad_id), layer.stroke.width, layer.opacity, svg_blend(layer.blend), svg_stroke_options(&layer))); }
         }
         NodeKind::Image { asset, fit, placement } => {
             // CANONICAL image transform model: identical resolution to the
@@ -217,4 +223,45 @@ fn svg_node(n: &Node, vars: &Variables, body: &mut String, defs: &mut String, gr
     }
     for _ in 0..open_masks { body.push_str("</g>"); }
     body.push_str("</g>\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use x_core::{Color, Paint, Stroke};
+
+    #[test]
+    fn rich_text_runs_override_the_fill_per_glyph() {
+        // stub outliner: two glyph paths, the first carrying an explicit
+        // run color, the second the None marker (layer fill fallback)
+        let outliner = |parts: &[x_core::TextPart], _s: f64, _w: f64, _f: Option<&str>| {
+            Some(parts.iter().map(|p| (format!("M 0 0 L 10 0 L 10 10 L 0 10 Z {}", p.text.len()),
+                p.color)).collect::<Vec<_>>())
+        };
+        let mut t = x_core::Node::text("t", 10.0, 10.0, 200.0, 20.0, "Ab");
+        t.text_runs = vec![x_core::TextRun { start: 0, len: 1, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let doc = x_core::Node::frame("page", 300.0, 100.0).child(t);
+        let svg = export_svg_full(&doc, &x_core::Variables::default(), None, Some(&outliner));
+        assert!(svg.matches("fill=\"#ff0000\"").count() >= 1, "explicit run color overrides the layer fill: {svg}");
+        assert!(svg.matches("fill=\"#000000\"").count() >= 1, "marker glyphs keep the layer (black) fill: {svg}");
+        assert!(!svg.contains("font-family"), "still outline paths, not font tags");
+    }
+
+    #[test]
+    fn gradient_strokes_render_as_url_refs_with_defs() {
+        let doc = x_core::Node::frame("page", 200.0, 100.0).child(
+            x_core::Node::rect("r", 10.0, 10.0, 100.0, 50.0, Color::WHITE)
+                .stroke(Stroke {
+                    paint: Paint::LinearGradient {
+                        start: (0.0, 0.0), end: (100.0, 0.0),
+                        stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (1.0, Color::from_rgb8(0, 0, 255))],
+                    },
+                    width: 3.0,
+                }),
+        );
+        let svg = export_svg(&doc, &x_core::Variables::default());
+        assert!(svg.contains("stroke=\"url(#g"), "gradient stroke references a def: {svg}");
+        assert!(svg.contains("<linearGradient"), "defs contain the gradient");
+        assert!(svg.contains("stroke-width=\"3\""));
+    }
 }

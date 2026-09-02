@@ -15,7 +15,7 @@ pub mod sources;
 pub mod cache;
 pub use font::{FontManager, LoadedFont, PositionedGlyph};
 pub use sources::{SystemFonts, GoogleFonts, FaceInfo, platform_font_dirs};
-pub use shaping::{Span, GlyphRun, Shaper, Line, TextBlockStyle, Align, encode_rich_text, layout_lines, break_opportunities, glyph_outlines, node_text_outlines, node_text_outlines_uncached, node_text_outlines_styled, node_text_outlines_styled_uncached, OutlineGlyph};
+pub use shaping::{Span, GlyphRun, Shaper, Line, TextBlockStyle, Align, encode_rich_text, layout_lines, break_opportunities, glyph_outlines, node_text_outlines, node_text_outlines_uncached, node_text_outlines_styled, node_text_outlines_styled_uncached, node_text_outlines_rich, node_text_outlines_rich_uncached, OutlineGlyph};
 pub use cache::{ShapedTextCache, TextLayoutKey, ShapedBlock};
 
 use vello::kurbo::{Affine, BezPath, Cap, Join, Stroke};

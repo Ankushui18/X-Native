@@ -176,7 +176,7 @@ pub fn validate(doc: &Document) -> Vec<Issue> {
     for page in &doc.pages {
         // E001 duplicate ids
         let mut seen = std::collections::HashSet::new();
-        fn ids<'a>(n: &'a Node, seen: &mut std::collections::HashSet<String>, issues: &mut Vec<Issue>) {
+        fn ids(n: &Node, seen: &mut std::collections::HashSet<String>, issues: &mut Vec<Issue>) {
             if !seen.insert(n.id.clone()) {
                 issues.push(Issue { code: "E001", message: format!("duplicate node id '{}'", n.id) });
             }
@@ -264,15 +264,15 @@ pub fn load_x_lenient(text: &str) -> (DocumentV2, Vec<RecoveryNote>) {
     let prefix = &text[..best_end.max(1)];
     let mut attempt = String::from(prefix);
     // count unclosed
-    let (mut d2, mut in_s, mut esc2) = (0i32, false, false);
+    let (mut in_s, mut esc2) = (false, false);
     let mut closers = vec![];
     for &b in attempt.as_bytes() {
         if in_s { if esc2 { esc2 = false; } else if b == b'\\' { esc2 = true; } else if b == b'"' { in_s = false; } continue; }
         match b {
             b'"' => in_s = true,
-            b'{' => { d2 += 1; closers.push('}'); }
-            b'[' => { d2 += 1; closers.push(']'); }
-            b'}' | b']' => { d2 -= 1; closers.pop(); }
+            b'{' => closers.push('}'),
+            b'[' => closers.push(']'),
+            b'}' | b']' => { closers.pop(); }
             _ => {}
         }
     }
@@ -348,7 +348,7 @@ mod tests {
         let mut doc = Document::new();
         doc.variables.numbers.insert("gap".into(), 12.0);
         doc.pages.push(Node::frame("page-1", 400.0, 300.0)
-            .child(Node::rect("r1", 10.0, 10.0, 50.0, 50.0, Color::rgb8(255, 0, 0))));
+            .child(Node::rect("r1", 10.0, 10.0, 50.0, 50.0, Color::from_rgb8(255, 0, 0))));
         doc.pages.push(Node::frame("page-2", 400.0, 300.0)
             .child(Node::text("t1", 0.0, 0.0, 100.0, 20.0, "hi")));
         save_x(&doc)

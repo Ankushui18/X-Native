@@ -146,15 +146,14 @@ impl FontManager {
         }
         // guarantee CJK coverage even when the scan stopped early
         // (the Noto CJK collection lives in the opentype dir)
-        if self.font_index("NotoSansCJK-Regular").is_none() {
-            if self.load_file("NotoSansCJK-Regular", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc").is_ok() { n += 1; }
-        }
+        if self.font_index("NotoSansCJK-Regular").is_none()
+            && self.load_file("NotoSansCJK-Regular", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc").is_ok() { n += 1; }
         n
     }
 
     pub fn font_index(&self, name: &str) -> Option<usize> { self.by_name.get(name).copied() }
     pub fn default_font(&self) -> Option<usize> {
-        self.font_index("DejaVuSans").or_else(|| if self.fonts.is_empty() { None } else { Some(0) })
+        self.font_index("DejaVuSans").or(if self.fonts.is_empty() { None } else { Some(0) })
     }
 
     /// Map char -> (font, glyph) via the fallback chain starting at `first`.
@@ -226,6 +225,7 @@ impl FontManager {
     /// Encode a (possibly multi-line) text block into the scene.
     /// `world` maps the text-box origin; wraps at `max_width` if Some.
     /// Returns paths encoded.
+    #[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
     pub fn encode_text_block(&self, scene: &mut Scene, text: &str, world: Affine, font: usize, size_px: f64, max_width: Option<f64>, color: Color) -> usize {
         let f0 = &self.fonts[font];
         let baseline0 = f0.ascent * (size_px / f0.units_per_em);

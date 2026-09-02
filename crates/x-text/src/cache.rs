@@ -20,7 +20,7 @@
 //! Entries are Arc'd: hits clone a pointer, not glyph vectors.
 
 use crate::font::FontManager;
-use crate::shaping::{node_text_outlines_styled_uncached, OutlineGlyph};
+use crate::shaping::{node_text_outlines_rich_uncached, node_text_outlines_styled_uncached, OutlineGlyph};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use vello::peniko::Color;
@@ -43,6 +43,20 @@ pub struct TextLayoutKey {
     pub color: [u8; 4],
     /// FontManager generation: font loads/unloads flush stale entries
     pub font_epoch: u64,
+    /// rich-text runs (empty = plain single-style text; keeps the plain
+    /// path byte-identical in both key construction and cache behavior)
+    pub runs: Vec<RichRunKey>,
+}
+
+/// One styled run inside a rich-text layout key (see TextLayoutKey::runs).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RichRunKey {
+    pub text: String,
+    /// None = unstyled run (transparent marker at shape time; sinks paint
+    /// these with the command brush so gradient text fills keep gradients)
+    pub color: Option<[u8; 4]>,
+    pub size_bits: Option<u64>,
+    pub font: Option<String>,
 }
 
 impl TextLayoutKey {
@@ -51,6 +65,7 @@ impl TextLayoutKey {
     }
 
     /// Typography-aware key (letter spacing px, line height multiplier).
+    #[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
     pub fn new_styled(text: &str, size: f64, max_width: f64, font: Option<&str>, color: Color, font_epoch: u64, ls: f64, lh: f64) -> Self {
         Self {
             text: text.to_string(),
@@ -59,9 +74,28 @@ impl TextLayoutKey {
             max_width_bits: max_width.to_bits(),
             letter_spacing_bits: ls.to_bits(),
             line_height_bits: lh.to_bits(),
-            color: [color.r, color.g, color.b, color.a],
+            color: {
+                let rgba = color.to_rgba8();
+                [rgba.r, rgba.g, rgba.b, rgba.a]
+            },
             font_epoch,
+            runs: vec![],
         }
+    }
+
+    /// Rich-run key: styled sub-ranges over a base style. Parts come from
+    /// `x_core::resolve_text_parts`; per-run colors are FINAL (opacity
+    /// already folded by the renderer).
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_rich(parts: &[x_core::TextPart], base_size: f64, max_width: f64, base_font: Option<&str>, font_epoch: u64, ls: f64, lh: f64) -> Self {
+        let mut k = Self::new_styled(&parts.iter().map(|p| p.text.as_str()).collect::<String>(), base_size, max_width, base_font, Color::TRANSPARENT, font_epoch, ls, lh);
+        k.runs = parts.iter().map(|p| RichRunKey {
+            text: p.text.clone(),
+            color: p.color.map(|c| { let rgba = c.to_rgba8(); [rgba.r, rgba.g, rgba.b, rgba.a] }),
+            size_bits: p.size.map(f64::to_bits),
+            font: p.font.clone(),
+        }).collect();
+        k
     }
 }
 
@@ -114,10 +148,22 @@ impl ShapedTextCache {
         self.misses.fetch_add(1, Relaxed);
         let size = f64::from_bits(key.size_bits);
         let max_width = f64::from_bits(key.max_width_bits);
-        let color = Color::rgba8(key.color[0], key.color[1], key.color[2], key.color[3]);
+        let color = Color::from_rgba8(key.color[0], key.color[1], key.color[2], key.color[3]);
         let ls = f64::from_bits(key.letter_spacing_bits);
         let lh = f64::from_bits(key.line_height_bits);
-        let (glyphs, height) = node_text_outlines_styled_uncached(fonts, &key.text, size, max_width, key.font.as_deref(), color, ls, lh)?;
+        let (glyphs, height) = if key.runs.is_empty() {
+            node_text_outlines_styled_uncached(fonts, &key.text, size, max_width, key.font.as_deref(), color, ls, lh)?
+        } else {
+            // rich path: rebuild the parts from the key (the cache only
+            // shapes what the key fully describes — same contract as text)
+            let parts: Vec<x_core::TextPart> = key.runs.iter().map(|r| x_core::TextPart {
+                text: r.text.clone(),
+                color: r.color.map(|c| Color::from_rgba8(c[0], c[1], c[2], c[3])),
+                size: r.size_bits.map(f64::from_bits),
+                font: r.font.clone(),
+            }).collect();
+            node_text_outlines_rich_uncached(fonts, &parts, size, max_width, key.font.as_deref(), ls, lh)?
+        };
         let block = Arc::new(ShapedBlock { glyphs, height });
         let mut map = self.map.lock().ok()?;
         // budget enforcement: entry count OR approximate byte size
@@ -160,6 +206,60 @@ mod tests {
 
     fn key(text: &str, size: f64, width: f64, font: Option<&str>) -> TextLayoutKey {
         TextLayoutKey::new(text, size, width, font, Color::BLACK, 0)
+    }
+
+    #[test]
+    fn rich_cache_keys_separate_styled_runs() {
+        let styled = vec![x_core::TextPart { text: "ab".into(), color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        let plain = vec![x_core::TextPart { text: "ab".into(), color: None, size: None, font: None }];
+        let k1 = TextLayoutKey::new_rich(&styled, 16.0, 200.0, None, 0, 0.0, 1.2);
+        let k2 = TextLayoutKey::new_rich(&plain, 16.0, 200.0, None, 0, 0.0, 1.2);
+        assert_ne!(k1, k2, "styled vs plain keys differ");
+        assert_eq!(k1, TextLayoutKey::new_rich(&styled, 16.0, 200.0, None, 0, 0.0, 1.2), "same runs -> same key");
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let h = |k: &TextLayoutKey| { let mut s = DefaultHasher::new(); k.hash(&mut s); s.finish() };
+        assert_ne!(h(&k1), h(&k2), "hash separates run styling");
+        // empty runs == plain: rich key with no runs equals a plain-shape key? (distinct branch, but stable)
+        assert_eq!(h(&k2), h(&TextLayoutKey::new_rich(&plain, 16.0, 200.0, None, 0, 0.0, 1.2)));
+    }
+
+    #[test]
+    fn rich_runs_shape_and_cache_hits() {
+        let fm = fonts();
+        let c = ShapedTextCache::new();
+        let parts = vec![
+            x_core::TextPart { text: "BIG".into(), color: Some(Color::from_rgb8(255, 0, 0)), size: Some(40.0), font: None },
+            x_core::TextPart { text: " small".into(), color: None, size: None, font: None },
+        ];
+        let k = TextLayoutKey::new_rich(&parts, 16.0, 400.0, None, fm.epoch(), 0.0, 1.2);
+        let a = c.get_or_shape(&fm, k.clone()).expect("rich shapes");
+        let b = c.get_or_shape(&fm, k).expect("second hit");
+        assert!(Arc::ptr_eq(&a, &b), "same rich key -> same Arc, no reshape");
+    }
+
+    #[test]
+    fn rich_shaping_honors_per_part_color_size_and_marker() {
+        let fm = fonts();
+        let parts = vec![
+            x_core::TextPart { text: "BIG".into(), color: Some(Color::from_rgb8(255, 0, 0)), size: Some(40.0), font: None },
+            x_core::TextPart { text: " small".into(), color: None, size: None, font: None },
+        ];
+        let (glyphs, _) = crate::shaping::node_text_outlines_rich(&fm, &parts, 16.0, 400.0, None, 0.0, 1.2).expect("rich outlines");
+        assert!(glyphs.len() >= 8, "shaped {} glyphs", glyphs.len());
+        // first three glyphs (the "BIG" run) carry the explicit color
+        for g in glyphs.iter().take(3) {
+            assert!(g.color.components[0] > 0.99 && g.color.components[1] < 0.01, "run color on glyph: {:?}", g.color);
+        }
+        // unstyled glyphs carry the fully-transparent MARKER (sinks paint
+        // them with the command brush, preserving gradient text fills)
+        assert!(glyphs.iter().skip(3).all(|g| g.color.components[3] == 0.0), "marker on unstyled glyphs");
+        // 40px run glyphs render larger than 16px base glyphs: the path is
+        // in font units, the em scale rides the glyph transform
+        let scale = |g: &OutlineGlyph| g.transform.as_coeffs()[0].abs();
+        let big = glyphs.iter().take(3).map(scale).fold(0.0_f64, f64::max);
+        let small = glyphs.iter().skip(3).map(scale).fold(0.0_f64, f64::max);
+        assert!(small > 0.0 && big > small * 1.8, "size override scales outlines: {big} vs {small}");
     }
 
     #[test]

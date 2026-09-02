@@ -87,7 +87,7 @@ impl<'a> Shaper<'a> {
     pub fn pick_font(&self, text: &str, prefer: usize) -> usize {
         let score = |fi: usize| -> usize {
             let Some(f) = self.fonts.fonts.get(fi) else { return 0 };
-            text.chars().filter(|&c| !c.is_whitespace() && f.glyph_id(c).map_or(false, |g| g != 0)).count()
+            text.chars().filter(|&c| !c.is_whitespace() && f.glyph_id(c).is_some_and(|g| g != 0)).count()
         };
         let total = text.chars().filter(|c| !c.is_whitespace()).count();
         if total == 0 || score(prefer) == total { return prefer; }
@@ -122,7 +122,7 @@ impl<'a> Shaper<'a> {
     /// coverage-voting per run cannot provide.
     fn segment_by_font(&self, text: &str, prefer: usize) -> Vec<(String, usize)> {
         let covers = |fi: usize, c: char| -> bool {
-            self.fonts.fonts.get(fi).and_then(|f| f.glyph_id(c)).map_or(false, |g| g != 0)
+            self.fonts.fonts.get(fi).and_then(|f| f.glyph_id(c)).is_some_and(|g| g != 0)
         };
         let font_for = |c: char| -> usize {
             if covers(prefer, c) { return prefer; }
@@ -185,7 +185,7 @@ pub fn break_opportunities(text: &str) -> Vec<usize> {
         let is_cjk = matches!(c as u32,
             0x4E00..=0x9FFF | 0x3400..=0x4DBF | 0x3040..=0x30FF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF);
         if c == ' ' || c == '-' { out.push(i + c.len_utf8()); }
-        else if is_cjk || (prev_cjk && !is_cjk) { if i > 0 { out.push(i); } }
+        else if (is_cjk || (prev_cjk && !is_cjk)) && i > 0 { out.push(i); }
         prev_cjk = is_cjk;
     }
     out
@@ -296,7 +296,7 @@ pub fn glyph_outlines(
         let f0 = &fonts.fonts[default_font];
         let natural = (f0.ascent - f0.descent + f0.line_gap) * (max_size / f0.units_per_em);
         let lh = natural * style.line_height;
-        let baseline = y + f0.ascent * (max_size / f0.units_per_em) * style.line_height.max(1.0).min(1.2);
+        let baseline = y + f0.ascent * (max_size / f0.units_per_em) * style.line_height.clamp(1.0, 1.2);
         let x0 = match style.align {
             Align::Left => 0.0,
             Align::Center => (style.max_width - line.width) / 2.0,
@@ -336,6 +336,98 @@ pub fn encode_rich_text(
         scene.fill(Fill::NonZero, world * g.transform, g.color, None, &g.path);
     }
     (n, height)
+}
+
+/// The ONE canonical mapping from a Text node's properties to shaped glyph
+/// outlines. `size` is the node's h (the engine's text-size convention);
+/// the 0.72 em factor and 1.2 line height are the canvas contract. Canvas
+/// sink, PDF exporter, and SVG exporter must all call THIS so text
+/// geometry cannot drift between them.
+pub fn node_text_outlines(
+    fonts: &FontManager, text: &str, size: f64, max_width: f64,
+    font_name: Option<&str>, color: Color,
+) -> Option<(Vec<OutlineGlyph>, f64)> {
+    node_text_outlines_styled(fonts, text, size, max_width, font_name, color, 0.0, 1.2)
+}
+
+/// Typography-aware variant: letter spacing (px) + line height multiplier.
+/// Same ONE-pipeline contract; the defaults reproduce node_text_outlines.
+#[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
+pub fn node_text_outlines_styled(
+    fonts: &FontManager, text: &str, size: f64, max_width: f64,
+    font_name: Option<&str>, color: Color, ls: f64, lh: f64,
+) -> Option<(Vec<OutlineGlyph>, f64)> {
+    // route through the ShapedTextCache: repeated frames/text reuse the
+    // shaped block (Arc clone), positions compose OUTSIDE via the world
+    // transform so moves are cache hits. Falls back to direct shaping
+    // if the cache is poisoned.
+    let key = crate::cache::TextLayoutKey::new_styled(text, size, max_width, font_name, color, fonts.epoch(), ls, lh);
+    if let Some(block) = crate::cache::ShapedTextCache::global().get_or_shape(fonts, key) {
+        return Some((block.glyphs.iter().map(|g| OutlineGlyph {
+            path: g.path.clone(), transform: g.transform, color: g.color,
+        }).collect(), block.height));
+    }
+    node_text_outlines_styled_uncached(fonts, text, size, max_width, font_name, color, ls, lh)
+}
+
+/// The raw shaping path (cache-miss fill + tests).
+pub fn node_text_outlines_uncached(
+    fonts: &FontManager, text: &str, size: f64, max_width: f64,
+    font_name: Option<&str>, color: Color,
+) -> Option<(Vec<OutlineGlyph>, f64)> {
+    node_text_outlines_styled_uncached(fonts, text, size, max_width, font_name, color, 0.0, 1.2)
+}
+
+/// Rich-run shaping: styled sub-ranges over a base style (per-run
+/// color/size/font overrides). Parts come from `x_core::resolve_text_parts`;
+/// a part with `color: None` shapes with a fully-transparent MARKER color
+/// so sinks can paint it with the command brush (gradient text fills keep
+/// their gradient on unstyled runs). Per-run colors are final (opacity
+/// folded by the renderer).
+pub fn node_text_outlines_rich(
+    fonts: &FontManager, parts: &[x_core::TextPart], base_size: f64, max_width: f64,
+    base_font: Option<&str>, ls: f64, lh: f64,
+) -> Option<(Vec<OutlineGlyph>, f64)> {
+    let key = crate::cache::TextLayoutKey::new_rich(parts, base_size, max_width, base_font, fonts.epoch(), ls, lh);
+    if let Some(block) = crate::cache::ShapedTextCache::global().get_or_shape(fonts, key) {
+        return Some((block.glyphs.iter().map(|g| OutlineGlyph {
+            path: g.path.clone(), transform: g.transform, color: g.color,
+        }).collect(), block.height));
+    }
+    node_text_outlines_rich_uncached(fonts, parts, base_size, max_width, base_font, ls, lh)
+}
+
+/// Raw rich-run shaping path (cache-miss fill + tests).
+pub fn node_text_outlines_rich_uncached(
+    fonts: &FontManager, parts: &[x_core::TextPart], base_size: f64, max_width: f64,
+    base_font: Option<&str>, ls: f64, lh: f64,
+) -> Option<(Vec<OutlineGlyph>, f64)> {
+    let default_font = base_font.and_then(|n| fonts.font_index(n)).or_else(|| fonts.default_font())?;
+    let spans: Vec<Span> = parts.iter().map(|p| {
+        // same 0.72 em + letter-spacing contract as the plain path; the
+        // per-run size overrides the base when present
+        let mut sp = Span::new(&p.text, p.size.unwrap_or(base_size) * 0.72)
+            .color(p.color.unwrap_or(Color::TRANSPARENT)) // marker: no explicit color
+            .letter_spacing(ls);
+        if let Some(f) = &p.font {
+            if let Some(i) = fonts.font_index(f) { sp = sp.font(i); }
+        }
+        sp
+    }).collect();
+    let style = TextBlockStyle { max_width: max_width.max(8.0), line_height: lh.max(0.5), align: Align::Left };
+    Some(glyph_outlines(fonts, &spans, default_font, &style))
+}
+
+/// Raw styled shaping path (cache-miss fill + tests).
+#[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
+pub fn node_text_outlines_styled_uncached(
+    fonts: &FontManager, text: &str, size: f64, max_width: f64,
+    font_name: Option<&str>, color: Color, ls: f64, lh: f64,
+) -> Option<(Vec<OutlineGlyph>, f64)> {
+    let chosen = font_name.and_then(|n| fonts.font_index(n)).or_else(|| fonts.default_font())?;
+    let spans = [Span::new(text, size * 0.72).color(color).letter_spacing(ls)];
+    let style = TextBlockStyle { max_width: max_width.max(8.0), line_height: lh.max(0.5), align: Align::Left };
+    Some(glyph_outlines(fonts, &spans, chosen, &style))
 }
 
 #[cfg(test)]
@@ -415,14 +507,14 @@ mod tests {
         // The picked font must COVER the text. (DejaVu itself covers
         // Arabic, so staying put is legal; what matters is coverage.)
         let picked = sh.pick_font("سلام", latin);
-        let covers = "سلام".chars().all(|c| m.fonts[picked].glyph_id(c).map_or(false, |g| g != 0));
+        let covers = "سلام".chars().all(|c| m.fonts[picked].glyph_id(c).is_some_and(|g| g != 0));
         assert!(covers, "picked font must cover Arabic");
         assert_eq!(sh.pick_font("hello", latin), latin);
         // A font with NO coverage of the text must be abandoned:
         // shape emoji-ish/unknown chars against a tiny fake preference.
         let mono = m.font_index("DejaVuSansMono").unwrap_or(latin);
         let picked2 = sh.pick_font("سلام", mono);
-        let covers2 = "سلام".chars().all(|c| m.fonts[picked2].glyph_id(c).map_or(false, |g| g != 0));
+        let covers2 = "سلام".chars().all(|c| m.fonts[picked2].glyph_id(c).is_some_and(|g| g != 0));
         assert!(covers2, "fallback from non-covering font must find coverage");
         let _ = af;
     }
@@ -458,7 +550,7 @@ mod tests {
         let m = fonts();
         let f = m.default_font().unwrap();
         let spans = vec![
-            Span::new("Bold-ish heading ", 20.0).color(Color::rgb8(255, 0, 0)),
+            Span::new("Bold-ish heading ", 20.0).color(Color::from_rgb8(255, 0, 0)),
             Span::new("then body text that definitely wraps across lines", 12.0),
         ];
         let mut sh = Shaper::new(&m);
@@ -490,54 +582,4 @@ mod tests {
             assert_eq!(p, 2);
         }
     }
-}
-
-/// The ONE canonical mapping from a Text node's properties to shaped glyph
-/// outlines. `size` is the node's h (the engine's text-size convention);
-/// the 0.72 em factor and 1.2 line height are the canvas contract. Canvas
-/// sink, PDF exporter, and SVG exporter must all call THIS so text
-/// geometry cannot drift between them.
-pub fn node_text_outlines(
-    fonts: &FontManager, text: &str, size: f64, max_width: f64,
-    font_name: Option<&str>, color: Color,
-) -> Option<(Vec<OutlineGlyph>, f64)> {
-    node_text_outlines_styled(fonts, text, size, max_width, font_name, color, 0.0, 1.2)
-}
-
-/// Typography-aware variant: letter spacing (px) + line height multiplier.
-/// Same ONE-pipeline contract; the defaults reproduce node_text_outlines.
-pub fn node_text_outlines_styled(
-    fonts: &FontManager, text: &str, size: f64, max_width: f64,
-    font_name: Option<&str>, color: Color, ls: f64, lh: f64,
-) -> Option<(Vec<OutlineGlyph>, f64)> {
-    // route through the ShapedTextCache: repeated frames/text reuse the
-    // shaped block (Arc clone), positions compose OUTSIDE via the world
-    // transform so moves are cache hits. Falls back to direct shaping
-    // if the cache is poisoned.
-    let key = crate::cache::TextLayoutKey::new_styled(text, size, max_width, font_name, color, fonts.epoch(), ls, lh);
-    if let Some(block) = crate::cache::ShapedTextCache::global().get_or_shape(fonts, key) {
-        return Some((block.glyphs.iter().map(|g| OutlineGlyph {
-            path: g.path.clone(), transform: g.transform, color: g.color,
-        }).collect(), block.height));
-    }
-    node_text_outlines_styled_uncached(fonts, text, size, max_width, font_name, color, ls, lh)
-}
-
-/// The raw shaping path (cache-miss fill + tests).
-pub fn node_text_outlines_uncached(
-    fonts: &FontManager, text: &str, size: f64, max_width: f64,
-    font_name: Option<&str>, color: Color,
-) -> Option<(Vec<OutlineGlyph>, f64)> {
-    node_text_outlines_styled_uncached(fonts, text, size, max_width, font_name, color, 0.0, 1.2)
-}
-
-/// Raw styled shaping path (cache-miss fill + tests).
-pub fn node_text_outlines_styled_uncached(
-    fonts: &FontManager, text: &str, size: f64, max_width: f64,
-    font_name: Option<&str>, color: Color, ls: f64, lh: f64,
-) -> Option<(Vec<OutlineGlyph>, f64)> {
-    let chosen = font_name.and_then(|n| fonts.font_index(n)).or_else(|| fonts.default_font())?;
-    let spans = [Span::new(text, size * 0.72).color(color).letter_spacing(ls)];
-    let style = TextBlockStyle { max_width: max_width.max(8.0), line_height: lh.max(0.5), align: Align::Left };
-    Some(glyph_outlines(fonts, &spans, chosen, &style))
 }

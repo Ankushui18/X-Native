@@ -243,7 +243,7 @@ mod tests {
             version: 1,
             ..Default::default()
         };
-        l.styles.insert("primary".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x33, 0x66, 0xFF)) });
+        l.styles.insert("primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)) });
         l.styles.insert("surface".into(), Style::Paint { fill: Paint::Solid(Color::WHITE) });
         l.variables.numbers.insert("radius".into(), 8.0);
         l
@@ -274,16 +274,16 @@ mod tests {
         let r = LibraryRef::style("brand-system", "primary");
         let def = resolve_library_style(&snapshots, &r).unwrap().clone();
         bind_style(&mut page.children[0], &r.uri(), &def);
-        assert_eq!(page.children[0].fill, Paint::Solid(Color::rgb8(0x33, 0x66, 0xFF)));
+        assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)));
         // resolving against the SAME pinned snapshot is a no-op change-wise
         let n = resolve_library_styles(&mut page, &snapshots);
         assert_eq!(n, 1);
-        assert_eq!(page.children[0].fill, Paint::Solid(Color::rgb8(0x33, 0x66, 0xFF)));
+        assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)));
         // a missing library must freeze values, not blank them
         let empty = HashMap::new();
         let n2 = resolve_library_styles(&mut page, &empty);
         assert_eq!(n2, 0);
-        assert_eq!(page.children[0].fill, Paint::Solid(Color::rgb8(0x33, 0x66, 0xFF)), "frozen");
+        assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)), "frozen");
         assert_eq!(library_style_usage(&page, &r), 1);
     }
 
@@ -293,8 +293,8 @@ mod tests {
         let v1 = brand_v1();
         let mut v2 = brand_v1();
         v2.version = 2;
-        v2.styles.insert("primary".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x66, 0x33, 0xFF)) });
-        v2.styles.insert("danger".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0xE7, 0x4C, 0x3C)) });
+        v2.styles.insert("primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)) });
+        v2.styles.insert("danger".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0xE7, 0x4C, 0x3C)) });
         v2.styles.remove("surface");
 
         let mut snapshots = HashMap::new();
@@ -310,7 +310,7 @@ mod tests {
 
         // v2 exists — but the document is pinned to v1: resolve does NOT move
         resolve_library_styles(&mut pages[0], &snapshots);
-        assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::rgb8(0x33, 0x66, 0xFF)),
+        assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
             "pinned version protects the document");
 
         // review: the changeset is precise
@@ -324,7 +324,7 @@ mod tests {
         assert_eq!(accepted.len(), changes.len());
         assert_eq!(dep.resolved_version, 2);
         assert_eq!(updated, 1);
-        assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::rgb8(0x66, 0x33, 0xFF)),
+        assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)),
             "consumer updated only after explicit accept");
     }
 }

@@ -29,7 +29,7 @@ fn val(c: u8) -> Option<u32> {
 
 pub(crate) fn debase64(text: &str) -> Option<Vec<u8>> {
     let bytes: Vec<u8> = text.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-    if bytes.len() % 4 != 0 { return None; }
+    if !bytes.len().is_multiple_of(4) { return None; }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
     for q in bytes.chunks(4) {
         let pad = q.iter().filter(|&&c| c == b'=').count();

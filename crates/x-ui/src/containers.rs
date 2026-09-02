@@ -327,12 +327,14 @@ mod tests {
 
     #[test]
     fn menu_hover_click_and_disabled_items() {
-        let mut m = Menu::default();
-        m.items = vec![
-            MenuItem { label: "Copy".into(), shortcut: Some("Ctrl+C".into()), enabled: true },
-            MenuItem { label: "Paste".into(), shortcut: Some("Ctrl+V".into()), enabled: false },
-            MenuItem { label: "Delete".into(), shortcut: None, enabled: true },
-        ];
+        let mut m = Menu {
+            items: vec![
+                MenuItem { label: "Copy".into(), shortcut: Some("Ctrl+C".into()), enabled: true },
+                MenuItem { label: "Paste".into(), shortcut: Some("Ctrl+V".into()), enabled: false },
+                MenuItem { label: "Delete".into(), shortcut: None, enabled: true },
+            ],
+            ..Default::default()
+        };
         m.open_at(100.0, 100.0);
         m.hover(110.0, 100.0 + 4.0 + MENU_ROW_H * 1.5);
         assert_eq!(m.highlighted, None, "disabled item can't highlight");

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use vello::kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
-use vello::peniko::{Brush, Color, Fill, Gradient, Mix};
+use kurbo::{Affine, Circle, Rect, RoundedRect, RoundedRectRadii, Shape};
+use peniko::{Brush, Color, Fill, Gradient, Mix};
 #[allow(unused_imports)]
 use crate::*;
 
@@ -61,8 +61,19 @@ impl Default for StrokeOptions {
     fn default() -> Self { Self { align: StrokeAlign::Center, cap_start: StrokeCap::None, cap_end: StrokeCap::None, join: StrokeJoin::Miter, dash: vec![], dash_offset: 0.0, miter_limit: 4.0 } }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)] pub struct Stroke { pub color: Color, pub width: f64 }
-impl Default for Stroke { fn default() -> Self { Self { color: Color::BLACK, width: 0.0 } } }
+/// A stroke paint. Solid colors are the common case; gradients ride the
+/// same `Paint` enum as fills so every importer/exporter/sink shares one
+/// vocabulary (`Stroke::solid` keeps call sites terse).
+#[derive(Debug, Clone, PartialEq)] pub struct Stroke { pub paint: Paint, pub width: f64 }
+impl Default for Stroke { fn default() -> Self { Self { paint: Paint::Solid(Color::BLACK), width: 0.0 } } }
+impl Stroke {
+    pub fn solid(color: Color, width: f64) -> Self { Self { paint: Paint::Solid(color), width } }
+    /// Solid color if this stroke is solid (UI color pickers); None for
+    /// gradient strokes.
+    pub fn solid_color(&self) -> Option<Color> { match &self.paint { Paint::Solid(c) => Some(*c), _ => None } }
+    /// UI edit: set a solid color, replacing any gradient.
+    pub fn set_solid_color(&mut self, c: Color) { self.paint = Paint::Solid(c); }
+}
 
 /// Phase 4: blend modes. Applied as a Vello mix layer around the node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

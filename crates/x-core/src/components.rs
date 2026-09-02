@@ -199,7 +199,7 @@ fn apply_overrides_deep(node: &mut Node, ovr: &HashMap<String, OverrideValue>, v
     if let Some(v) = ovr.get(&node.id) {
         match v {
             OverrideValue::Fill(c) => node.fill = Paint::Solid(*c),
-            OverrideValue::Text(t) => { if let NodeKind::Text { text } = &mut node.kind { *text = t.clone(); } }
+            OverrideValue::Text(t) => { if let NodeKind::Text { text } = &mut node.kind { *text = t.clone(); node.text_runs.clear(); } }
             OverrideValue::Visible(b) => node.visible = *b,
             OverrideValue::Opacity(o) => node.opacity = *o,
             OverrideValue::Swap(c) => { if let NodeKind::Instance { component } = &mut node.kind { *component = c.clone(); } }

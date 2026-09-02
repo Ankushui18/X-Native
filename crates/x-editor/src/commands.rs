@@ -1,5 +1,4 @@
 
-use vello::kurbo::{Point, Rect};
 
 use x_core::*;
 #[allow(unused_imports)]
@@ -44,7 +43,7 @@ pub(crate) fn apply(root: &mut Node, cmd: &Command) -> bool {
         }
         Command::SetText { id, to, .. } => {
             if let Some(n) = find_mut(root, id) {
-                if let NodeKind::Text { text } = &mut n.kind { *text = to.clone(); n.dirty = true; return true; }
+                if let NodeKind::Text { text } = &mut n.kind { *text = to.clone(); n.text_runs.clear(); n.dirty = true; return true; }
             }
             false
         }

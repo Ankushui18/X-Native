@@ -4,7 +4,6 @@ version = "0.34.0"
 edition = "2021"
 [dependencies]
 x-components = { path = "../x-components" }
-vello = "0.1"
 x-core = { path = "../x-core" }
 [dev-dependencies]
 x-format = { path = "../x-format" }

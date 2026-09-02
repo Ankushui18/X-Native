@@ -328,9 +328,6 @@ impl UiTree {
     }
 }
 
-fn self_text_len(w: &Widget) -> usize {
-    if let WidgetKind::TextField { text, .. } = &w.kind { text.len() } else { 0 }
-}
 
 // ---------------------------------------------------------------- painting
 

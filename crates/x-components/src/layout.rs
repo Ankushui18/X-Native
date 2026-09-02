@@ -118,7 +118,7 @@ mod tests {
         let mut inner = Node::frame("btn-root", 0.0, 0.0)
             .auto_layout(AutoLayout {
                 direction: LayoutDirection::Horizontal,
-                gap: 8.0, padding: 12.0, sizing: x_core::Sizing::Hug,
+                gap: 8.0, padding: [12.0; 4], sizing: x_core::Sizing::Hug,
                 ..Default::default()
             })
             .child(Node::rect("btn-icon", 0.0, 0.0, 16.0, 16.0, Color::WHITE))
@@ -127,13 +127,13 @@ mod tests {
         let mut mnode = Node::component("comp-btn", "Button", 0.0, 0.0);
         mnode.kind = NodeKind::Component { name: "Button".into() };
         // for the master to be layout-solvable we give it the layout directly
-        mnode.children = inner.children.drain(..).collect();
+        mnode.children = std::mem::take(&mut inner.children);
         // attach layout to the master by wrapping kind in a Frame? Components
         // are their own kind, so we model the master's layout via a root frame child.
         let master_frame = Node::frame("btn-frame", 0.0, 0.0)
             .auto_layout(AutoLayout {
                 direction: LayoutDirection::Horizontal,
-                gap: 8.0, padding: 12.0, sizing: x_core::Sizing::Hug,
+                gap: 8.0, padding: [12.0; 4], sizing: x_core::Sizing::Hug,
                 ..Default::default()
             });
         let _ = (master, master_frame);
@@ -145,7 +145,7 @@ mod tests {
         let hug = Node::frame("btn-root", 0.0, 0.0)
             .auto_layout(AutoLayout {
                 direction: LayoutDirection::Horizontal,
-                gap: 8.0, padding: 12.0, sizing: x_core::Sizing::Hug,
+                gap: 8.0, padding: [12.0; 4], sizing: x_core::Sizing::Hug,
                 ..Default::default()
             })
             .child(Node::rect("btn-icon", 0.0, 0.0, 16.0, 16.0, Color::WHITE))
@@ -199,7 +199,7 @@ mod tests {
         let toolbar = Node::frame("toolbar", 0.0, 0.0)
             .auto_layout(AutoLayout {
                 direction: LayoutDirection::Horizontal,
-                gap: 10.0, padding: 6.0, sizing: x_core::Sizing::Hug,
+                gap: 10.0, padding: [6.0; 4], sizing: x_core::Sizing::Hug,
                 ..Default::default()
             })
             .child(inst)
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn bool_and_swap_and_opacity_overrides_roundtrip() {
         for v in [
-            OverrideValue::Fill(Color::rgb8(1, 2, 3)),
+            OverrideValue::Fill(Color::from_rgb8(1, 2, 3)),
             OverrideValue::Text("hi there".into()),
             OverrideValue::Visible(false),
             OverrideValue::Opacity(0.35),
@@ -289,7 +289,7 @@ mod tests {
         let doc = Node::frame("page", 800.0, 600.0).child(comp)
             .child({
                 let mut i = Node::instance("i1", "Card", 300.0, 200.0, 200.0, 100.0);
-                set_override(&mut i, "card-bg", OverrideValue::Fill(Color::rgb8(0xff, 0, 0)));
+                set_override(&mut i, "card-bg", OverrideValue::Fill(Color::from_rgb8(0xff, 0, 0)));
                 set_override(&mut i, "card-title", OverrideValue::Text("Hello".into()));
                 i
             });
@@ -298,7 +298,7 @@ mod tests {
         assert_eq!(detached.transform.x, 300.0);
         assert_eq!(detached.children.len(), 3);
         let bg = detached.children.iter().find(|c| c.id == "card-bg").unwrap();
-        assert!(matches!(&bg.fill, x_core::Paint::Solid(c) if c.r == 0xff));
+        assert!(matches!(&bg.fill, x_core::Paint::Solid(c) if (c.components[0] * 255.0).round() as u8 == 0xff));
         let title = detached.children.iter().find(|c| c.id == "card-title").unwrap();
         assert!(matches!(&title.kind, NodeKind::Text { text } if text == "Hello"));
         // nested instance survives as an instance

@@ -22,9 +22,9 @@ pub fn save_xlib(l: &Library) -> String {
     out.push_str(&keys.iter().map(|k| format!("\"{}\":{}", esc(k), style_json(&l.styles[k.as_str()]))).collect::<Vec<_>>().join(","));
     // variables: colors + numbers (the two library-relevant tables)
     let mut colors: Vec<_> = l.variables.colors.iter().collect();
-    colors.sort_by_key(|(k, _)| k.clone());
+    colors.sort_by_key(|(k, _)| (*k).clone());
     let mut numbers: Vec<_> = l.variables.numbers.iter().collect();
-    numbers.sort_by_key(|(k, _)| k.clone());
+    numbers.sort_by_key(|(k, _)| (*k).clone());
     out.push_str("},\"variables\":{\"colors\":{");
     out.push_str(&colors.iter().map(|(k, v)| format!("\"{}\":\"{}\"", esc(k), color_to_hex(**v))).collect::<Vec<_>>().join(","));
     out.push_str("},\"numbers\":{");
@@ -151,12 +151,12 @@ mod tests {
             version: 3,
             ..Default::default()
         };
-        l.styles.insert("Primary/500".into(), Style::Paint { fill: Paint::Solid(Color::rgb8(0x63, 0x66, 0xFF)) });
+        l.styles.insert("Primary/500".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x63, 0x66, 0xFF)) });
         l.styles.insert("Heading".into(), Style::Text { font: "Inter 700".into(), size: 32.0, letter_spacing: 0.0, line_height: 1.3 });
-        l.variables.colors.insert("brand".into(), Color::rgb8(0x63, 0x66, 0xFF));
+        l.variables.colors.insert("brand".into(), Color::from_rgb8(0x63, 0x66, 0xFF));
         l.variables.numbers.insert("radius".into(), 12.0);
         l.components.push(Node::component("m1", "Button", 100.0, 40.0)
-            .child(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::rgb8(0x63, 0x66, 0xFF))));
+            .child(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::from_rgb8(0x63, 0x66, 0xFF))));
         let text = save_xlib(&l);
         let re = load_xlib(&text).expect("load");
         assert_eq!(re.library_id, "brand-system");

@@ -90,10 +90,11 @@ fn parse_kind(v: &V) -> NodeKind {
             let layout = v.get("layout").map(|l| AutoLayout {
                 direction: if l.get("dir").and_then(V::str) == Some("h") { LayoutDirection::Horizontal } else { LayoutDirection::Vertical },
                 gap: l.get("gap").and_then(V::num).unwrap_or(0.0),
-                padding: l.get("padding").and_then(V::num).unwrap_or(0.0),
+                padding: parse_padding(l.get("padding")),
                 sizing: if l.get("sizing").and_then(V::str) == Some("hug") { Sizing::Hug } else { Sizing::Fixed },
                 align: match l.get("align").and_then(V::str) { Some("center") => CrossAlign::Center, Some("end") => CrossAlign::End, _ => CrossAlign::Start },
                 space_between: l.get("space_between").and_then(V::boolean).unwrap_or(false),
+                cross_sizing: l.get("cross_sizing").and_then(V::str).map(|s| if s == "hug" { Sizing::Hug } else { Sizing::Fixed }),
                 gap_var: l.get("gap_var").and_then(V::str).map(String::from),
                 padding_var: l.get("padding_var").and_then(V::str).map(String::from),
                 max_height: Some(f64::INFINITY),
@@ -105,6 +106,19 @@ fn parse_kind(v: &V) -> NodeKind {
             });
             NodeKind::Frame { layout }
         }
+    }
+}
+
+/// `"padding"` accepts the legacy scalar (all four sides) or the
+/// `[left, right, top, bottom]` array written for non-uniform padding.
+pub(crate) fn parse_padding(v: Option<&V>) -> Padding {
+    match v {
+        Some(V::Num(n)) => [*n; 4],
+        Some(V::Arr(a)) if a.len() == 4 => [
+            a[0].num().unwrap_or(0.0), a[1].num().unwrap_or(0.0),
+            a[2].num().unwrap_or(0.0), a[3].num().unwrap_or(0.0),
+        ],
+        _ => [0.0; 4],
     }
 }
 
@@ -124,10 +138,11 @@ pub(crate) fn parse_node(v: &V) -> Node {
     n.is_mask = v.get("mask").and_then(V::boolean).unwrap_or(false);
     n.fill = v.get("fill").map(parse_paint).unwrap_or(Paint::Solid(Color::TRANSPARENT));
     if let Some(s) = v.get("stroke") {
-        n.stroke = Stroke {
-            color: s.get("color").and_then(V::str).and_then(parse_hex_color).unwrap_or(Color::BLACK),
-            width: s.get("width").and_then(V::num).unwrap_or(0.0),
-        };
+        // "paint" (gradients) or legacy "color" (solid)
+        let paint = s.get("paint").map(parse_paint)
+            .or_else(|| s.get("color").and_then(V::str).and_then(parse_hex_color).map(Paint::Solid))
+            .unwrap_or(Paint::Solid(Color::BLACK));
+        n.stroke = Stroke { paint, width: s.get("width").and_then(V::num).unwrap_or(0.0) };
     }
     if let Some(layers) = v.get("fill_layers").and_then(V::arr) {
         n.visual_stacks_materialized = true;
@@ -142,7 +157,9 @@ pub(crate) fn parse_node(v: &V) -> Node {
         n.visual_stacks_materialized = true;
         n.stroke_layers = layers.iter().map(|l| StrokeLayer {
             stroke: Stroke {
-                color: l.get("color").and_then(V::str).and_then(parse_hex_color).unwrap_or(Color::BLACK),
+                paint: l.get("paint").map(parse_paint)
+                    .or_else(|| l.get("color").and_then(V::str).and_then(parse_hex_color).map(Paint::Solid))
+                    .unwrap_or(Paint::Solid(Color::BLACK)),
                 width: l.get("width").and_then(V::num).unwrap_or(0.0),
             },
             opacity: l.get("opacity").and_then(V::num).unwrap_or(1.0) as f32,
@@ -168,8 +185,26 @@ pub(crate) fn parse_node(v: &V) -> Node {
             blend: parse_blend(l.get("blend").and_then(V::str)),
         })).collect();
     }
+    if let Some(p) = v.get("pin").and_then(V::str) {
+        let mut it = p.split_whitespace();
+        n.pin = (
+            match it.next() { Some("right") => HPin::Right, Some("center") => HPin::CenterH, Some("stretch") => HPin::StretchH, Some("scale") => HPin::ScaleH, _ => HPin::Left },
+            match it.next() { Some("bottom") => VPin::Bottom, Some("center") => VPin::CenterV, Some("stretch") => VPin::StretchV, Some("scale") => VPin::ScaleV, _ => VPin::Top },
+        );
+    }
     if let Some(c) = v.get("corners").and_then(V::arr) {
         if c.len() == 4 { n.corner_radii = Some([c[0].num().unwrap_or(0.0), c[1].num().unwrap_or(0.0), c[2].num().unwrap_or(0.0), c[3].num().unwrap_or(0.0)]); }
+    }
+    if let Some(rs) = v.get("textRuns").and_then(V::arr) {
+        for r in rs {
+            n.text_runs.push(TextRun {
+                start: r.get("start").and_then(V::num).unwrap_or(0.0) as usize,
+                len: r.get("len").and_then(V::num).unwrap_or(0.0) as usize,
+                color: r.get("color").and_then(V::str).and_then(parse_hex_color),
+                size: r.get("size").and_then(V::num),
+                font: r.get("font").and_then(V::str).map(Into::into),
+            });
+        }
     }
     n.blend = parse_blend(v.get("blend").and_then(V::str));
     if let Some(fx) = v.get("effects").and_then(V::arr) {

@@ -3,7 +3,11 @@ use x_core::*;
 #[allow(unused_imports)]
 use crate::*;
 
-// Paste strategy for clipboard operations
+// Paste strategy for clipboard operations.
+// `WithOffset`/`CenteredInView` are planned paste strategies kept as part
+// of the model's public surface; the editor currently lowers everything
+// through `InPlace` + an explicit move.
+#[allow(dead_code)]
 enum PasteStrategy {
     WithOffset((f64, f64)),
     InPlace,
@@ -800,6 +804,8 @@ impl Editor {
             if let Some(node) = find_mut(&mut self.root, &node_id) {
                 if let NodeKind::Text { text: current } = &mut node.kind {
                     current.replace_range(start..end, text);
+                    // editing text invalidates rich-run char ranges
+                    node.text_runs.clear();
                     // Update selection to end of inserted text
                     if let Some(state) = &mut self.text_edit_mode {
                         state.selection_start = start + text.len();
