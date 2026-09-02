@@ -7,7 +7,7 @@ impl App {
         if self.present.is_some() {
             if let Some(frame) = self.present_frame() {
                 let mut ui = Scene::new();
-                let (scene, _) = arco_native::build_scene_full(&frame, None, &self.vars, Some(&self.assets), if self.fonts.fonts.is_empty() { None } else { Some(&self.fonts) });
+                let (scene, _) = x_native::build_scene_full(&frame, None, &self.vars, Some(&self.assets), if self.fonts.fonts.is_empty() { None } else { Some(&self.fonts) });
                 // fit page into window
                 let scale = (self.win_w / frame.w.max(1.0)).min(self.win_h / frame.h.max(1.0));
                 let ox = (self.win_w - frame.w * scale) / 2.0;
@@ -32,7 +32,7 @@ impl App {
         // transparent (black void on most backends) instead of a real
         // canvas backdrop. Fill it before anything else draws over it.
         fill_rect(&mut ui, canvas, C_CANVAS);
-        ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &canvas);
+        ui.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &canvas);
         // soft drop shadow behind each top-level frame — pages read as
         // "paper" lifted off the pasteboard instead of flat rectangles
         // sitting directly on it. Cheap: one rect per frame, same screen
@@ -42,11 +42,11 @@ impl App {
         {
             let cam = self.camera();
             for child in &self.editor.root.children {
-                if !matches!(child.kind, arco_native::NodeKind::Frame { .. }) || !child.visible { continue; }
+                if !matches!(child.kind, x_native::NodeKind::Frame { .. }) || !child.visible { continue; }
                 let tl = cam * Point::new(child.transform.x, child.transform.y);
                 let br = cam * Point::new(child.transform.x + child.w, child.transform.y + child.h);
                 let shadow = Rect::new(tl.x + 2.0, tl.y + 4.0, br.x + 2.0, br.y + 7.0);
-                fill_rect(&mut ui, shadow, Color::rgba8(0, 0, 0, 60));
+                fill_rect(&mut ui, shadow, Color::from_rgba8(0, 0, 0, 60));
             }
         }
         if self.outline_view {
@@ -55,8 +55,8 @@ impl App {
                 if !n.visible { return; }
                 let world = parent * n.transform.matrix(n.w, n.h);
                 let b = quad_bounds(cam * world, n.w, n.h);
-                if !matches!(n.kind, arco_native::NodeKind::Component { .. }) {
-                    stroke_rect(ui, b, Color::rgb8(0x9a, 0x9a, 0x9a), 1.0);
+                if !matches!(n.kind, x_native::NodeKind::Component { .. }) {
+                    stroke_rect(ui, b, Color::from_rgb8(0x9a, 0x9a, 0x9a), 1.0);
                 }
                 for c in &n.children { outline_walk(c, world, cam, ui); }
             }
@@ -81,7 +81,7 @@ impl App {
                           a.x.max(b.x) + w * 0.25, a.y.max(b.y) + h * 0.25)
             };
             let doc_scene = {
-                let sink = arco_native::VelloSink {
+                let sink = x_native::VelloSink {
                     assets: Some(&self.assets),
                     fonts: if self.fonts.fonts.is_empty() { None } else { Some(&self.fonts) },
                 };
@@ -98,7 +98,7 @@ impl App {
         // ---- frame name labels above top-level frames (professional design tool standard)
         // "◇ Desktop - 1440" floating over each frame) ----
         for child in &self.editor.root.children {
-            if !matches!(child.kind, arco_native::NodeKind::Frame { .. }) { continue; }
+            if !matches!(child.kind, x_native::NodeKind::Frame { .. }) { continue; }
             if !child.visible { continue; }
             let tl = self.camera() * Point::new(child.transform.x, child.transform.y);
             if tl.y < TOP_H + 30.0 { continue; }
@@ -125,7 +125,7 @@ impl App {
                 let b = self.camera() * Point::new(100000.0, *coord);
                 vello::kurbo::Line::new(a, b)
             };
-            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::rgba8(0x00, 0xbc, 0xd4, 180), None, &line);
+            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::from_rgba8(0x00, 0xbc, 0xd4, 180), None, &line);
         }
 
         // smart guides (red lines) while dragging
@@ -139,20 +139,20 @@ impl App {
                 let b = self.camera() * Point::new(100000.0, *coord);
                 vello::kurbo::Line::new(a, b)
             };
-            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::rgb8(0xff, 0x3b, 0x30), None, &line);
+            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::from_rgb8(0xff, 0x3b, 0x30), None, &line);
         }
 
         // ---- node-edit anchors (vector editing) ----
         if let Some(vid) = &self.node_edit {
             if let Some(n) = find(&self.editor.root, vid) {
-                if let arco_native::NodeKind::Vector { path } = &n.kind {
-                    for (ai, a) in arco_native::editor::anchors(path).iter().enumerate() {
+                if let x_native::NodeKind::Vector { path } = &n.kind {
+                    for (ai, a) in x_native::editor::anchors(path).iter().enumerate() {
                         let a = *a;
                         // outgoing handle (c1 of next segment)
                         if let Some((ox, oy)) = self.editor.out_handle(vid, ai) {
                             let sp0 = self.camera() * Point::new(a.x + n.transform.x, a.y + n.transform.y);
                             let hp = self.camera() * Point::new(ox + n.transform.x, oy + n.transform.y);
-                            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::rgba8(0x7c, 0x5c, 0xfc, 170), None,
+                            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::from_rgba8(0x7c, 0x5c, 0xfc, 170), None,
                                 &vello::kurbo::Line::new((sp0.x, sp0.y), (hp.x, hp.y)));
                             ui.fill(Fill::NonZero, Affine::IDENTITY, C_ACCENT, None, &vello::kurbo::Circle::new((hp.x, hp.y), 2.5));
                         }
@@ -169,7 +169,7 @@ impl App {
                         // incoming control handle line
                         if let Some((hx, hy)) = a.in_handle {
                             let hp = self.camera() * Point::new(hx + n.transform.x, hy + n.transform.y);
-                            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::rgba8(0x7c, 0x5c, 0xfc, 170), None,
+                            ui.stroke(&vello::kurbo::Stroke::new(1.0), Affine::IDENTITY, Color::from_rgba8(0x7c, 0x5c, 0xfc, 170), None,
                                 &vello::kurbo::Line::new((sp.x, sp.y), (hp.x, hp.y)));
                             ui.fill(Fill::NonZero, Affine::IDENTITY, C_ACCENT, None, &vello::kurbo::Circle::new((hp.x, hp.y), 2.5));
                         }
@@ -181,7 +181,7 @@ impl App {
         if let Some(hid) = &self.hover {
             if let Some((world, w, h)) = world_transform_of(&self.editor.root, hid) {
                 let b = quad_bounds(self.camera() * world, w, h);
-                stroke_rect(&mut ui, b, Color::rgba8(0x7c, 0x5c, 0xfc, 170), 1.0);
+                stroke_rect(&mut ui, b, Color::from_rgba8(0x7c, 0x5c, 0xfc, 170), 1.0);
             }
         }
         // prototype link badges: small purple arrow chip on linked nodes
@@ -213,14 +213,14 @@ impl App {
                         let ls = n.bindings.get("ls").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
                         let x_at = |idx: usize| -> f64 {
                             let pre = &buffer[..idx.min(buffer.len())];
-                            b.x0 + (arco_native::text::measure(pre, n.h * 0.72)
+                            b.x0 + (x_native::text::measure(pre, n.h * 0.72)
                                 + ls * pre.chars().count() as f64) * self.zoom
                         };
                         if let Some(a) = sel_anchor {
                             let (lo, hi) = ((*a).min(*caret), (*a).max(*caret));
                             if hi > lo {
                                 fill_rect(&mut ui, Rect::new(x_at(lo), b.y0 + 2.0, x_at(hi), b.y1 - 2.0),
-                                    Color::rgba8(0x7c, 0x5c, 0xfc, 72));
+                                    Color::from_rgba8(0x7c, 0x5c, 0xfc, 72));
                             }
                         }
                         let cx = x_at(*caret);
@@ -240,7 +240,7 @@ impl App {
                 }
                 if self.editor.selection.len() == 1 && self.gradient_editing && !editing_this {
                     if let Some((_, start, end, stops)) = self.gradient_geometry() {
-                        ui.stroke(&vello::kurbo::Stroke::new(1.5), Affine::IDENTITY, Color::rgba8(0xff, 0xff, 0xff, 220), None,
+                        ui.stroke(&vello::kurbo::Stroke::new(1.5), Affine::IDENTITY, Color::from_rgba8(0xff, 0xff, 0xff, 220), None,
                             &vello::kurbo::Line::new((start.x, start.y), (end.x, end.y)));
                         ui.stroke(&vello::kurbo::Stroke::new(3.5), Affine::IDENTITY, C_ACCENT, None,
                             &vello::kurbo::Line::new((start.x, start.y), (end.x, end.y)));
@@ -260,7 +260,7 @@ impl App {
                     // X-Native dimension badge: violet pill under the selection
                     if let Some(n) = find(&self.editor.root, &id) {
                         let text = format!("{:.0} X {:.0}", n.w, n.h);
-                        let tw = arco_native::text::measure(&text, 9.0);
+                        let tw = x_native::text::measure(&text, 9.0);
                         let bx = (b.x0 + b.x1) / 2.0 - tw / 2.0 - 6.0;
                         let by = b.y1 + 8.0;
                         let badge = vello::kurbo::RoundedRect::new(bx, by, bx + tw + 14.0, by + 18.0, 4.0);
@@ -281,7 +281,7 @@ impl App {
                 let a = self.camera() * start_world;
                 let bpt = self.cursor;
                 let r = Rect::new(a.x.min(bpt.x), a.y.min(bpt.y), a.x.max(bpt.x), a.y.max(bpt.y));
-                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgba8(0x7c, 0x5c, 0xfc, 30), None, &r.into_path(0.1));
+                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgba8(0x7c, 0x5c, 0xfc, 30), None, &r.into_path(0.1));
                 stroke_rect(&mut ui, r, C_ACCENT, 1.0);
             }
             Drag::Create { start_world } => {
@@ -289,7 +289,7 @@ impl App {
                 let a = self.camera() * Point::new(world.x0, world.y0);
                 let b = self.camera() * Point::new(world.x1, world.y1);
                 let r = Rect::new(a.x, a.y, b.x, b.y);
-                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgba8(0x7c, 0x5c, 0xfc, 30), None, &r.into_path(0.1));
+                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgba8(0x7c, 0x5c, 0xfc, 30), None, &r.into_path(0.1));
                 stroke_rect(&mut ui, r, C_ACCENT, 1.0);
             }
             _ => {}
@@ -371,7 +371,7 @@ impl App {
             // centered tool row (moved from the floating bottom bar)
             let bar = self.bottom_bar_rect();
             let bar_shadow = Rect::new(bar.x0 + 1.0, bar.y0 + 3.0, bar.x1 + 1.0, bar.y1 + 4.0);
-            fill_rrect(&mut ui, bar_shadow, 10.0, Color::rgba8(0, 0, 0, 80));
+            fill_rrect(&mut ui, bar_shadow, 10.0, Color::from_rgba8(0, 0, 0, 80));
             fill_rrect(&mut ui, bar, 10.0, C_PANEL);
             ui.stroke(&vello::kurbo::Stroke::new(1.2), Affine::IDENTITY, C_PANEL_EDGE, None,
                 &vello::kurbo::RoundedRect::new(bar.x0, bar.y0, bar.x1, bar.y1, 10.0));
@@ -408,7 +408,7 @@ impl App {
                 label(&mut ui, "Prototype", ppr.x0 + 25.0, r2y + 17.0, 9.5, C_TEXT);
             }
             // Present button (accent pill, mockup's > Present)
-            fill_rrect(&mut ui, pr, 6.0, if pr.contains(self.cursor) { Color::rgb8(0x4d, 0x7a, 0xff) } else { C_ACCENT });
+            fill_rrect(&mut ui, pr, 6.0, if pr.contains(self.cursor) { Color::from_rgb8(0x4d, 0x7a, 0xff) } else { C_ACCENT });
             let mut tri = vello::kurbo::BezPath::new();
             tri.move_to((pr.x0 + 12.0, pr.y0 + 8.0));
             tri.line_to((pr.x0 + 12.0, pr.y1 - 8.0));
@@ -419,13 +419,13 @@ impl App {
             // avatar circle (mockup, visual, far right)
             {
                 let ac = (self.win_w - 24.0, (r2y + TOP_H) / 2.0);
-                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgb8(0x8e, 0x6a, 0x4f), None,
+                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgb8(0x8e, 0x6a, 0x4f), None,
                     &vello::kurbo::Circle::new(ac, 12.0));
-                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgb8(0xe8, 0xc9, 0xa8), None,
+                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgb8(0xe8, 0xc9, 0xa8), None,
                     &vello::kurbo::Circle::new((ac.0, ac.1 - 3.0), 5.0));
-                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgb8(0xe8, 0xc9, 0xa8), None,
+                ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgb8(0xe8, 0xc9, 0xa8), None,
                     &vello::kurbo::Circle::new((ac.0, ac.1 + 9.0), 8.0));
-                ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY,
+                ui.push_clip_layer(Fill::NonZero, Affine::IDENTITY,
                     &vello::kurbo::Circle::new(ac, 12.0).to_path(0.1));
                 ui.pop_layer();
             }
@@ -478,10 +478,10 @@ impl App {
             let c = if active { C_ACCENT } else { C_DIM };
             if active {
                 let hl = Rect::new(r.x0 + 6.0, r.y0 + 5.0, r.x1 - 6.0, r.y1 - 6.0);
-                fill_rrect(&mut ui, hl, 9.0, Color::rgba8(0x7c, 0x5c, 0xfc, 32));
+                fill_rrect(&mut ui, hl, 9.0, Color::from_rgba8(0x7c, 0x5c, 0xfc, 32));
             } else if r.contains(self.cursor) {
                 let hl = Rect::new(r.x0 + 6.0, r.y0 + 5.0, r.x1 - 6.0, r.y1 - 6.0);
-                fill_rrect(&mut ui, hl, 9.0, Color::rgba8(0xff, 0xff, 0xff, 10));
+                fill_rrect(&mut ui, hl, 9.0, Color::from_rgba8(0xff, 0xff, 0xff, 10));
             }
             let cx = (r.x0 + r.x1) / 2.0;
             let iy = TOP_H + 20.0;
@@ -559,7 +559,7 @@ impl App {
                     1 => {
                         // asset tile with a real decoded thumbnail
                         let selected = self.asset_sel.as_deref() == Some(tag.as_str());
-                        fill_rrect(&mut ui, r, 4.0, Color::rgb8(0x1a, 0x1c, 0x20));
+                        fill_rrect(&mut ui, r, 4.0, Color::from_rgb8(0x1a, 0x1c, 0x20));
                         if self.assets.get(&tag).is_none() {
                             if let Some(rec) = self.store.get(&tag) {
                                 if rec.mime == "image/png" {
@@ -568,10 +568,10 @@ impl App {
                             }
                         }
                         if let Some(img) = self.assets.get(&tag) {
-                            let (iw, ih) = (img.width as f64, img.height as f64);
+                            let (iw, ih) = (img.image.width as f64, img.image.height as f64);
                             let s = (r.width() / iw).min(r.height() / ih).min(4.0);
                             let (ox, oy) = (r.x0 + (r.width() - iw * s) / 2.0, r.y0 + (r.height() - ih * s) / 2.0);
-                            ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &r.to_path(0.1));
+                            ui.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &r.to_path(0.1));
                             ui.draw_image(img, Affine::translate((ox, oy)) * Affine::scale(s));
                             ui.pop_layer();
                         } else {
@@ -586,7 +586,7 @@ impl App {
                     2 | 3 => {
                         let name = tag.split_once('|').map(|(_, c)| c.to_string()).unwrap_or_else(|| tag.clone());
                         let stamping_this = kind == 2 && self.stamping.as_deref() == Some(tag.as_str());
-                        if stamping_this { fill_rrect(&mut ui, r, 4.0, Color::rgba8(0x7c, 0x5c, 0xfc, 70)); }
+                        if stamping_this { fill_rrect(&mut ui, r, 4.0, Color::from_rgba8(0x7c, 0x5c, 0xfc, 70)); }
                         // X-Native component diamond
                         let d = 4.0;
                         let (cx, cy) = (r.x0 + 10.0, (r.y0 + r.y1) / 2.0);
@@ -681,8 +681,8 @@ impl App {
             let thumb_h = (track_h * frac).max(24.0);
             let pos = win_start as f64 / (self.layer_rows.len() - rows.len()).max(1) as f64;
             let ty = track_y0 + (track_h - thumb_h) * pos;
-            fill_rrect(&mut ui, Rect::new(LAYERS_W - 7.0, track_y0, LAYERS_W - 3.0, track_y1), 2.0, Color::rgba8(0xff, 0xff, 0xff, 10));
-            fill_rrect(&mut ui, Rect::new(LAYERS_W - 7.0, ty, LAYERS_W - 3.0, ty + thumb_h), 2.0, Color::rgba8(0xff, 0xff, 0xff, 46));
+            fill_rrect(&mut ui, Rect::new(LAYERS_W - 7.0, track_y0, LAYERS_W - 3.0, track_y1), 2.0, Color::from_rgba8(0xff, 0xff, 0xff, 10));
+            fill_rrect(&mut ui, Rect::new(LAYERS_W - 7.0, ty, LAYERS_W - 3.0, ty + thumb_h), 2.0, Color::from_rgba8(0xff, 0xff, 0xff, 46));
         }
         for (vi, (id, depth, klabel)) in rows.iter().enumerate() {
             let i = win_start + vi;
@@ -709,7 +709,7 @@ impl App {
                 let (gx, gy) = (x + 6.0, y + 5.0);
                 let st = vello::kurbo::Stroke::new(1.2)
                     .with_caps(vello::kurbo::Cap::Round).with_join(vello::kurbo::Join::Round);
-                use arco_native::NodeKind::*;
+                use x_native::NodeKind::*;
                 match &n.kind {
                     Text { .. } => { label(&mut ui, "T", gx - 3.0, y - 1.0, 9.0, icon_c); }
                     Frame { .. } | Group => {
@@ -735,7 +735,7 @@ impl App {
                         m.move_to((gx - 4.0, gy + 3.0)); m.line_to((gx - 1.0, gy - 1.0)); m.line_to((gx + 4.0, gy + 3.0));
                         ui.stroke(&st, Affine::IDENTITY, icon_c, None, &m);
                     }
-                    Vector { .. } | VectorNetwork(_) => { label(&mut ui, "~", gx - 4.0, y - 1.0, 9.0, icon_c); }
+                    Vector { .. } => { label(&mut ui, "~", gx - 4.0, y - 1.0, 9.0, icon_c); }
                     Component { .. } | Instance { .. } => {
                         let d = 4.5;
                         let mut dia = vello::kurbo::BezPath::new();
@@ -755,7 +755,7 @@ impl App {
                 if !n.visible { label(&mut ui, "-", eye_x + 3.0, y, 9.0, C_DIM); }
                 else if row_hover { label(&mut ui, "O", eye_x + 2.0, y, 8.0, C_DIM); }
                 if n.locked { label(&mut ui, "*", lock_x + 3.0, y, 9.0, PALETTE[4]); }
-                else if row_hover { label(&mut ui, "*", lock_x + 3.0, y, 8.0, Color::rgba8(0x8f, 0x93, 0x9b, 120)); }
+                else if row_hover { label(&mut ui, "*", lock_x + 3.0, y, 8.0, Color::from_rgba8(0x8f, 0x93, 0x9b, 120)); }
             }
         }
 
@@ -796,7 +796,7 @@ impl App {
             let active = self.inspector_tab == idx;
             if active {
                 let hl = Rect::new(r.x0 + 2.0, TOP_H + 6.0, r.x1 - 2.0, TOP_H + 24.0);
-                fill_rrect(&mut ui, hl, 6.0, Color::rgba8(0x7c, 0x5c, 0xfc, 24));
+                fill_rrect(&mut ui, hl, 6.0, Color::from_rgba8(0x7c, 0x5c, 0xfc, 24));
             }
             label(&mut ui, name, r.x0 + 6.0, TOP_H + 11.0, 8.5, if active { Color::WHITE } else { C_DIM });
             if active {
@@ -846,7 +846,7 @@ impl App {
                     (Some(am), name) => am == name,
                     _ => false,
                 };
-                let w = arco_native::text::measure(m, 8.0) + 12.0;
+                let w = x_native::text::measure(m, 8.0) + 12.0;
                 let r = Rect::new(mx, y - 3.0, mx + w, y + 13.0);
                 if active { fill_rrect(&mut ui, r, 4.0, C_ACCENT); } else { stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0); }
                 label(&mut ui, m, mx + 6.0, y, 8.0, if active { Color::WHITE } else { C_TEXT });
@@ -930,7 +930,7 @@ impl App {
                         label(&mut ui, &tag, r.x0 + 4.0, r.y0 + 2.0, 7.0, C_TEXT);
                     }
                     3 => {
-                        fill_rrect(&mut ui, r, 3.0, Color::rgba8(0x7c, 0x5c, 0xfc, 60));
+                        fill_rrect(&mut ui, r, 3.0, Color::from_rgba8(0x7c, 0x5c, 0xfc, 60));
                         stroke_rect(&mut ui, r, C_ACCENT, 1.0);
                         if let Some((_, newer, changes)) = &self.library_update {
                             label(&mut ui, &format!("UPDATE v{} ({} CHANGES) — REVIEW", newer.version, changes.len()),
@@ -960,8 +960,8 @@ impl App {
                 let pinned = self.library_snapshots.get(&dep.library_id);
                 let panel = Rect::new(self.win_w / 2.0 - 220.0, self.win_h / 2.0 - 160.0,
                                       self.win_w / 2.0 + 220.0, self.win_h / 2.0 + 160.0);
-                fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::rgba8(0, 0, 0, 130));
-                fill_rrect(&mut ui, panel, 12.0, Color::rgba8(0x24, 0x26, 0x2b, 252));
+                fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::from_rgba8(0, 0, 0, 130));
+                fill_rrect(&mut ui, panel, 12.0, Color::from_rgba8(0x24, 0x26, 0x2b, 252));
                 stroke_rect(&mut ui, panel, C_PANEL_EDGE, 1.0);
                 label(&mut ui, "UPDATE AVAILABLE", panel.x0 + 20.0, panel.y0 + 14.0, 12.0, C_TEXT);
                 label(&mut ui, &newer.name, panel.x0 + 20.0, panel.y0 + 34.0, 10.0, C_TEXT);
@@ -969,13 +969,13 @@ impl App {
                     panel.x0 + 20.0, panel.y0 + 50.0, 8.5, C_DIM);
                 let mut ry = panel.y0 + 72.0;
                 for ch in changes.iter().take(9) {
-                    use arco_native::LibraryChange::*;
+                    use x_native::LibraryChange::*;
                     let (txt, col) = match ch {
                         StyleModified(n) => {
                             // old -> new color preview for paint styles
                             let old = pinned.and_then(|l| l.styles.get(n));
                             let newv = newer.styles.get(n);
-                            if let (Some(arco_native::Style::Paint { fill: of }), Some(arco_native::Style::Paint { fill: nf })) = (old, newv) {
+                            if let (Some(x_native::Style::Paint { fill: of }), Some(x_native::Style::Paint { fill: nf })) = (old, newv) {
                                 let oc = match of { Paint::Solid(c) => *c, _ => Color::WHITE };
                                 let nc = match nf { Paint::Solid(c) => *c, _ => Color::WHITE };
                                 fill_rect(&mut ui, Rect::new(panel.x0 + 150.0, ry, panel.x0 + 166.0, ry + 10.0), oc);
@@ -1032,7 +1032,7 @@ impl App {
                             // (accent wash); first keystroke replaces it
                             let old_txt = format!("{:.0}", vals[f as usize]);
                             let tw = ui_measure(&old_txt, 9.0);
-                            fill_rrect(&mut ui, Rect::new(fx + 24.0, fy - 1.0, fx + 28.0 + tw, fy + 12.0), 3.0, Color::rgba8(0x7c, 0x5c, 0xfc, 90));
+                            fill_rrect(&mut ui, Rect::new(fx + 24.0, fy - 1.0, fx + 28.0 + tw, fy + 12.0), 3.0, Color::from_rgba8(0x7c, 0x5c, 0xfc, 90));
                             label(&mut ui, names[f as usize], fx + 8.0, fy + 1.0, 8.5, C_DIM);
                             label(&mut ui, &old_txt, fx + 26.0, fy + 1.0, 9.0, Color::WHITE);
                         } else {
@@ -1087,7 +1087,7 @@ impl App {
                 cg.line_to((r2.x0 + 8.0, fy + 5.0));
                 cg.curve_to((r2.x0 + 8.0, fy + 2.0), (r2.x0 + 11.0, fy + 2.0), (r2.x0 + 14.0, fy + 2.0));
                 ui.stroke(&vello::kurbo::Stroke::new(1.2), Affine::IDENTITY, C_DIM, None, &cg);
-                let rad = if let arco_native::NodeKind::Rect { radius } = &n.kind { *radius } else { 0.0 };
+                let rad = if let x_native::NodeKind::Rect { radius } = &n.kind { *radius } else { 0.0 };
                 label(&mut ui, &format!("{rad:.0}"), r2.x0 + 22.0, fy + 1.0, 9.0, C_TEXT);
                 let bm2 = Rect::new(r2.x1 - 38.0, fy - 1.0, r2.x1 - 22.0, fy + 12.0);
                 let bp2 = Rect::new(r2.x1 - 20.0, fy - 1.0, r2.x1 - 4.0, fy + 12.0);
@@ -1096,7 +1096,7 @@ impl App {
                 // ---- independent corner radii (rects): TL TR BR BL mini
                 // boxes; click top half = +2, bottom = -2; uniform stepper
                 // above clears the per-corner overrides ----
-                if let arco_native::NodeKind::Rect { radius } = &n.kind {
+                if let x_native::NodeKind::Rect { radius } = &n.kind {
                     let cy2 = TOP_H + IY_CORNERS;
                     let c = n.corner_radii.unwrap_or([*radius; 4]);
                     let names4 = ["TL", "TR", "BR", "BL"];
@@ -1119,7 +1119,7 @@ impl App {
                 let hy = TOP_H + IY_AL_HDR;
                 draw_section_sep(&mut ui, ix, self.win_w, hy - 8.0);
                 label(&mut ui, "Responsive Layout", ix + 12.0, hy, 10.0, C_SECTION);
-                if !matches!(n.kind, arco_native::NodeKind::Frame { .. }) {
+                if !matches!(n.kind, x_native::NodeKind::Frame { .. }) {
                     let br = Rect::new(ix + INSPECTOR_W - 28.0, hy - 3.0, ix + INSPECTOR_W - 12.0, hy + 11.0);
                     draw_stepper(&mut ui, br, true, br.contains(self.cursor), C_DIM);
                     label(&mut ui, "Available on frames", ix + 12.0, hy + 18.0, 7.5, C_DIM);
@@ -1138,7 +1138,7 @@ impl App {
             }
             // FONT BROWSER (text nodes, Design tab): search over ALL
             // system families + the full Google Fonts catalog
-            if matches!(n.kind, arco_native::NodeKind::Text { .. }) && self.inspector_tab == 0 {
+            if matches!(n.kind, x_native::NodeKind::Text { .. }) && self.inspector_tab == 0 {
                 let fy = TOP_H + IY_FONT;
                 draw_section_sep(&mut ui, ix, self.win_w, fy - 8.0);
                 label(&mut ui, "Font", ix + 12.0, fy, 10.0, C_SECTION);
@@ -1200,7 +1200,7 @@ impl App {
                     let mut wrow = wy + 12.0;
                     for (_, w, italic) in &self.font_weights {
                         let text = if *italic { "IT".to_string() } else { format!("{w}") };
-                        let cw = arco_native::text::measure(&text, 7.5) + 10.0;
+                        let cw = x_native::text::measure(&text, 7.5) + 10.0;
                         if wx + cw > self.win_w - 12.0 { wx = ix + 12.0; wrow += 18.0; }
                         let r = Rect::new(wx, wrow - 2.0, wx + cw, wrow + 12.0);
                         let is_current = current.ends_with(&format!(" {w}")) && !*italic
@@ -1217,7 +1217,7 @@ impl App {
                 let hy = TOP_H + IY_FILL_HDR;
                 draw_section_sep(&mut ui, ix, self.win_w, hy - 8.0);
                 label(&mut ui, "Fill", ix + 12.0, hy, 10.0, C_SECTION);
-                let fills = if !n.visual_stacks_materialized { vec![arco_native::PaintLayer::new(n.fill.clone())] } else { n.fill_layers.clone() };
+                let fills = if !n.visual_stacks_materialized { vec![x_native::PaintLayer::new(n.fill.clone())] } else { n.fill_layers.clone() };
                 let fill_idx = self.fill_layer_index.min(fills.len().saturating_sub(1));
                 let no_fill = Paint::Solid(Color::TRANSPARENT);
                 let top_fill = fills.get(fill_idx).map(|l| &l.paint).unwrap_or(&no_fill);
@@ -1240,12 +1240,12 @@ impl App {
                 let row = Rect::new(ix + 12.0, ry - 2.0, ix + INSPECTOR_W - 12.0, ry + 15.0);
                 fill_rrect(&mut ui, row, 5.0, C_FIELD);
                 let (chip, hex) = match top_fill {
-                    Paint::Solid(c) => (*c, arco_native::color_to_hex(*c).trim_start_matches('#').to_ascii_uppercase()),
+                    Paint::Solid(c) => (*c, x_native::color_to_hex(*c).trim_start_matches('#').to_ascii_uppercase()),
                     Paint::LinearGradient { stops, .. } | Paint::RadialGradient { stops, .. } =>
                         (stops.first().map(|s| s.1).unwrap_or(C_DIM), "GRADIENT".to_string()),
                     Paint::Variable(v) => (C_ACCENT, format!("VAR {v}").to_ascii_uppercase()),
                 };
-                let visible_fill = fills.get(fill_idx).map(|l| l.visible).unwrap_or(true) && chip.a > 0;
+                let visible_fill = fills.get(fill_idx).map(|l| l.visible).unwrap_or(true) && chip.components[3] > 0.0;
                 fill_rrect(&mut ui, Rect::new(row.x0 + 5.0, ry + 1.0, row.x0 + 17.0, ry + 13.0), 3.0, chip);
                 stroke_rect(&mut ui, Rect::new(row.x0 + 5.0, ry + 1.0, row.x0 + 17.0, ry + 13.0), C_PANEL_EDGE, 1.0);
                 label(&mut ui, &hex, row.x0 + 24.0, ry + 2.0, 8.5, C_TEXT);
@@ -1275,7 +1275,7 @@ impl App {
                 draw_section_sep(&mut ui, ix, self.win_w, hy - 8.0);
                 label(&mut ui, "Stroke", ix + 12.0, hy, 10.0, C_SECTION);
                 let strokes = if !n.visual_stacks_materialized {
-                    if n.stroke.width > 0.0 { vec![arco_native::StrokeLayer::new(n.stroke)] } else { vec![] }
+                    if n.stroke.width > 0.0 { vec![x_native::StrokeLayer::new(n.stroke.clone())] } else { vec![] }
                 } else { n.stroke_layers.clone() };
                 let stroke_idx = self.stroke_layer_index.min(strokes.len().saturating_sub(1));
                 let stroke_blend = strokes.get(stroke_idx).map(|l| l.blend).unwrap_or(BlendKind::Normal);
@@ -1290,10 +1290,10 @@ impl App {
                 let ry = TOP_H + IY_STROKEROW;
                 let row = Rect::new(ix + 12.0, ry - 2.0, ix + INSPECTOR_W - 12.0, ry + 15.0);
                 fill_rrect(&mut ui, row, 5.0, C_FIELD);
-                let active_stroke = strokes.get(stroke_idx).map(|l| l.stroke).unwrap_or(n.stroke);
-                let sc = active_stroke.color;
-                let hex = if sc.a == 0 { "None".to_string() } else { arco_native::color_to_hex(sc).trim_start_matches('#').to_ascii_uppercase() };
-                fill_rrect(&mut ui, Rect::new(row.x0 + 5.0, ry + 1.0, row.x0 + 17.0, ry + 13.0), 3.0, if sc.a == 0 { C_PANEL2 } else { sc });
+                let active_stroke = strokes.get(stroke_idx).map(|l| l.stroke.clone()).unwrap_or_else(|| n.stroke.clone());
+                let sc = active_stroke.solid_color().unwrap_or(Color::TRANSPARENT);
+                let hex = if sc.components[3] == 0.0 { "None".to_string() } else { x_native::color_to_hex(sc).trim_start_matches('#').to_ascii_uppercase() };
+                fill_rrect(&mut ui, Rect::new(row.x0 + 5.0, ry + 1.0, row.x0 + 17.0, ry + 13.0), 3.0, if sc.components[3] == 0.0 { C_PANEL2 } else { sc });
                 stroke_rect(&mut ui, Rect::new(row.x0 + 5.0, ry + 1.0, row.x0 + 17.0, ry + 13.0), C_PANEL_EDGE, 1.0);
                 label(&mut ui, &hex, row.x0 + 24.0, ry + 2.0, 8.5, C_TEXT);
                 // width value | - + steppers | Inside pill (no overlaps)
@@ -1319,7 +1319,7 @@ impl App {
                 // + adds a drop shadow
                 let addr = Rect::new(ix + INSPECTOR_W - 28.0, hy - 3.0, ix + INSPECTOR_W - 12.0, hy + 11.0);
                 draw_stepper(&mut ui, addr, true, addr.contains(self.cursor), C_DIM);
-                let effects = if !n.visual_stacks_materialized { n.effects.iter().cloned().map(arco_native::EffectLayer::new).collect::<Vec<_>>() } else { n.effect_layers.clone() };
+                let effects = if !n.visual_stacks_materialized { n.effects.iter().cloned().map(x_native::EffectLayer::new).collect::<Vec<_>>() } else { n.effect_layers.clone() };
                 let effect_idx = self.effect_layer_index.min(effects.len().saturating_sub(1));
                 label(&mut ui, &format!("{}/{}", if effects.is_empty() { 0 } else { effect_idx + 1 }, effects.len()), ix + 58.0, hy + 1.0, 8.0, C_DIM);
                 if let Some(layer) = effects.get(effect_idx) { label(&mut ui, blend_short(layer.blend), ix + 90.0, hy + 1.0, 8.0, C_DIM); }
@@ -1376,18 +1376,18 @@ impl App {
                 }
             }
             // ---- component section (instances, Design tab) ----
-            if let arco_native::NodeKind::Instance { component } = &n.kind {
+            if let x_native::NodeKind::Instance { component } = &n.kind {
                 let cy0 = TOP_H + IY_SEC;
                 label(&mut ui, "Component", ix + 12.0, cy0, 10.0, C_DIM);
                 label(&mut ui, component, ix + 90.0, cy0, 8.5, C_TEXT);
                 // variant chips when the component belongs to a Set/Name
                 if let Some((set, _)) = component.split_once('/') {
-                    let vars_list = arco_native::components::variants_of(&self.editor.root, set);
+                    let vars_list = x_native::components::variants_of(&self.editor.root, set);
                     let mut vx = ix + 12.0;
                     let vy = cy0 + 16.0;
                     for vname in vars_list.iter().take(4) {
                         let short = vname.split_once('/').map(|(_, v)| v).unwrap_or(vname);
-                        let cw = arco_native::text::measure(short, 7.5) + 10.0;
+                        let cw = x_native::text::measure(short, 7.5) + 10.0;
                         let r = Rect::new(vx, vy - 2.0, vx + cw, vy + 12.0);
                         let active = *vname == component.as_str();
                         if active { fill_rrect(&mut ui, r, 3.0, C_ACCENT); } else { stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0); }
@@ -1401,13 +1401,13 @@ impl App {
                 label(&mut ui, "DETACH", ix + 156.0, cy0 + 18.0, 7.5, C_TEXT);
             }
             // ---- image controls (image nodes, Design tab) ----
-            if let arco_native::NodeKind::Image { asset, fit, placement } = &n.kind {
+            if let x_native::NodeKind::Image { asset, fit, placement } = &n.kind {
                 if self.inspector_tab == 0 {
                     let iy = TOP_H + IY_SEC;
                     label(&mut ui, "Image", ix + 12.0, iy, 10.0, C_DIM);
                     label(&mut ui, asset, ix + 60.0, iy, 8.5, C_TEXT);
                     // fit-mode chips (X-Native fill/fit/crop/tile)
-                    let cur = match fit { arco_native::ImageFit::Fill => 0, arco_native::ImageFit::Fit => 1, arco_native::ImageFit::Crop => 2, arco_native::ImageFit::Tile => 3 };
+                    let cur = match fit { x_native::ImageFit::Fill => 0, x_native::ImageFit::Fit => 1, x_native::ImageFit::Crop => 2, x_native::ImageFit::Tile => 3 };
                     for (i, name) in ["FILL", "FIT", "CROP", "TILE"].iter().enumerate() {
                         let bx = ix + 12.0 + i as f64 * 48.0;
                         let r = Rect::new(bx, iy + 14.0, bx + 44.0, iy + 30.0);
@@ -1451,7 +1451,7 @@ impl App {
             }
             // ---- styles (X-Native reusable paint/text/effect styles);
             // text nodes hand the slot to the font browser ----
-            if self.inspector_tab == 0 && !matches!(n.kind, arco_native::NodeKind::Text { .. }) {
+            if self.inspector_tab == 0 && !matches!(n.kind, x_native::NodeKind::Text { .. }) {
                 let sy0 = TOP_H + IY_STYLES;
                 draw_section_sep(&mut ui, ix, self.win_w, sy0 - 8.0);
                 label(&mut ui, "Styles", ix + 12.0, sy0, 10.0, C_SECTION);
@@ -1486,17 +1486,17 @@ impl App {
                             label(&mut ui, &name, r.x0 + 5.0, r.y0 + 2.0, 7.0, C_TEXT);
                         }
                         _ => {
-                            let linked = bound.iter().any(|b| *b == name);
+                            let linked = bound.contains(&name);
                             let selected = self.style_sel.as_deref() == Some(name.as_str());
                             if linked { fill_rrect(&mut ui, r, 3.0, C_ACCENT); }
-                            else if selected { fill_rrect(&mut ui, r, 3.0, Color::rgba8(0x4d, 0xb8, 0xff, 70)); stroke_rect(&mut ui, r, PALETTE[4], 1.0); }
+                            else if selected { fill_rrect(&mut ui, r, 3.0, Color::from_rgba8(0x4d, 0xb8, 0xff, 70)); stroke_rect(&mut ui, r, PALETTE[4], 1.0); }
                             else { stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0); }
-                            if let arco_native::Style::Paint { fill } = &self.styles[name.as_str()] {
+                            if let x_native::Style::Paint { fill } = &self.styles[name.as_str()] {
                                 let c = match fill { Paint::Solid(c) => *c, Paint::LinearGradient { stops, .. } | Paint::RadialGradient { stops, .. } => stops.first().map(|(_, c)| *c).unwrap_or(Color::WHITE), Paint::Variable(_) => C_ACCENT };
                                 fill_rect(&mut ui, Rect::new(r.x0 + 3.0, r.y0 + 3.0, r.x0 + 11.0, r.y0 + 11.0), c);
                             }
                             let usage: usize = self.pages.iter().enumerate()
-                                .map(|(i, p)| if i == self.page_idx { arco_native::style_usage(&self.editor.root, &name) } else { arco_native::style_usage(p, &name) })
+                                .map(|(i, p)| if i == self.page_idx { x_native::style_usage(&self.editor.root, &name) } else { x_native::style_usage(p, &name) })
                                 .sum();
                             let short = if name.len() > 12 { &name[..12] } else { name.as_str() };
                             let text = if usage > 0 { format!("{short} {usage}") } else { short.to_string() };
@@ -1521,13 +1521,13 @@ impl App {
                     n.transform.x, n.transform.y, n.w, n.h, n.transform.rotation.to_degrees()),
                     ix + 12.0, TOP_H + 64.0, 8.0, C_DIM);
                 let fill_hex = match &n.fill {
-                    Paint::Solid(c) => arco_native::color_to_hex(*c),
+                    Paint::Solid(c) => x_native::color_to_hex(*c),
                     Paint::LinearGradient { .. } => "linear-gradient".into(),
                     Paint::RadialGradient { .. } => "radial-gradient".into(),
                     Paint::Variable(v) => format!("var({v})"),
                 };
                 label(&mut ui, &format!("FILL {fill_hex}   STROKE {} / {:.0}",
-                    arco_native::color_to_hex(n.stroke.color), n.stroke.width),
+                    n.stroke.solid_color().map(x_native::color_to_hex).unwrap_or_else(|| "gradient".into()), n.stroke.width),
                     ix + 12.0, TOP_H + 80.0, 8.0, C_DIM);
                 label(&mut ui, &format!("OPACITY {:.0}%   EFFECTS {}", n.opacity * 100.0, n.effects.len()),
                     ix + 12.0, TOP_H + 96.0, 8.0, C_DIM);
@@ -1535,8 +1535,8 @@ impl App {
                 let hpins = ["L", "R", "CH", "SH", "SC"];
                 let vpins = ["T", "B", "CV", "SV", "SC"];
                 let (cur_h, cur_v) = n.pin;
-                let hi = match cur_h { arco_native::HPin::Left => 0, arco_native::HPin::Right => 1, arco_native::HPin::CenterH => 2, arco_native::HPin::StretchH => 3, arco_native::HPin::ScaleH => 4 };
-                let vi = match cur_v { arco_native::VPin::Top => 0, arco_native::VPin::Bottom => 1, arco_native::VPin::CenterV => 2, arco_native::VPin::StretchV => 3, arco_native::VPin::ScaleV => 4 };
+                let hi = match cur_h { x_native::HPin::Left => 0, x_native::HPin::Right => 1, x_native::HPin::CenterH => 2, x_native::HPin::StretchH => 3, x_native::HPin::ScaleH => 4 };
+                let vi = match cur_v { x_native::VPin::Top => 0, x_native::VPin::Bottom => 1, x_native::VPin::CenterV => 2, x_native::VPin::StretchV => 3, x_native::VPin::ScaleV => 4 };
                 for (i, lbl) in hpins.iter().enumerate() {
                     let x = ix + 12.0 + i as f64 * 34.0;
                     let r = Rect::new(x, cy + 14.0, x + 30.0, cy + 30.0);
@@ -1551,7 +1551,7 @@ impl App {
                 }
             }
             // ---- auto layout section (frames only, Design tab) ----
-            let is_frame = matches!(n.kind, arco_native::NodeKind::Frame { .. });
+            let is_frame = matches!(n.kind, x_native::NodeKind::Frame { .. });
             if is_frame && self.inspector_tab == 0 {
                 let id = n.id.clone();
                 let layout = self.editor.auto_layout_of(&id);
@@ -1571,7 +1571,8 @@ impl App {
                 }
                 if let Some(l) = &layout {
                     // GAP and PAD steppers
-                    for (row, (name, val)) in [("GAP", l.gap), ("PAD", l.padding)].iter().enumerate() {
+                    let pad_disp = if l.uniform_pad() { l.padding[0] } else { (l.padding[0] + l.padding[1] + l.padding[2] + l.padding[3]) / 4.0 };
+                    for (row, (name, val)) in [("GAP", l.gap), ("PAD", pad_disp)].iter().enumerate() {
                         let ry = ly + 44.0 + row as f64 * 22.0;
                         label(&mut ui, &format!("{name}: {val:.0}"), ix + 12.0, ry, 9.5, C_TEXT);
                         let bm = Rect::new(ix + 140.0, ry - 3.0, ix + 158.0, ry + 12.0);
@@ -1581,6 +1582,48 @@ impl App {
                         label(&mut ui, "-", ix + 146.0, ry - 1.0, 10.0, C_TEXT);
                         label(&mut ui, "+", ix + 166.0, ry - 1.0, 10.0, C_TEXT);
                     }
+                    // WRAP toggle — only meaningful on a Fixed main axis,
+                    // same as Figma's Wrap only applying to a fixed-width
+                    // (horizontal) or fixed-height (vertical) frame.
+                    let wy = ly + 44.0 + 2.0 * 22.0;
+                    let wrap_on = l.wrap == x_native::AutoLayoutWrap::Wrap;
+                    label(&mut ui, "WRAP", ix + 12.0, wy, 9.5, C_TEXT);
+                    let wb = Rect::new(ix + 140.0, wy - 3.0, ix + 180.0, wy + 12.0);
+                    if wrap_on { fill_rect(&mut ui, wb, C_ACCENT); } else { stroke_rect(&mut ui, wb, C_PANEL_EDGE, 1.0); }
+                    label(&mut ui, if wrap_on { "ON" } else { "OFF" }, wb.x0 + 8.0, wy - 1.0, 8.0, if wrap_on { Color::WHITE } else { C_TEXT });
+
+                    // MAIN / CROSS axis sizing — Fixed vs Hug, same as
+                    // Figma's per-axis "Fixed width/height" vs "Hug contents".
+                    for (row, (rlabel, sizing)) in [("MAIN", l.sizing), ("CROSS", l.cross())].iter().enumerate() {
+                        let ry = ly + 44.0 + (3 + row) as f64 * 22.0;
+                        label(&mut ui, rlabel, ix + 12.0, ry, 9.5, C_TEXT);
+                        for (i, opt) in ["FIX", "HUG"].iter().enumerate() {
+                            let bx = ix + 140.0 + i as f64 * 48.0;
+                            let r = Rect::new(bx, ry - 3.0, bx + 44.0, ry + 12.0);
+                            let is_active = (i == 1) == (*sizing == x_native::Sizing::Hug);
+                            if is_active { fill_rect(&mut ui, r, C_ACCENT); } else { stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0); }
+                            label(&mut ui, opt, r.x0 + 6.0, ry - 1.0, 8.0, if is_active { Color::WHITE } else { C_TEXT });
+                        }
+                    }
+                    // ALIGN — cross-axis alignment of children (Start/Center/End).
+                    let ay = ly + 44.0 + 5.0 * 22.0;
+                    label(&mut ui, "ALIGN", ix + 12.0, ay, 9.5, C_TEXT);
+                    for (i, opt) in ["S", "C", "E"].iter().enumerate() {
+                        let bx = ix + 140.0 + i as f64 * 34.0;
+                        let r = Rect::new(bx, ay - 3.0, bx + 30.0, ay + 12.0);
+                        let is_active = i == match l.align { x_native::CrossAlign::Start => 0, x_native::CrossAlign::Center => 1, x_native::CrossAlign::End => 2 };
+                        if is_active { fill_rect(&mut ui, r, C_ACCENT); } else { stroke_rect(&mut ui, r, C_PANEL_EDGE, 1.0); }
+                        label(&mut ui, opt, r.x0 + 10.0, ay - 1.0, 8.0, if is_active { Color::WHITE } else { C_TEXT });
+                    }
+                    // SPACE BETWEEN toggle — distributes leftover main-axis
+                    // space between children (Fixed-size frames only), same
+                    // as Figma's "Space between" distribution mode.
+                    let sy = ly + 44.0 + 6.0 * 22.0;
+                    let sb_on = l.space_between;
+                    label(&mut ui, "SPACE BW", ix + 12.0, sy, 9.5, C_TEXT);
+                    let sb = Rect::new(ix + 140.0, sy - 3.0, ix + 180.0, sy + 12.0);
+                    if sb_on { fill_rect(&mut ui, sb, C_ACCENT); } else { stroke_rect(&mut ui, sb, C_PANEL_EDGE, 1.0); }
+                    label(&mut ui, if sb_on { "ON" } else { "OFF" }, sb.x0 + 8.0, sy - 1.0, 8.0, if sb_on { Color::WHITE } else { C_TEXT });
                 }
             }
         } else if self.tool == Tool::Frame {
@@ -1623,7 +1666,7 @@ impl App {
             // friendly empty state: quick-start card — DESIGN tab only
             // (VARS/LIBS tabs draw their own content above)
             let card = Rect::new(ix + 10.0, TOP_H + 30.0, self.win_w - 10.0, TOP_H + 168.0);
-            fill_rrect(&mut ui, card, 8.0, Color::rgba8(0x2a, 0x2c, 0x33, 200));
+            fill_rrect(&mut ui, card, 8.0, Color::from_rgba8(0x2a, 0x2c, 0x33, 200));
             label(&mut ui, "Get started", card.x0 + 10.0, card.y0 + 8.0, 9.5, C_SECTION);
             for (i, line) in [
                 "R  DRAW A RECTANGLE",
@@ -1640,8 +1683,8 @@ impl App {
         // ---------- rulers (X-Native Shift+R) ----------
         if self.rulers {
             let c = self.canvas_rect();
-            fill_rect(&mut ui, Rect::new(c.x0, c.y0, c.x1, c.y0 + 16.0), Color::rgba8(0x1a, 0x1a, 0x1a, 240));
-            fill_rect(&mut ui, Rect::new(c.x0, c.y0, c.x0 + 16.0, c.y1), Color::rgba8(0x1a, 0x1a, 0x1a, 240));
+            fill_rect(&mut ui, Rect::new(c.x0, c.y0, c.x1, c.y0 + 16.0), Color::from_rgba8(0x1a, 0x1a, 0x1a, 240));
+            fill_rect(&mut ui, Rect::new(c.x0, c.y0, c.x0 + 16.0, c.y1), Color::from_rgba8(0x1a, 0x1a, 0x1a, 240));
             // ticks every 100 page units
             let step = 100.0 * self.zoom;
             if step > 20.0 {
@@ -1675,12 +1718,12 @@ impl App {
             let max = self.frame_times.iter().cloned().fold(0.0f32, f32::max);
             let fps = if avg > 0.0 { 1000.0 / avg } else { 0.0 };
             let hud = Rect::new(LAYERS_W + 10.0, TOP_H + 8.0, LAYERS_W + 330.0, TOP_H + 98.0);
-            fill_rrect(&mut ui, hud, 6.0, Color::rgba8(0, 0, 0, 180));
+            fill_rrect(&mut ui, hud, 6.0, Color::from_rgba8(0, 0, 0, 180));
             label(&mut ui, &format!("FRAME {avg:.2} MS AVG / {max:.2} MS MAX", ), hud.x0 + 8.0, hud.y0 + 6.0, 8.5, C_TEXT);
             // phase breakdown: evidence-driven optimization (review)
             let (ir, enc, chrome) = self.phase_ms;
             let other = (avg - ir - enc - chrome).max(0.0);
-            let (h_txt, m_txt) = arco_native::text::ShapedTextCache::global().stats();
+            let (h_txt, m_txt) = x_native::text::ShapedTextCache::global().stats();
             label(&mut ui, &format!("IR {ir:.1}  ENCODE {enc:.1}{}  CHROME {chrome:.1}  OTHER {other:.1}",
                 if self.encode_skipped { " (CACHED)" } else { "" }), hud.x0 + 8.0, hud.y0 + 18.0, 7.5, C_TEXT);
             label(&mut ui, &format!("{fps:.0} FPS | TEXT CACHE {h_txt}H/{m_txt}M | IR CACHE {}",
@@ -1699,7 +1742,7 @@ impl App {
                 d.assets = self.store.clone();
                 d.library_snapshots = self.library_snapshots.clone();
                 let m = d.memory_breakdown();
-                let (txt_b, _) = arco_native::text::ShapedTextCache::global().memory();
+                let (txt_b, _) = x_native::text::ShapedTextCache::global().memory();
                 let gpu_b = self.assets.memory_bytes();
                 let seg_b = self.scene_cache.memory_bytes();
                 let undo_b = self.editor.history_bytes();
@@ -1741,8 +1784,8 @@ impl App {
                 }
             }
             let panel = self.asset_panel_rect();
-            fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::rgba8(0, 0, 0, 120));
-            fill_rrect(&mut ui, panel, 12.0, Color::rgba8(0x24, 0x26, 0x2b, 252));
+            fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::from_rgba8(0, 0, 0, 120));
+            fill_rrect(&mut ui, panel, 12.0, Color::from_rgba8(0x24, 0x26, 0x2b, 252));
             stroke_rect(&mut ui, panel, C_PANEL_EDGE, 1.0);
             label(&mut ui, &format!("ASSETS ({})", self.store.len()), panel.x0 + 16.0, panel.y0 + 12.0, 12.0, C_TEXT);
             label(&mut ui, "SHIFT+A CLOSE", panel.x1 - 110.0, panel.y0 + 14.0, 8.0, C_DIM);
@@ -1772,13 +1815,13 @@ impl App {
                     }
                     _ => {
                         let selected = self.asset_sel.as_deref() == Some(tag.as_str());
-                        fill_rrect(&mut ui, r, 4.0, Color::rgba8(0x17, 0x18, 0x1c, 255));
+                        fill_rrect(&mut ui, r, 4.0, Color::from_rgba8(0x17, 0x18, 0x1c, 255));
                         // real thumbnail from the decoded GPU cache
                         if let Some(img) = self.assets.get(&tag) {
-                            let (iw, ih) = (img.width as f64, img.height as f64);
+                            let (iw, ih) = (img.image.width as f64, img.image.height as f64);
                             let s = (r.width() / iw).min(r.height() / ih).min(4.0);
                             let (ox, oy) = (r.x0 + (r.width() - iw * s) / 2.0, r.y0 + (r.height() - ih * s) / 2.0);
-                            ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &r.to_path(0.1));
+                            ui.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &r.to_path(0.1));
                             ui.draw_image(img, Affine::translate((ox, oy)) * Affine::scale(s));
                             ui.pop_layer();
                         } else {
@@ -1788,7 +1831,7 @@ impl App {
                         // caption: name + dims + usage
                         if let Some(rec) = self.store.get(&tag) {
                             let usage: usize = self.pages.iter().enumerate()
-                                .map(|(i, pg)| if i == self.page_idx { arco_native::asset_usage(&self.editor.root, &tag) } else { arco_native::asset_usage(pg, &tag) })
+                                .map(|(i, pg)| if i == self.page_idx { x_native::asset_usage(&self.editor.root, &tag) } else { x_native::asset_usage(pg, &tag) })
                                 .sum();
                             let dims = rec.dimensions.map(|(w0, h0)| format!("{w0}x{h0}")).unwrap_or_default();
                             let cap = format!("{} {dims} {}x", rec.name.chars().take(12).collect::<String>(), usage);
@@ -1806,8 +1849,8 @@ impl App {
         if let Some((src, doc, report)) = &self.import_pending {
             let panel = Rect::new(self.win_w / 2.0 - 260.0, self.win_h / 2.0 - 190.0,
                                   self.win_w / 2.0 + 260.0, self.win_h / 2.0 + 190.0);
-            fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::rgba8(0, 0, 0, 130));
-            fill_rrect(&mut ui, panel, 12.0, Color::rgba8(0x24, 0x26, 0x2b, 252));
+            fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::from_rgba8(0, 0, 0, 130));
+            fill_rrect(&mut ui, panel, 12.0, Color::from_rgba8(0x24, 0x26, 0x2b, 252));
             stroke_rect(&mut ui, panel, C_PANEL_EDGE, 1.0);
             label(&mut ui, &format!("IMPORT PREVIEW — {}", src.to_uppercase()), panel.x0 + 20.0, panel.y0 + 14.0, 12.0, C_TEXT);
             label(&mut ui, &format!("{} PAGE(S), {} NODE(S), {} ASSET(S)",
@@ -1816,11 +1859,11 @@ impl App {
             // page thumbnails through the real IR (preview = actual render)
             let mut tx = panel.x0 + 20.0;
             for page in doc.pages.iter().take(3) {
-                let tree = arco_native::build_render_tree(page, &doc.variables);
-                let (thumb, _scale) = arco_native::thumbnail_scene(&tree, page.w, page.h, 150.0, 100.0);
+                let tree = x_native::build_render_tree(page, &doc.variables);
+                let (thumb, _scale) = x_native::thumbnail_scene(&tree, page.w, page.h, 150.0, 100.0);
                 let frame_r = Rect::new(tx, panel.y0 + 52.0, tx + 150.0, panel.y0 + 152.0);
                 fill_rect(&mut ui, frame_r, Color::WHITE);
-                ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &frame_r.to_path(0.1));
+                ui.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &frame_r.to_path(0.1));
                 ui.append(&thumb, Some(Affine::translate((tx, panel.y0 + 52.0))));
                 ui.pop_layer();
                 stroke_rect(&mut ui, frame_r, C_PANEL_EDGE, 1.0);
@@ -1851,8 +1894,8 @@ impl App {
         if self.help_open {
             let c = self.canvas_rect();
             let panel = Rect::new(c.x0 + 120.0, c.y0 + 60.0, c.x1 - 120.0, c.y1 - 100.0);
-            fill_rect(&mut ui, c, Color::rgba8(0, 0, 0, 120));
-            fill_rrect(&mut ui, panel, 12.0, Color::rgba8(0x24, 0x26, 0x2b, 250));
+            fill_rect(&mut ui, c, Color::from_rgba8(0, 0, 0, 120));
+            fill_rrect(&mut ui, panel, 12.0, Color::from_rgba8(0x24, 0x26, 0x2b, 250));
             stroke_rect(&mut ui, panel, C_PANEL_EDGE, 1.0);
             label(&mut ui, "KEYBOARD SHORTCUTS", panel.x0 + 20.0, panel.y0 + 14.0, 12.0, C_TEXT);
             let cols = [
@@ -1873,8 +1916,8 @@ impl App {
         // toggle via View ▸ Minimap) ----------
         if self.minimap {
             let mm = self.minimap_rect();
-            fill_rrect(&mut ui, Rect::new(mm.x0 + 2.0, mm.y0 + 2.0, mm.x1 + 2.0, mm.y1 + 2.0), 8.0, Color::rgba8(0, 0, 0, 80));
-            fill_rrect(&mut ui, mm, 8.0, Color::rgba8(0x24, 0x26, 0x2b, 235));
+            fill_rrect(&mut ui, Rect::new(mm.x0 + 2.0, mm.y0 + 2.0, mm.x1 + 2.0, mm.y1 + 2.0), 8.0, Color::from_rgba8(0, 0, 0, 80));
+            fill_rrect(&mut ui, mm, 8.0, Color::from_rgba8(0x24, 0x26, 0x2b, 235));
             stroke_rect(&mut ui, mm, C_PANEL_EDGE, 1.0);
             let page = &self.editor.root;
             let s = (mm.width() / page.w.max(1.0)).min(mm.height() / page.h.max(1.0));
@@ -1887,8 +1930,8 @@ impl App {
                     mm.x0 + c.transform.x * s, mm.y0 + c.transform.y * s,
                     mm.x0 + (c.transform.x + c.w) * s, mm.y0 + (c.transform.y + c.h) * s,
                 );
-                let col = match &c.fill { Paint::Solid(col) if col.a > 0 => *col, _ => C_DIM };
-                fill_rect(&mut ui, r, col.with_alpha_factor(0.9));
+                let col = match &c.fill { Paint::Solid(col) if col.components[3] > 0.0 => *col, _ => C_DIM };
+                fill_rect(&mut ui, r, col.multiply_alpha(0.9));
             }
             // viewport rectangle
             let c = self.canvas_rect();
@@ -1911,19 +1954,19 @@ impl App {
             if let (Some(first), Some(last)) = (rows.first(), rows.last()) {
                 let panel = Rect::new(first.3.x0, first.3.y0, first.3.x1, last.3.y1)
                     .inflate(0.0, 4.0);
-                fill_rrect(&mut ui, panel, 8.0, Color::rgba8(0x20, 0x22, 0x28, 252));
+                fill_rrect(&mut ui, panel, 8.0, Color::from_rgba8(0x20, 0x22, 0x28, 252));
                 stroke_rect(&mut ui, panel, C_PANEL_EDGE, 1.0);
                 for (label_, shortcut, tag, r) in &rows {
                     let enabled = self.menu_item_enabled(tag);
                     let hover = enabled && r.contains(self.cursor);
                     if hover { fill_rrect(&mut ui, Rect::new(r.x0 + 4.0, r.y0 + 1.0, r.x1 - 4.0, r.y1 - 1.0), 5.0, C_ACCENT); }
-                    let fg = if !enabled { Color::rgba8(0x84, 0x88, 0x92, 110) }
+                    let fg = if !enabled { Color::from_rgba8(0x84, 0x88, 0x92, 110) }
                         else if hover { Color::WHITE } else { C_TEXT };
                     label(&mut ui, label_, r.x0 + 14.0, r.y0 + 7.0, 9.0, fg);
                     if !shortcut.is_empty() {
                         let sw = ui_measure(shortcut, 7.0);
                         label(&mut ui, shortcut, r.x1 - sw - 12.0, r.y0 + 8.0, 7.0,
-                            if !enabled { Color::rgba8(0x84, 0x88, 0x92, 90) } else if hover { Color::WHITE } else { C_DIM });
+                            if !enabled { Color::from_rgba8(0x84, 0x88, 0x92, 90) } else if hover { Color::WHITE } else { C_DIM });
                     }
                 }
             }
@@ -1931,7 +1974,7 @@ impl App {
 
         // ---------- retained overlays (x-ui): context menu + tooltip ----------
         {
-            let theme = arco_native::ui::Theme::default();
+            let theme = x_native::ui::Theme::default();
             paint_ui_ops(&mut ui, &self.ctx_menu.paint(&theme));
             paint_ui_ops(&mut ui, &self.tooltip.paint(&theme));
         }
@@ -1986,7 +2029,7 @@ impl App {
         // Base surface reads slightly darker than the editor's panel so the
         // grid of cards (drawn a step lighter) reads as the focal layer —
         // an identity choice, not a copy of any competitor's home screen.
-        fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::rgb8(0x0f, 0x10, 0x13));
+        fill_rect(&mut ui, Rect::new(0.0, 0.0, self.win_w, self.win_h), Color::from_rgb8(0x0f, 0x10, 0x13));
 
         // ---- header: wordmark + tagline, search pill, primary action ----
         let mut xmark = vello::kurbo::BezPath::new();
@@ -2003,7 +2046,7 @@ impl App {
         for (tag, r, kind) in self.dash_layout() {
             if kind == 1 {
                 let hover = r.contains(self.cursor);
-                fill_rrect(&mut ui, r, r.height() / 2.0, if hover { Color::rgb8(0x8f, 0x72, 0xff) } else { C_ACCENT });
+                fill_rrect(&mut ui, r, r.height() / 2.0, if hover { Color::from_rgb8(0x8f, 0x72, 0xff) } else { C_ACCENT });
                 let plus_cx = r.x0 + 18.0;
                 let plus_cy = (r.y0 + r.y1) / 2.0;
                 let ps = vello::kurbo::Stroke::new(1.6).with_caps(vello::kurbo::Cap::Round);
@@ -2014,8 +2057,8 @@ impl App {
                 let _ = (tag, tw);
             } else if kind == 2 {
                 let active = self.focus == Focus::DashSearch;
-                fill_rrect(&mut ui, r, r.height() / 2.0, Color::rgb8(0x1a, 0x1c, 0x22));
-                stroke_rect(&mut ui, r, if active { C_ACCENT } else { Color::rgb8(0x26, 0x28, 0x30) }, if active { 1.3 } else { 1.0 });
+                fill_rrect(&mut ui, r, r.height() / 2.0, Color::from_rgb8(0x1a, 0x1c, 0x22));
+                stroke_rect(&mut ui, r, if active { C_ACCENT } else { Color::from_rgb8(0x26, 0x28, 0x30) }, if active { 1.3 } else { 1.0 });
                 let (mx, my) = (r.x0 + 18.0, (r.y0 + r.y1) / 2.0 - 1.0);
                 let st = vello::kurbo::Stroke::new(1.2).with_caps(vello::kurbo::Cap::Round);
                 ui.stroke(&st, Affine::IDENTITY, C_DIM, None, &vello::kurbo::Circle::new((mx, my), 3.5));
@@ -2029,7 +2072,7 @@ impl App {
         }
 
         // hairline separating header chrome from the file grid
-        stroke_rect(&mut ui, Rect::new(0.0, 72.0, self.win_w, 72.0), Color::rgb8(0x1d, 0x1f, 0x25), 1.0);
+        stroke_rect(&mut ui, Rect::new(0.0, 72.0, self.win_w, 72.0), Color::from_rgb8(0x1d, 0x1f, 0x25), 1.0);
 
         // ---- section label with an accent tick, count as a soft chip ----
         fill_rrect(&mut ui, Rect::new(32.0, 98.0, 35.0, 112.0), 1.5, C_ACCENT);
@@ -2038,7 +2081,7 @@ impl App {
             let count = format!("{}", self.dash_files.len());
             let cw = ui_measure(&count, 8.0);
             let chip = Rect::new(112.0, 100.0, 112.0 + cw + 14.0, 116.0);
-            fill_rrect(&mut ui, chip, 8.0, Color::rgb8(0x22, 0x24, 0x2b));
+            fill_rrect(&mut ui, chip, 8.0, Color::from_rgb8(0x22, 0x24, 0x2b));
             label(&mut ui, &count, chip.x0 + 7.0, 103.0, 8.0, C_DIM);
         }
 
@@ -2049,23 +2092,23 @@ impl App {
             let f = self.dash_files.iter().find(|f| f.path == tag);
             if hover {
                 let shadow = Rect::new(r.x0 + 1.0, r.y0 + 3.0, r.x1 + 1.0, r.y1 + 5.0);
-                fill_rrect(&mut ui, shadow, 10.0, Color::rgba8(0, 0, 0, 90));
+                fill_rrect(&mut ui, shadow, 10.0, Color::from_rgba8(0, 0, 0, 90));
             }
-            fill_rrect(&mut ui, r, 10.0, Color::rgb8(0x1a, 0x1c, 0x22));
-            stroke_rect(&mut ui, r, if hover { C_ACCENT } else { Color::rgb8(0x24, 0x26, 0x2e) }, if hover { 1.4 } else { 1.0 });
+            fill_rrect(&mut ui, r, 10.0, Color::from_rgb8(0x1a, 0x1c, 0x22));
+            stroke_rect(&mut ui, r, if hover { C_ACCENT } else { Color::from_rgb8(0x24, 0x26, 0x2e) }, if hover { 1.4 } else { 1.0 });
             // thumbnail area
             let tr = Rect::new(r.x0 + 8.0, r.y0 + 8.0, r.x1 - 8.0, r.y0 + 138.0);
-            fill_rrect(&mut ui, tr, 6.0, Color::rgb8(0x25, 0x27, 0x2e));
+            fill_rrect(&mut ui, tr, 6.0, Color::from_rgb8(0x25, 0x27, 0x2e));
             if let Some(f) = f {
                 if let Some(thumb) = &f.thumb {
-                    ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &tr.to_path(0.1));
+                    ui.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &tr.to_path(0.1));
                     ui.append(thumb, Some(Affine::translate((tr.x0, tr.y0))));
                     ui.pop_layer();
                 } else {
                     // no render yet: a quiet placeholder mark instead of a blank void
                     let cx = (tr.x0 + tr.x1) / 2.0;
                     let cy = (tr.y0 + tr.y1) / 2.0;
-                    ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgb8(0x35, 0x37, 0x40), None,
+                    ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgb8(0x35, 0x37, 0x40), None,
                         &vello::kurbo::RoundedRect::new(cx - 14.0, cy - 10.0, cx + 14.0, cy + 10.0, 3.0));
                 }
                 let renaming = matches!(&self.focus, Focus::DashRename { path, .. } if *path == f.path);
@@ -2084,7 +2127,7 @@ impl App {
         if self.dash_files.is_empty() {
             let cx = self.win_w / 2.0;
             let cy = self.win_h / 2.0 - 20.0;
-            ui.fill(Fill::NonZero, Affine::IDENTITY, Color::rgb8(0x22, 0x24, 0x2b), None,
+            ui.fill(Fill::NonZero, Affine::IDENTITY, Color::from_rgb8(0x22, 0x24, 0x2b), None,
                 &vello::kurbo::RoundedRect::new(cx - 22.0, cy - 16.0, cx + 22.0, cy + 16.0, 6.0));
             let msg = "No files yet";
             let mw = ui_measure(msg, 11.0);
@@ -2098,7 +2141,7 @@ impl App {
         label(&mut ui, &self.status, 32.0, self.win_h - 28.0, 8.5, C_DIM);
         // context menu overlay (rename/duplicate/delete on cards)
         if self.ctx_menu.open {
-            let theme = arco_native::ui::Theme::default();
+            let theme = x_native::ui::Theme::default();
             paint_ui_ops(&mut ui, &self.ctx_menu.paint(&theme));
         }
         ui

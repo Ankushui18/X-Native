@@ -1,6 +1,9 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// (stop index being edited, handle A, handle B, all stops)
+pub type GradientGeom = (usize, Point, Point, Vec<(f32, Color)>);
+
 impl App {
     /// Shared creation geometry for preview and commit.
     /// Shift constrains shapes to a square/circle; Alt draws from center.
@@ -121,10 +124,10 @@ impl App {
                 // chip text includes the usage count ("Primary 3");
                 // current page counts from the LIVE editor tree
                 let usage: usize = self.pages.iter().enumerate()
-                    .map(|(i, p)| if i == self.page_idx { arco_native::style_usage(&self.editor.root, name) } else { arco_native::style_usage(p, name) })
+                    .map(|(i, p)| if i == self.page_idx { x_native::style_usage(&self.editor.root, name) } else { x_native::style_usage(p, name) })
                     .sum();
                 let text = if usage > 0 { format!("{short} {usage}") } else { short.to_string() };
-                let cw = arco_native::text::measure(&text, 7.0) + 18.0;
+                let cw = x_native::text::measure(&text, 7.0) + 18.0;
                 if cx + cw > self.win_w - 8.0 { cx = ix + 12.0; cy += 18.0; }
                 out.push(((*name).clone(), kind, Rect::new(cx, cy - 2.0, cx + cw, cy + 12.0), 0));
                 cx += cw + 4.0;
@@ -166,12 +169,12 @@ impl App {
         // action row (operates on asset_sel) + sort chips
         let mut bx = panel.x0 + 16.0;
         for act in ["PLACE", "REPLACE", "RENAME", "DEL UNUSED"] {
-            let w = arco_native::text::measure(act, 8.0) + 16.0;
+            let w = x_native::text::measure(act, 8.0) + 16.0;
             out.push((act.to_string(), Rect::new(bx, panel.y0 + 58.0, bx + w, panel.y0 + 74.0), 2));
             bx += w + 8.0;
         }
         for (i, srt) in ["NAME", "SIZE", "USED"].iter().enumerate() {
-            let w = arco_native::text::measure(srt, 7.5) + 12.0;
+            let w = x_native::text::measure(srt, 7.5) + 12.0;
             out.push((format!("SORT{i}"), Rect::new(bx, panel.y0 + 58.0, bx + w, panel.y0 + 74.0), 2));
             bx += w + 6.0;
         }
@@ -197,7 +200,7 @@ impl App {
     /// desc, 2 usage desc). Returned as (sort_key_debug, id).
     pub fn sorted_assets(&self) -> Vec<(String, String)> {
         let q = self.asset_query.to_ascii_lowercase();
-        let mut recs: Vec<&arco_native::AssetRecord> = self.store.iter_sorted().into_iter()
+        let mut recs: Vec<&x_native::AssetRecord> = self.store.iter_sorted().into_iter()
             .filter(|r| q.is_empty() || r.name.to_ascii_lowercase().contains(&q) || r.mime.contains(&q))
             .collect();
         match self.asset_sort {
@@ -205,7 +208,7 @@ impl App {
             2 => {
                 let usage = |id: &str| -> usize {
                     self.pages.iter().enumerate()
-                        .map(|(i, p)| if i == self.page_idx { arco_native::asset_usage(&self.editor.root, id) } else { arco_native::asset_usage(p, id) })
+                        .map(|(i, p)| if i == self.page_idx { x_native::asset_usage(&self.editor.root, id) } else { x_native::asset_usage(p, id) })
                         .sum()
                 };
                 recs.sort_by(|a, b| usage(&b.id).cmp(&usage(&a.id)).then(a.id.cmp(&b.id)));
@@ -234,8 +237,8 @@ impl App {
             "REPLACE" => {
                 let Some(id) = self.asset_sel.clone() else { self.status = "select an asset tile first".into(); return };
                 let Some(sel) = self.editor.selection.first().cloned() else { self.status = "select an image layer on canvas first".into(); return };
-                if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &sel) {
-                    if let arco_native::NodeKind::Image { asset, .. } = &mut nm.kind {
+                if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &sel) {
+                    if let x_native::NodeKind::Image { asset, .. } = &mut nm.kind {
                         *asset = id.clone();
                         nm.dirty = true;
                         self.status = format!("{sel} now uses {}", &id[..24.min(id.len())]);
@@ -253,9 +256,9 @@ impl App {
             }
             "DEL UNUSED" => {
                 let mut used = std::collections::HashSet::new();
-                arco_native::collect_asset_ids(&self.editor.root, &mut used);
+                x_native::collect_asset_ids(&self.editor.root, &mut used);
                 for (i, p) in self.pages.iter().enumerate() {
-                    if i != self.page_idx { arco_native::collect_asset_ids(p, &mut used); }
+                    if i != self.page_idx { x_native::collect_asset_ids(p, &mut used); }
                 }
                 let dropped = self.store.retain_used(&used);
                 if self.asset_sel.as_deref().is_some_and(|s| self.store.get(s).is_none()) { self.asset_sel = None; }
@@ -292,7 +295,7 @@ impl App {
                     self.status = match r {
                         Some(rec) => format!("{} | {} | {}x{} | used {}x", rec.name, rec.mime,
                             rec.dimensions.map(|d| d.0).unwrap_or(0), rec.dimensions.map(|d| d.1).unwrap_or(0),
-                            self.pages.iter().enumerate().map(|(i, pg)| if i == self.page_idx { arco_native::asset_usage(&self.editor.root, &tag) } else { arco_native::asset_usage(pg, &tag) }).sum::<usize>()),
+                            self.pages.iter().enumerate().map(|(i, pg)| if i == self.page_idx { x_native::asset_usage(&self.editor.root, &tag) } else { x_native::asset_usage(pg, &tag) }).sum::<usize>()),
                         None => "asset missing".into(),
                     };
                 }
@@ -342,14 +345,14 @@ impl App {
                 out.push(("COMPONENTS — CLICK TO PLACE".into(), Rect::new(ix + 12.0, y - 2.0, self.win_w - 12.0, y + 10.0), 5));
                 y += 13.0;
                 for c in lib.components.iter().take(6) {
-                    if let arco_native::NodeKind::Component { name } = &c.kind {
-                        let w = arco_native::text::measure(name, 8.0) + 18.0;
+                    if let x_native::NodeKind::Component { name } = &c.kind {
+                        let w = x_native::text::measure(name, 8.0) + 18.0;
                         out.push((format!("{}|{name}", dep.library_id), Rect::new(ix + 12.0, y - 2.0, ix + 12.0 + w, y + 12.0), 4));
                         y += 18.0;
                     }
                 }
             }
-            if lib.assets.len() > 0 {
+            if !lib.assets.is_empty() {
                 out.push((format!("ASSETS ({}) — SHIFT+A BROWSER", lib.assets.len()), Rect::new(ix + 12.0, y - 2.0, self.win_w - 12.0, y + 10.0), 5));
                 y += 13.0;
             }
@@ -365,7 +368,7 @@ impl App {
             self.status = "no library.xlib in working dir".into();
             return;
         };
-        match arco_native::fileio::load_xlib(&text) {
+        match x_native::fileio::load_xlib(&text) {
             Ok(lib) => {
                 if self.library_deps.iter().any(|d| d.library_id == lib.library_id) {
                     self.status = format!("{} already linked — use CHECK UPDATES", lib.name);
@@ -377,10 +380,10 @@ impl App {
                     self.store.register(&rec.name, rec.bytes.clone(), rec.source);
                 }
                 self.assets.sync_store(&self.store);
-                let dep = arco_native::LibraryDependency {
+                let dep = x_native::LibraryDependency {
                     library_id: lib.library_id.clone(),
                     resolved_version: lib.version,
-                    snapshot_hash: arco_native::fileio::library_hash(&lib),
+                    snapshot_hash: x_native::fileio::library_hash(&lib),
                     source_path: "library.xlib".into(),
                 };
                 self.status = format!("linked {} v{} ({} styles, {} components)",
@@ -397,10 +400,10 @@ impl App {
     pub fn check_library_updates(&mut self) {
         for (i, dep) in self.library_deps.iter().enumerate() {
             let Ok(text) = std::fs::read_to_string(&dep.source_path) else { continue };
-            let Ok(newer) = arco_native::fileio::load_xlib(&text) else { continue };
+            let Ok(newer) = x_native::fileio::load_xlib(&text) else { continue };
             if newer.library_id == dep.library_id && newer.version > dep.resolved_version {
                 let pinned = &self.library_snapshots[&dep.library_id];
-                let changes = arco_native::diff_library(pinned, &newer);
+                let changes = x_native::diff_library(pinned, &newer);
                 self.status = format!("update available: {} v{} -> v{} ({} change(s))",
                     newer.name, dep.resolved_version, newer.version, changes.len());
                 self.library_update = Some((i, newer, changes));
@@ -421,8 +424,8 @@ impl App {
         for (i, p) in self.pages.iter().enumerate() {
             if i != self.page_idx { all.push(p.clone()); }
         }
-        let new_hash = arco_native::fileio::library_hash(&newer);
-        let (changes, updated) = arco_native::accept_update(dep, &mut self.library_snapshots, &mut all, newer);
+        let new_hash = x_native::fileio::library_hash(&newer);
+        let (changes, updated) = x_native::accept_update(dep, &mut self.library_snapshots, &mut all, newer);
         dep.snapshot_hash = new_hash;
         let mut it = all.into_iter();
         self.editor.root = it.next().unwrap();
@@ -439,10 +442,10 @@ impl App {
     pub fn place_library_component(&mut self, lib_id: &str, comp_name: &str) {
         let Some(lib) = self.library_snapshots.get(lib_id) else { return };
         let Some(master) = lib.components.iter().find(|c|
-            matches!(&c.kind, arco_native::NodeKind::Component { name } if name == comp_name)) else { return };
+            matches!(&c.kind, x_native::NodeKind::Component { name } if name == comp_name)) else { return };
         // registry: one hidden master per (library, component), stable id
         let reg_id = format!("libmaster-{lib_id}-{comp_name}");
-        if arco_native::editor::find(&self.editor.root, &reg_id).is_none() {
+        if x_native::editor::find(&self.editor.root, &reg_id).is_none() {
             let mut m = master.clone();
             m.id = reg_id.clone();
             m.visible = false; // registry entry, not page content
@@ -480,7 +483,7 @@ impl App {
                 // deleting detaches every consumer first (values keep)
                 let mut detached = 0usize;
                 fn detach_all(n: &mut Node, name: &str, detached: &mut usize) {
-                    for (k, _) in arco_native::STYLE_BINDING_KEYS {
+                    for (k, _) in x_native::STYLE_BINDING_KEYS {
                         if n.bindings.get(k).map(String::as_str) == Some(name) {
                             n.bindings.remove(k);
                             *detached += 1;
@@ -499,11 +502,11 @@ impl App {
             "DET" => {
                 // detach the SELECTED LAYER from this style only
                 if let Some(id) = self.editor.selection.first().cloned() {
-                    if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                    if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                         let mut done = false;
-                        for (k, _) in arco_native::STYLE_BINDING_KEYS {
+                        for (k, _) in x_native::STYLE_BINDING_KEYS {
                             if nm.bindings.get(k).map(String::as_str) == Some(name.as_str()) {
-                                done |= arco_native::detach_style(nm, k);
+                                done |= x_native::detach_style(nm, k);
                             }
                         }
                         self.status = if done { format!("{id} detached from {name} (values kept)") }
@@ -524,7 +527,7 @@ impl App {
         for (i, p) in self.pages.iter().enumerate() {
             if i != self.page_idx { all.push(p.clone()); }
         }
-        match arco_native::rename_style(&mut self.styles, &mut all, from, to) {
+        match x_native::rename_style(&mut self.styles, &mut all, from, to) {
             Some(rebound) => {
                 let mut it = all.into_iter();
                 self.editor.root = it.next().unwrap();
@@ -535,7 +538,7 @@ impl App {
                 self.style_sel = Some(to.to_string());
                 self.status = format!("renamed {from} -> {to} ({rebound} consumer(s) rebound)");
             }
-            None => self.status = format!("rename refused (empty/duplicate name?)"),
+            None => self.status = "rename refused (empty/duplicate name?)".to_string(),
         }
     }
 
@@ -672,9 +675,9 @@ impl App {
                 // instead of leaving an empty layer, same as commit does.
                 self.editor.selection = vec![id];
                 self.editor.delete_selection();
-            } else if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+            } else if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                 // restore original content directly (no undo entry for the cancel)
-                if let arco_native::NodeKind::Text { text } = &mut n.kind { *text = orig; }
+                if let x_native::NodeKind::Text { text } = &mut n.kind { *text = orig; n.text_runs.clear(); }
             }
         }
         self.focus = Focus::None;
@@ -709,7 +712,7 @@ impl App {
         }
         for path in paths {
             let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let (d2, _) = arco_native::fileio::load_x_lenient(&text);
+            let (d2, _) = x_native::fileio::load_x_lenient(&text);
             if d2.doc.pages.is_empty() { continue; }
             let name = if d2.metadata.name.is_empty() || d2.metadata.name == "X Native document" {
                 if path == "document.x" { "Brand Dashboard".to_string() }
@@ -727,8 +730,8 @@ impl App {
                 }).unwrap_or_default();
             // real IR thumbnail of page 1
             let pg = &d2.doc.pages[0];
-            let tree = arco_native::build_render_tree(pg, &d2.doc.variables);
-            let (thumb, _) = arco_native::thumbnail_scene(&tree, pg.w.max(1.0), pg.h.max(1.0), 216.0, 130.0);
+            let tree = x_native::build_render_tree(pg, &d2.doc.variables);
+            let (thumb, _) = x_native::thumbnail_scene(&tree, pg.w.max(1.0), pg.h.max(1.0), 216.0, 130.0);
             out.push(DashFile { path, name, modified, pages: d2.doc.pages.len(), thumb: Some(thumb) });
         }
         self.dash_files = out;
@@ -740,7 +743,7 @@ impl App {
             self.status = format!("can't read {path}");
             return;
         };
-        let (d2, notes) = arco_native::fileio::load_x_lenient(&text);
+        let (d2, notes) = x_native::fileio::load_x_lenient(&text);
         if d2.doc.pages.is_empty() { self.status = "file has no pages".into(); return; }
         self.doc_path = path.to_string();
         self.pages = d2.doc.pages;
@@ -752,14 +755,14 @@ impl App {
         self.library_deps = d2.doc.library_deps.clone();
         self.library_snapshots = d2.doc.library_snapshots.clone();
         let _ = self.assets.sync_store(&self.store);
-        arco_native::resolve_styles(&mut self.editor.root, &self.styles);
+        x_native::resolve_styles(&mut self.editor.root, &self.styles);
         self.rebuild_layer_rows();
         self.dirty_since_save = false;
         self.saved_undo_depth = self.editor.undo_depth();
         self.screen = Screen::Editor;
-        self.scene_cache = arco_native::FrameCache::new();
+        self.scene_cache = x_native::FrameCache::new();
         self.status = if notes.is_empty() { format!("opened {path}") } else { format!("opened {path} ({} recovery note(s))", notes.len()) };
-        arco_native::fileio::push_recent(path);
+        x_native::fileio::push_recent(path);
     }
 
     /// Create a fresh document under files/ and open it.
@@ -773,10 +776,10 @@ impl App {
         };
         let mut d = Document::new();
         d.pages.push(Node::frame("page-1", 1600.0, 1000.0));
-        let mut d2 = arco_native::fileio::DocumentV2::default();
+        let mut d2 = x_native::fileio::DocumentV2::default();
         d2.metadata.name = format!("Untitled {n}");
         d2.doc = d;
-        let _ = arco_native::fileio::atomic_write(&path, arco_native::fileio::save_x_v2(&d2).as_bytes());
+        let _ = x_native::fileio::atomic_write(&path, x_native::fileio::save_x_v2(&d2).as_bytes());
         self.open_file(&path);
     }
 
@@ -784,8 +787,8 @@ impl App {
     /// Promotes uniform radius -> corner_radii[4] on first per-corner edit.
     pub fn adjust_corner(&mut self, idx: Option<usize>, delta: f64) {
         let Some(id) = self.editor.selection.first().cloned() else { return };
-        if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
-            if let arco_native::NodeKind::Rect { radius } = &mut n.kind {
+        if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
+            if let x_native::NodeKind::Rect { radius } = &mut n.kind {
                 match idx {
                     None => {
                         // uniform edit clears per-corner overrides
@@ -830,7 +833,7 @@ impl App {
             self.status = "clipboard has no SVG markup".into();
             return;
         }
-        match arco_native::fileio::import_svg(&text) {
+        match x_native::fileio::import_svg(&text) {
             Ok(mut root) => {
                 // place at the cursor's world point, keep nodes editable
                 let wp = if self.canvas_rect().contains(self.cursor) {
@@ -875,8 +878,8 @@ impl App {
             n.transform.x -= min_x; n.transform.y -= min_y;
             frame = frame.child(n);
         }
-        let outliner = arco_native::svg_text_outliner(&self.fonts);
-        let svg = arco_native::fileio::export_svg_full(&frame, &self.vars, None, Some(&outliner));
+        let outliner = x_native::svg_text_outliner(&self.fonts);
+        let svg = x_native::fileio::export_svg_full(&frame, &self.vars, None, Some(&outliner));
         crate::os_clipboard_set(&svg);
         self.status = format!("copied {} object(s) as SVG to OS clipboard", self.editor.selection.len());
     }
@@ -886,17 +889,17 @@ impl App {
         let name = name.trim();
         if name.is_empty() { self.status = "rename cancelled".into(); return; }
         let Ok(text) = std::fs::read_to_string(path) else { self.status = "file unreadable".into(); return };
-        let (mut d2, _) = arco_native::fileio::load_x_lenient(&text);
+        let (mut d2, _) = x_native::fileio::load_x_lenient(&text);
         d2.metadata.name = name.to_string();
-        let out = arco_native::fileio::save_x_v2(&d2);
-        let _ = arco_native::fileio::atomic_write(path, out.as_bytes());
+        let out = x_native::fileio::save_x_v2(&d2);
+        let _ = x_native::fileio::atomic_write(path, out.as_bytes());
         self.scan_dash_files();
         self.status = format!("renamed to {name}");
     }
 
     pub fn duplicate_dash_file(&mut self, path: &str) {
         let Ok(text) = std::fs::read_to_string(path) else { return };
-        let (mut d2, _) = arco_native::fileio::load_x_lenient(&text);
+        let (mut d2, _) = x_native::fileio::load_x_lenient(&text);
         d2.metadata.name = format!("{} copy", d2.metadata.name);
         let _ = std::fs::create_dir_all("files");
         let mut n = 1;
@@ -905,7 +908,7 @@ impl App {
             if !std::path::Path::new(&p).exists() { break p; }
             n += 1;
         };
-        let _ = arco_native::fileio::atomic_write(&new_path, arco_native::fileio::save_x_v2(&d2).as_bytes());
+        let _ = x_native::fileio::atomic_write(&new_path, x_native::fileio::save_x_v2(&d2).as_bytes());
         self.scan_dash_files();
         self.status = format!("duplicated -> {new_path}");
     }
@@ -997,7 +1000,7 @@ impl App {
         if self.canvas_rect().contains(self.cursor) {
             let wp = self.world_point(self.cursor);
             for child in &self.editor.root.children {
-                if !matches!(child.kind, arco_native::NodeKind::Frame { .. }) { continue; }
+                if !matches!(child.kind, x_native::NodeKind::Frame { .. }) { continue; }
                 let r = Rect::new(child.transform.x, child.transform.y,
                                   child.transform.x + child.w, child.transform.y + child.h);
                 if r.contains(wp) { parent = child.id.clone(); }
@@ -1046,13 +1049,13 @@ impl App {
         let wp = Point::new((p.x - ox) / scale, (p.y - oy) / scale);
         // hit a node with a prototype link? navigate to its destination page
         let mut target: Option<(usize, u32)> = None;
-        if let Some(hit_id) = arco_native::editor::hit_test(page, wp) {
+        if let Some(hit_id) = x_native::editor::hit_test(page, wp) {
             // walk up ancestors for the nearest prototype action
-            fn proto_for<'a>(n: &'a Node, target: &str) -> Option<&'a arco_native::PrototypeAction> {
+            fn proto_for<'a>(n: &'a Node, target: &str) -> Option<&'a x_native::PrototypeAction> {
                 if n.id == target { return n.prototype.as_ref(); }
                 for c in &n.children {
                     if let Some(a) = proto_for(c, target) { return Some(a); }
-                    if arco_native::editor::find(c, target).is_some() {
+                    if x_native::editor::find(c, target).is_some() {
                         return c.prototype.as_ref().or_else(|| proto_for(c, target));
                     }
                 }
@@ -1084,7 +1087,7 @@ impl App {
             } else {
                 // ease-in-out
                 let te = if t < 0.5 { 2.0 * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(2) / 2.0 };
-                return Some(arco_native::editor::smart_animate(&self.pages[from], &self.pages[to], te));
+                return Some(x_native::editor::smart_animate(&self.pages[from], &self.pages[to], te));
             }
         }
         Some(self.pages[pr.current].clone())
@@ -1092,9 +1095,9 @@ impl App {
 
     pub fn mouse_down(&mut self, p: Point) {
         let cmd_t0 = std::time::Instant::now();
-        let r = self.mouse_down_inner(p);
+        self.mouse_down_inner(p);
         self.last_cmd = Some(("click".into(), cmd_t0.elapsed().as_secs_f32() * 1000.0));
-        r
+        
     }
 
     fn mouse_down_inner(&mut self, p: Point) {
@@ -1307,8 +1310,8 @@ impl App {
                     self.created_count += 1;
                     let id = format!("path-{}", self.created_count);
                     let mut v = Node::vector(&id, 0.0, 0.0, 1.0, 1.0, vec![]);
-                    v.fill = Paint::Solid(Color::rgba8(0x0d, 0x99, 0xff, 120));
-                    v.stroke = arco_native::Stroke { color: Color::rgb8(0x0d, 0x99, 0xff), width: 2.0 };
+                    v.fill = Paint::Solid(Color::from_rgba8(0x0d, 0x99, 0xff, 120));
+                    v.stroke = x_native::Stroke::solid(Color::from_rgb8(0x0d, 0x99, 0xff), 2.0);
                     let root_id = self.editor.root.id.clone();
                     self.editor.insert_node(&root_id, v);
                     self.editor.pen_add_anchor(&id, wp.x, wp.y);
@@ -1325,8 +1328,8 @@ impl App {
                     let id = id.clone();
                     // close if clicking near the first anchor
                     let close = if let Some(n) = find(&self.editor.root, &id) {
-                        if let arco_native::NodeKind::Vector { path } = &n.kind {
-                            arco_native::editor::anchors(path).first()
+                        if let x_native::NodeKind::Vector { path } = &n.kind {
+                            x_native::editor::anchors(path).first()
                                 .map(|a| ((a.x - wp.x).powi(2) + (a.y - wp.y).powi(2)).sqrt() < 8.0 / self.zoom)
                                 .unwrap_or(false)
                         } else { false }
@@ -1344,15 +1347,15 @@ impl App {
                         // becomes this new segment's departure (c1) handle
                         let out_c1 = self.pen_pending_out.take().and_then(|(dx, dy)| {
                             find(&self.editor.root, &id).and_then(|n| {
-                                if let arco_native::NodeKind::Vector { path } = &n.kind {
-                                    arco_native::editor::anchors(path).last().map(|a| (a.x + dx, a.y + dy))
+                                if let x_native::NodeKind::Vector { path } = &n.kind {
+                                    x_native::editor::anchors(path).last().map(|a| (a.x + dx, a.y + dy))
                                 } else { None }
                             })
                         });
                         self.editor.pen_add_anchor_curved(&id, wp.x, wp.y, out_c1);
                         let idx = find(&self.editor.root, &id).and_then(|n| {
-                            if let arco_native::NodeKind::Vector { path } = &n.kind {
-                                Some(arco_native::editor::anchors(path).len().saturating_sub(1))
+                            if let x_native::NodeKind::Vector { path } = &n.kind {
+                                Some(x_native::editor::anchors(path).len().saturating_sub(1))
                             } else { None }
                         }).unwrap_or(0);
                         self.pen_placing = Some((idx, wp, self.editor.undo_depth()));
@@ -1364,12 +1367,12 @@ impl App {
         // ---- node-edit mode: grab a HANDLE or an anchor under the cursor ----
         if let Some(vid) = self.node_edit.clone() {
             if let Some(n) = find(&self.editor.root, &vid) {
-                if let arco_native::NodeKind::Vector { path } = &n.kind {
+                if let x_native::NodeKind::Vector { path } = &n.kind {
                     // anchors are in node-local coords; our pen paths live at 0,0
                     let local = (wp.x - n.transform.x, wp.y - n.transform.y);
                     // bezier control handles first (smaller targets win)
                     let tol = 6.0 / self.zoom;
-                    for (ai, a) in arco_native::editor::anchors(path).iter().enumerate() {
+                    for (ai, a) in x_native::editor::anchors(path).iter().enumerate() {
                         if let Some((hx, hy)) = a.in_handle {
                             if ((hx - local.0).powi(2) + (hy - local.1).powi(2)).sqrt() <= tol {
                                 self.handle_drag = Some((ai, false, self.editor.undo_depth()));
@@ -1385,7 +1388,7 @@ impl App {
                             }
                         }
                     }
-                    if let Some(ai) = arco_native::editor::anchor_at(path, local.0, local.1, 8.0 / self.zoom) {
+                    if let Some(ai) = x_native::editor::anchor_at(path, local.0, local.1, 8.0 / self.zoom) {
                         if self.alt {
                             self.editor.delete_anchor(&vid, ai);
                             self.status = format!("anchor {ai} deleted");
@@ -1483,13 +1486,13 @@ impl App {
                     // Vector -> node-edit mode; Text -> inline edit.
                     if let Some(next) = self.editor.drill_into(wp) {
                         if let Some(n) = find(&self.editor.root, &next) {
-                            if matches!(n.kind, arco_native::NodeKind::Vector { .. }) {
+                            if matches!(n.kind, x_native::NodeKind::Vector { .. }) {
                                 self.node_edit = Some(next.clone());
                                 self.status = "node edit: drag anchors, ctrl+click converts, alt+click deletes, Esc done".into();
                                 self.drag = Drag::None;
                                 return;
                             }
-                            if let arco_native::NodeKind::Text { text } = &n.kind {
+                            if let x_native::NodeKind::Text { text } = &n.kind {
                                 self.focus = Focus::TextNode { id: n.id.clone(), buffer: text.clone(), original: text.clone(), caret: text.len(), sel_anchor: None };
                                 self.status = "editing text — Enter commits, Esc cancels".into();
                                 self.drag = Drag::None;
@@ -1548,7 +1551,7 @@ impl App {
         };
         match loaded {
             Ok(name) => {
-                if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                     n.bindings.insert("font".into(), name.clone());
                     n.dirty = true;
                 }
@@ -1577,7 +1580,7 @@ impl App {
         match self.gfonts.load_style_into(&mut self.fonts, &family, weight, italic) {
             Ok(i) => {
                 let name = self.fonts.fonts[i].name.clone();
-                if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                     n.bindings.insert("font".into(), name);
                     n.dirty = true;
                 }
@@ -1600,8 +1603,8 @@ impl App {
             5 => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.bring_to_front(&id); self.status = "to front".into(); } }
             6 => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.send_to_back(&id); self.status = "to back".into(); } }
             7 => { let gid = format!("group-{}", self.editor.undo_depth()); self.editor.group_selection(&gid); self.status = "grouped".into(); }
-            8 | 9 | 10 | 11 => {
-                use arco_native::editor::BoolOp::*;
+            8..=11 => {
+                use x_native::editor::BoolOp::*;
                 let op = [Union, Subtract, Intersect, Exclude][i - 8];
                 match self.editor.boolean_selected(op) {
                     Some(id) => self.status = format!("{op:?} -> {id}"),
@@ -1610,7 +1613,7 @@ impl App {
             }
             12 => {
                 if let Some(id) = self.editor.selection.first().cloned() {
-                    if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                    if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                         n.is_mask = !n.is_mask;
                         self.status = format!("{id} mask: {}", n.is_mask);
                     }
@@ -1635,8 +1638,8 @@ impl App {
         d.library_snapshots = self.library_snapshots.clone();
         d.pages = self.pages.clone();
         // v2 contract: validate, then save deterministic v2
-        let issues = arco_native::fileio::validate(&d);
-        let mut d2 = arco_native::fileio::DocumentV2::default();
+        let issues = x_native::fileio::validate(&d);
+        let mut d2 = x_native::fileio::DocumentV2::default();
         // keep the file's display name stable (dashboard identity)
         d2.metadata.name = self.dash_files.iter()
             .find(|f| f.path == self.doc_path)
@@ -1645,21 +1648,21 @@ impl App {
                 std::path::Path::new(&self.doc_path).file_stem().unwrap_or_default().to_string_lossy().to_string()
             });
         d2.metadata.app_version = "0.43".into();
-        for p in &d.pages { arco_native::fileio::v2::backfill_uuids(p, &mut d2.uuids); }
-        d2.metadata.uuid = arco_native::fileio::v2::fnv1a128(&d2.metadata.name);
+        for p in &d.pages { x_native::fileio::v2::backfill_uuids(p, &mut d2.uuids); }
+        d2.metadata.uuid = x_native::fileio::v2::fnv1a128(&d2.metadata.name);
         d2.doc = d;
-        let text = arco_native::fileio::save_x_v2(&d2);
+        let text = x_native::fileio::save_x_v2(&d2);
         // reliability: history rotation + atomic publish + stale-autosave clear
-        arco_native::fileio::rotate_backups(&self.doc_path);
-        self.status = match arco_native::fileio::atomic_write(&self.doc_path, text.as_bytes()) {
-            Ok(_) if issues.is_empty() => format!("saved v2 ({} pages, atomic, {} backup(s))", d2.doc.pages.len(), arco_native::fileio::list_backups(&self.doc_path).len()),
+        x_native::fileio::rotate_backups(&self.doc_path);
+        self.status = match x_native::fileio::atomic_write(&self.doc_path, text.as_bytes()) {
+            Ok(_) if issues.is_empty() => format!("saved v2 ({} pages, atomic, {} backup(s))", d2.doc.pages.len(), x_native::fileio::list_backups(&self.doc_path).len()),
             Ok(_) => format!("saved v2 with {} validation issue(s)", issues.len()),
             Err(_) => "save FAILED".into(),
         };
-        arco_native::fileio::clear_autosave(&self.doc_path);
+        x_native::fileio::clear_autosave(&self.doc_path);
         self.dirty_since_save = false;
         self.saved_undo_depth = self.editor.undo_depth();
-        arco_native::fileio::push_recent(&self.doc_path);
+        x_native::fileio::push_recent(&self.doc_path);
     }
 
     /// Native save panel for first-save / Save As. The normal Save command
@@ -1682,7 +1685,7 @@ impl App {
 
     pub fn open_document(&mut self) {
         if let Ok(text) = std::fs::read_to_string(&self.doc_path) {
-            let (d2, notes) = arco_native::fileio::load_x_lenient(&text);
+            let (d2, notes) = x_native::fileio::load_x_lenient(&text);
             if !d2.doc.pages.is_empty() {
                 self.pages = d2.doc.pages;
                 self.page_idx = 0;
@@ -1695,7 +1698,7 @@ impl App {
                 let decoded = self.assets.sync_store(&self.store);
                 if decoded > 0 { eprintln!("assets: decoded {decoded} embedded image(s)"); }
                 // style consumers re-sync on open (standard semantics)
-                arco_native::resolve_styles(&mut self.editor.root, &self.styles);
+                x_native::resolve_styles(&mut self.editor.root, &self.styles);
                 self.status = if notes.is_empty() {
                     format!("loaded ({} pages)", self.pages.len())
                 } else {
@@ -1706,8 +1709,8 @@ impl App {
                 let mut dv = Document::new();
                 dv.library_deps = self.library_deps.clone();
                 dv.library_snapshots = self.library_snapshots.clone();
-                for (lid, st) in arco_native::fileio::verify_document_libraries(&dv) {
-                    if !matches!(st, arco_native::fileio::IntegrityStatus::Verified) {
+                for (lid, st) in x_native::fileio::verify_document_libraries(&dv) {
+                    if !matches!(st, x_native::fileio::IntegrityStatus::Verified) {
                         self.status = format!("LIBRARY WARNING: {lid} {st:?}");
                     }
                     self.library_integrity.push((lid, format!("{st:?}")));
@@ -1763,15 +1766,17 @@ impl App {
     }
 
     fn stage_import_path(&mut self, path: std::path::PathBuf) {
-        let mut result: Option<(String, Result<(Document, arco_native::fileio::ImportReport), String>)> = None;
+        // (source label, import outcome with per-format report)
+        type Staged = (String, Result<(Document, x_native::fileio::ImportReport), String>);
+        let mut result: Option<Staged> = None;
         let ext = path.extension().and_then(|v| v.to_str()).unwrap_or("").to_ascii_lowercase();
         if ext == "sketch" {
             let bytes = match std::fs::read(&path) { Ok(v) => v, Err(e) => { self.status = format!("import failed: {e}"); return; } };
-            result = Some(("sketch".into(), arco_native::fileio::import_sketch_with_report(&bytes)));
+            result = Some(("sketch".into(), x_native::fileio::import_sketch_with_report(&bytes)));
         } else if ext == "json" {
             let text = match std::fs::read_to_string(&path) { Ok(v) => v, Err(e) => { self.status = format!("import failed: {e}"); return; } };
-            result = Some(("figma".into(), arco_native::fileio::import_figma_json(&text).map(|d| {
-                let r = arco_native::fileio::ImportReport {
+            result = Some(("figma".into(), x_native::fileio::import_figma_json(&text).map(|d| {
+                let r = x_native::fileio::ImportReport {
                     nodes_imported: d.pages.iter().map(count_nodes).sum(),
                     assets_imported: d.assets.len(),
                     diagnostics: vec![],
@@ -1780,10 +1785,10 @@ impl App {
             })));
         } else if ext == "svg" {
             let text = match std::fs::read_to_string(&path) { Ok(v) => v, Err(e) => { self.status = format!("import failed: {e}"); return; } };
-            result = Some(("svg".into(), arco_native::fileio::import_svg(&text).map(|root| {
+            result = Some(("svg".into(), x_native::fileio::import_svg(&text).map(|root| {
                 let mut d = Document::new();
                 d.pages.push(root);
-                let r = arco_native::fileio::ImportReport {
+                let r = x_native::fileio::ImportReport {
                     nodes_imported: d.pages.iter().map(count_nodes).sum(),
                     assets_imported: 0,
                     diagnostics: vec![],
@@ -1794,8 +1799,8 @@ impl App {
             let bytes = match std::fs::read(&path) { Ok(v) => v, Err(e) => { self.status = format!("import failed: {e}"); return; } };
             let asset_name = path.file_stem().and_then(|v| v.to_str()).unwrap_or("image");
             let _ = self.assets.load_png(asset_name, path.to_string_lossy().as_ref());
-            result = Some(("png".into(), arco_native::fileio::import_png(asset_name, &bytes).map(|d| {
-                let r = arco_native::fileio::ImportReport {
+            result = Some(("png".into(), x_native::fileio::import_png(asset_name, &bytes).map(|d| {
+                let r = x_native::fileio::ImportReport {
                     nodes_imported: d.pages.iter().map(count_nodes).sum(),
                     assets_imported: d.assets.len(),
                     diagnostics: vec![],
@@ -1820,9 +1825,9 @@ impl App {
             .set_file_name("export.svg").add_filter("SVG", &["svg"]).save_file() else {
             self.status = "export cancelled".into(); return;
         };
-        let outliner = arco_native::svg_text_outliner(&self.fonts);
+        let outliner = x_native::svg_text_outliner(&self.fonts);
         let resolver = |name: &str| -> Option<Vec<u8>> { std::fs::read(format!("assets/{name}.png")).ok() };
-        let svg = arco_native::fileio::export_svg_full(&self.editor.root, &self.vars, Some(&resolver), Some(&outliner));
+        let svg = x_native::fileio::export_svg_full(&self.editor.root, &self.vars, Some(&resolver), Some(&outliner));
         self.status = if std::fs::write(&path, svg).is_ok() { format!("exported {}", path.display()) } else { "export FAILED".into() };
     }
 
@@ -1842,8 +1847,8 @@ impl App {
             .set_file_name("export.pdf").add_filter("PDF", &["pdf"]).save_file() else {
             self.status = "export cancelled".into(); return;
         };
-        let tree = arco_native::build_render_tree(&self.editor.root, &self.vars);
-        let pdf = arco_native::export_pdf_full(&tree, self.editor.root.w, self.editor.root.h, Some(&self.assets), Some(&self.fonts));
+        let tree = x_native::build_render_tree(&self.editor.root, &self.vars);
+        let pdf = x_native::export_pdf_full(&tree, self.editor.root.w, self.editor.root.h, Some(&self.assets), Some(&self.fonts));
         self.status = if std::fs::write(&path, pdf).is_ok() { format!("exported {}", path.display()) } else { "pdf export FAILED".into() };
     }
 
@@ -1854,13 +1859,13 @@ impl App {
 
     pub fn export_figma_now(&mut self) {
         let Some(path) = rfd::FileDialog::new().set_title("Export Figma-compatible JSON").set_file_name("x-designer-export.json").add_filter("Figma REST API JSON", &["json"]).save_file() else { self.status = "export cancelled".into(); return; };
-        let doc = self.document_snapshot(); let json = arco_native::fileio::export_figma_json(&doc);
+        let doc = self.document_snapshot(); let json = x_native::fileio::export_figma_json(&doc);
         self.status = match std::fs::write(&path, json) { Ok(_) => format!("exported Figma-compatible JSON: {}", path.display()), Err(e) => format!("Figma export FAILED: {e}") };
     }
 
     pub fn export_sketch_now(&mut self) {
         let Some(path) = rfd::FileDialog::new().set_title("Export Sketch-compatible document").set_file_name("x-designer.sketch").add_filter("Sketch document", &["sketch"]).save_file() else { self.status = "export cancelled".into(); return; };
-        let doc = self.document_snapshot(); let bytes = arco_native::fileio::export_sketch(&doc);
+        let doc = self.document_snapshot(); let bytes = x_native::fileio::export_sketch(&doc);
         self.status = match std::fs::write(&path, bytes) { Ok(_) => format!("exported Sketch-compatible file: {}", path.display()), Err(e) => format!("Sketch export FAILED: {e}") };
     }
 
@@ -2010,7 +2015,7 @@ impl App {
             "obj.forward" => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.bring_forward(&id); self.status = "forward".into(); } }
             "obj.backward" => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.send_backward(&id); self.status = "backward".into(); } }
             "obj.union" | "obj.subtract" | "obj.intersect" | "obj.exclude" => {
-                use arco_native::editor::BoolOp::*;
+                use x_native::editor::BoolOp::*;
                 let op = match tag { "obj.union" => Union, "obj.subtract" => Subtract, "obj.intersect" => Intersect, _ => Exclude };
                 match self.editor.boolean_selected(op) {
                     Some(id) => self.status = format!("{op:?} -> {id}"),
@@ -2019,7 +2024,7 @@ impl App {
             }
             "obj.mask" => {
                 if let Some(id) = self.editor.selection.first().cloned() {
-                    if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                    if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                         n.is_mask = !n.is_mask;
                         self.status = format!("{id} mask: {}", n.is_mask);
                     }
@@ -2033,14 +2038,14 @@ impl App {
                 } else { self.status = "select sibling nodes first".into(); }
             }
             "arr.left" | "arr.centerh" | "arr.right" | "arr.top" | "arr.centerv" | "arr.bottom" => {
-                use arco_native::editor::AlignKind::*;
+                use x_native::editor::AlignKind::*;
                 let kind = match tag {
                     "arr.left" => Left, "arr.centerh" => CenterH, "arr.right" => Right,
                     "arr.top" => Top, "arr.centerv" => CenterV, _ => Bottom,
                 };
                 let ids = self.editor.selection.clone();
                 if ids.len() >= 2 {
-                    arco_native::editor::align(&mut self.editor.root, &ids, kind);
+                    x_native::editor::align(&mut self.editor.root, &ids, kind);
                     self.status = format!("aligned {:?}", kind);
                 } else { self.status = "select 2+ layers to align".into(); }
             }
@@ -2063,7 +2068,7 @@ impl App {
                     let gap = (span - content) / (items.len() - 1) as f64;
                     let mut cursor = first.1;
                     for (id, _, sz) in &items {
-                        if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, id) {
+                        if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, id) {
                             if horizontal { n.transform.x = cursor; } else { n.transform.y = cursor; }
                             n.dirty = true;
                         }
@@ -2124,7 +2129,7 @@ impl App {
                     out.push((format!("{} v{}", lib.name, dep.resolved_version), Rect::new(8.0, y + 8.0, LAYERS_W - 8.0, y + 22.0), 5));
                     y += 26.0;
                     for c in lib.components.iter().take(10) {
-                        if let arco_native::NodeKind::Component { name } = &c.kind {
+                        if let x_native::NodeKind::Component { name } = &c.kind {
                             out.push((format!("{}|{name}", dep.library_id), Rect::new(8.0, y, LAYERS_W - 8.0, y + ROW_H - 2.0), 3));
                             y += ROW_H;
                         }
@@ -2181,8 +2186,8 @@ impl App {
             if let Some(id) = self.pen_target.clone() {
                 let wp = self.world_point(p);
                 if let Some(n) = find(&self.editor.root, &id) {
-                    if let arco_native::NodeKind::Vector { path } = &n.kind {
-                        if let Some(a) = arco_native::editor::anchors(path).get(idx).copied() {
+                    if let x_native::NodeKind::Vector { path } = &n.kind {
+                        if let Some(a) = x_native::editor::anchors(path).get(idx).copied() {
                             let (dx, dy) = (wp.x - a.x, wp.y - a.y);
                             if idx > 0 { self.editor.pen_shape_incoming(&id, idx, dx, dy); }
                             self.pen_pending_out = if dx.abs() > 0.01 || dy.abs() > 0.01 { Some((dx, dy)) } else { None };
@@ -2252,9 +2257,9 @@ impl App {
                 // magnetic snap: pull edges/centers onto neighbors
                 if self.editor.selection.len() == 1 {
                     let id = self.editor.selection[0].clone();
-                    let (sx, sy) = arco_native::editor::snap_delta(&self.editor.root, &id, 4.0 / self.zoom);
+                    let (sx, sy) = x_native::editor::snap_delta(&self.editor.root, &id, 4.0 / self.zoom);
                     if sx != 0.0 || sy != 0.0 { self.editor.move_selection(sx, sy); }
-                    self.guides = arco_native::editor::alignment_guides(&self.editor.root, &id, 1.0);
+                    self.guides = x_native::editor::alignment_guides(&self.editor.root, &id, 1.0);
                 } else { self.guides = vec![]; }
                 self.drag = match self.drag { Drag::Move { cmds, .. } => Drag::Move { start: p, cmds }, d => d };
             }
@@ -2286,7 +2291,7 @@ impl App {
                 nh = h + (nh - h) * 2.0;
             }
             self.editor.resize(&id, nw.max(2.0), nh.max(2.0));
-            if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+            if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                 if self.alt {
                     // keep the shape centered on its original center
                     let (cx, cy) = (x + w / 2.0, y + h / 2.0);
@@ -2346,7 +2351,7 @@ impl App {
         } else if self.drag == Drag::None && self.tool == Tool::Select && self.present.is_none() {
             // hover highlight (only inside canvas, not over chrome)
             self.hover = if self.canvas_rect().contains(p) {
-                arco_native::editor::hit_test(&self.editor.root, self.world_point(p))
+                x_native::editor::hit_test(&self.editor.root, self.world_point(p))
                     .filter(|id| !self.editor.selection.contains(id))
             } else { None };
         }
@@ -2484,7 +2489,7 @@ impl App {
                     Tool::Frame | Tool::Select | Tool::Hand | Tool::Scale | Tool::Pen => {
                         let mut f = Node::frame(&id, bw, bh);
                         f.transform.x = bx; f.transform.y = by;
-                        f.fill = Paint::Solid(Color::rgb8(0x38, 0x38, 0x38));
+                        f.fill = Paint::Solid(Color::from_rgb8(0x38, 0x38, 0x38));
                         f
                     }
                 };
@@ -2622,14 +2627,14 @@ impl App {
             }
             // eye / lock click zones (right side of the row)
             if p.x >= LAYERS_W - 40.0 && p.x < LAYERS_W - 24.0 {
-                if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                     n.visible = !n.visible;
                     self.status = format!("{} {}", id, if n.visible { "shown" } else { "hidden" });
                 }
                 return;
             }
             if p.x >= LAYERS_W - 24.0 {
-                if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                     n.locked = !n.locked;
                     self.status = format!("{} {}", id, if n.locked { "locked" } else { "unlocked" });
                 }
@@ -2661,7 +2666,7 @@ impl App {
 
     pub fn click_inspector(&mut self, p: Point) {
         // Design/Prototype/Inspect tab switch (shared rects)
-        let ix = self.win_w - INSPECTOR_W;
+        let _ix = self.win_w - INSPECTOR_W;
         if p.y >= TOP_H + 4.0 && p.y <= TOP_H + 24.0 {
             for (name, idx, r) in self.inspector_tabs() {
                 if r.contains(p) {
@@ -2737,7 +2742,7 @@ impl App {
                     let wp = self.world_point(Point::new(self.canvas_rect().x0 + 60.0, self.canvas_rect().y0 + 60.0));
                     let mut f = Node::frame(&id, *w, *h);
                     f.transform.x = wp.x.max(0.0); f.transform.y = wp.y.max(0.0);
-                    f.fill = Paint::Solid(Color::rgb8(0xff, 0xff, 0xff));
+                    f.fill = Paint::Solid(Color::from_rgb8(0xff, 0xff, 0xff));
                     let root_id = self.editor.root.id.clone();
                     self.editor.insert_node(&root_id, f);
                     self.editor.selection = vec![id.clone()];
@@ -2752,7 +2757,7 @@ impl App {
         // matching inspector line positions; click one to type a new value.
         if let Some(n) = self.selected_single() {
             let id = n.id.clone();
-            let vals = [n.transform.x, n.transform.y, n.w, n.h];
+            let _vals = [n.transform.x, n.transform.y, n.w, n.h];
             let rows = [(0u8, TOP_H + IY_XY), (1, TOP_H + IY_XY), (2, TOP_H + IY_WH), (3, TOP_H + IY_WH)];
             for (field, ry) in rows {
                 let fx = x0 + if field % 2 == 0 { 0.0 } else { 108.0 };
@@ -2778,7 +2783,7 @@ impl App {
                     v
                 };
                 for m in &modes {
-                    let w = arco_native::text::measure(m, 8.0) + 12.0;
+                    let w = x_native::text::measure(m, 8.0) + 12.0;
                     if p.x >= mx && p.x <= mx + w {
                         self.vars.active_mode = if m == "default" { None } else { Some(m.clone()) };
                         self.status = format!("mode: {m}");
@@ -2802,14 +2807,14 @@ impl App {
                                 return;
                             }
                             "number" if p.x >= self.win_w - 80.0 && p.x < self.win_w - 48.0 => {
-                                if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                                if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                                     n.bindings.insert("radius".into(), name.clone());
                                     self.status = format!("radius of {id} -> var {name}");
                                 }
                                 return;
                             }
                             "number" if p.x >= self.win_w - 48.0 => {
-                                if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                                if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                                     n.bindings.insert("opacity".into(), name.clone());
                                     self.status = format!("opacity of {id} -> var {name}");
                                 }
@@ -2826,19 +2831,19 @@ impl App {
         // COMPONENT section: variant chips + detach (instances)
         if self.inspector_tab == 0 {
             if let Some(n) = self.selected_single() {
-                if let arco_native::NodeKind::Instance { component } = n.kind.clone() {
+                if let x_native::NodeKind::Instance { component } = n.kind.clone() {
                     let id = n.id.clone();
                     let ix2 = self.win_w - INSPECTOR_W;
                     let cy0 = TOP_H + IY_SEC;
                     // variant chips
                     if let Some((set, _)) = component.split_once('/') {
-                        let vars_list: Vec<String> = arco_native::components::variants_of(&self.editor.root, set)
+                        let vars_list: Vec<String> = x_native::components::variants_of(&self.editor.root, set)
                             .iter().map(|s| s.to_string()).collect();
                         let mut vx = ix2 + 12.0;
                         let vy = cy0 + 16.0;
                         for vname in vars_list.iter().take(4) {
                             let short = vname.split_once('/').map(|(_, v)| v).unwrap_or(vname);
-                            let cw = arco_native::text::measure(short, 7.5) + 10.0;
+                            let cw = x_native::text::measure(short, 7.5) + 10.0;
                             if p.x >= vx && p.x <= vx + cw && p.y >= vy - 2.0 && p.y <= vy + 12.0 {
                                 self.editor.swap_instance(&id, vname);
                                 self.status = format!("variant: {short}");
@@ -2861,18 +2866,18 @@ impl App {
         // IMAGE controls: fit chips + replace (Design tab, image nodes)
         if self.inspector_tab == 0 {
             if let Some(n) = self.selected_single() {
-                if let arco_native::NodeKind::Image { asset, .. } = &n.kind {
+                if let x_native::NodeKind::Image { asset, .. } = &n.kind {
                     let id = n.id.clone();
                     let cur_asset = asset.clone();
                     let ix2 = self.win_w - INSPECTOR_W;
                     let iy = TOP_H + IY_SEC;
                     // fit chips
                     if p.y >= iy + 14.0 && p.y <= iy + 30.0 {
-                        for (i, fit) in [arco_native::ImageFit::Fill, arco_native::ImageFit::Fit, arco_native::ImageFit::Crop, arco_native::ImageFit::Tile].iter().enumerate() {
+                        for (i, fit) in [x_native::ImageFit::Fill, x_native::ImageFit::Fit, x_native::ImageFit::Crop, x_native::ImageFit::Tile].iter().enumerate() {
                             let bx = ix2 + 12.0 + i as f64 * 48.0;
                             if p.x >= bx && p.x <= bx + 44.0 {
-                                if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
-                                    if let arco_native::NodeKind::Image { fit: f, .. } = &mut nm.kind { *f = *fit; nm.dirty = true; }
+                                if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &id) {
+                                    if let x_native::NodeKind::Image { fit: f, .. } = &mut nm.kind { *f = *fit; nm.dirty = true; }
                                 }
                                 self.status = format!("image fit: {:?}", fit);
                                 return;
@@ -2888,8 +2893,8 @@ impl App {
                         }
                         let pos = names.iter().position(|a| *a == cur_asset).unwrap_or(0);
                         let next = names[(pos + 1) % names.len()].clone();
-                        if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
-                            if let arco_native::NodeKind::Image { asset: a, .. } = &mut nm.kind { *a = next.clone(); nm.dirty = true; }
+                        if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &id) {
+                            if let x_native::NodeKind::Image { asset: a, .. } = &mut nm.kind { *a = next.clone(); nm.dirty = true; }
                         }
                         self.status = format!("image -> {next}");
                         return;
@@ -2899,9 +2904,9 @@ impl App {
                     {
                         let py = iy + 58.0;
                         let zy = iy + 78.0;
-                        let mut edit = |app: &mut Self, f: &dyn Fn(&mut arco_native::ImagePlacement), what: &str| {
-                            if let Some(nm) = arco_native::editor::find_mut(&mut app.editor.root, &id) {
-                                if let arco_native::NodeKind::Image { placement, .. } = &mut nm.kind {
+                        let edit = |app: &mut Self, f: &dyn Fn(&mut x_native::ImagePlacement), what: &str| {
+                            if let Some(nm) = x_native::editor::find_mut(&mut app.editor.root, &id) {
+                                if let x_native::NodeKind::Image { placement, .. } = &mut nm.kind {
                                     f(placement);
                                     nm.dirty = true;
                                     return Some(format!("{what}: fx={:.2} fy={:.2} s={:.2} fh={} fv={}",
@@ -2920,7 +2925,7 @@ impl App {
                             else if p.x >= ix2 + 102.0 && p.x <= ix2 + 117.0 { placed = edit(self, &|pl| pl.scale = (pl.scale + 0.1).min(4.0), "scale+"); }
                             else if p.x >= ix2 + 124.0 && p.x <= ix2 + 146.0 { placed = edit(self, &|pl| pl.flip_h = !pl.flip_h, "flip h"); }
                             else if p.x >= ix2 + 150.0 && p.x <= ix2 + 172.0 { placed = edit(self, &|pl| pl.flip_v = !pl.flip_v, "flip v"); }
-                            else if p.x >= ix2 + 178.0 && p.x <= ix2 + 214.0 { placed = edit(self, &|pl| *pl = arco_native::ImagePlacement::default(), "reset crop"); }
+                            else if p.x >= ix2 + 178.0 && p.x <= ix2 + 214.0 { placed = edit(self, &|pl| *pl = x_native::ImagePlacement::default(), "reset crop"); }
                         }
                     }
                     if let Some(msg) = placed { self.status = msg; return; }
@@ -2931,7 +2936,7 @@ impl App {
         // (text nodes hand this slot to the font browser)
         if self.inspector_tab == 0 {
             if let Some(n) = self.selected_single() {
-                if matches!(n.kind, arco_native::NodeKind::Text { .. }) { /* font browser owns the slot */ }
+                if matches!(n.kind, x_native::NodeKind::Text { .. }) { /* font browser owns the slot */ }
                 else {
                 let id = n.id.clone();
                 let ix2 = self.win_w - INSPECTOR_W;
@@ -2943,11 +2948,11 @@ impl App {
                         if p.x >= bx && p.x <= bx + 28.0 {
                             let count = self.styles.len() + 1;
                             let (name, style) = match i {
-                                0 => (format!("Paint/{count}"), arco_native::Style::Paint { fill: n.fill.clone() }),
-                                1 => (format!("Text/{count}"), arco_native::Style::Text {
+                                0 => (format!("Paint/{count}"), x_native::Style::Paint { fill: n.fill.clone() }),
+                                1 => (format!("Text/{count}"), x_native::Style::Text {
                                     font: n.bindings.get("font").cloned().unwrap_or_default(),
                                     size: n.h, letter_spacing: 0.0, line_height: 1.2 }),
-                                _ => (format!("FX/{count}"), arco_native::Style::Effect { effects: n.effects.clone() }),
+                                _ => (format!("FX/{count}"), x_native::Style::Effect { effects: n.effects.clone() }),
                             };
                             self.styles.insert(name.clone(), style);
                             self.status = format!("style created: {name}");
@@ -2974,17 +2979,17 @@ impl App {
                                     // then propagate to every bound consumer (all pages)
                                     let newdef = if let Some(sel) = self.selected_single() {
                                         match &s {
-                                            arco_native::Style::Paint { .. } => arco_native::Style::Paint { fill: sel.fill.clone() },
-                                            arco_native::Style::Text { .. } => arco_native::Style::Text {
+                                            x_native::Style::Paint { .. } => x_native::Style::Paint { fill: sel.fill.clone() },
+                                            x_native::Style::Text { .. } => x_native::Style::Text {
                                                 font: sel.bindings.get("font").cloned().unwrap_or_default(),
                                                 size: sel.h, letter_spacing: 0.0, line_height: 1.2 },
-                                            arco_native::Style::Effect { .. } => arco_native::Style::Effect { effects: sel.effects.clone() },
+                                            x_native::Style::Effect { .. } => x_native::Style::Effect { effects: sel.effects.clone() },
                                         }
                                     } else { s.clone() };
                                     self.styles.insert(name.clone(), newdef);
-                                    let mut updated = arco_native::resolve_styles(&mut self.editor.root, &self.styles);
+                                    let mut updated = x_native::resolve_styles(&mut self.editor.root, &self.styles);
                                     for (i, pg) in self.pages.iter_mut().enumerate() {
-                                        if i != self.page_idx { updated += arco_native::resolve_styles(pg, &self.styles); }
+                                        if i != self.page_idx { updated += x_native::resolve_styles(pg, &self.styles); }
                                     }
                                     self.status = format!("style {name} redefined -> {updated} consumer(s) updated");
                                 } else if self.ctrl {
@@ -2992,8 +2997,8 @@ impl App {
                                     self.style_sel = Some(name.clone());
                                     self.status = format!("style selected: {name} (REN/DUP/DEL/DET below)");
                                 } else {
-                                    if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
-                                        arco_native::bind_style(nm, &name, &s);
+                                    if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &id) {
+                                        x_native::bind_style(nm, &name, &s);
                                     }
                                     self.style_sel = Some(name.clone());
                                     self.status = format!("applied style: {name}");
@@ -3017,7 +3022,7 @@ impl App {
                 let fill_visible = n.fill_layers.get(fill_idx).map(|l| l.visible).unwrap_or(!n.visual_stacks_materialized || !n.fill_layers.is_empty());
                 let stroke_len = if !n.visual_stacks_materialized { if n.stroke.width > 0.0 { 1 } else { 0 } } else { n.stroke_layers.len() };
                 let stroke_idx = self.stroke_layer_index.min(stroke_len.saturating_sub(1));
-                let stroke = n.stroke_layers.get(stroke_idx).map(|l| l.stroke).unwrap_or(n.stroke);
+                let stroke = n.stroke_layers.get(stroke_idx).map(|l| l.stroke.clone()).unwrap_or_else(|| n.stroke.clone());
                 let fx_len = if !n.visual_stacks_materialized { n.effects.len() } else { n.effect_layers.len() };
                 let ix2 = self.win_w - INSPECTOR_W;
                 let next_blend = |b: BlendKind| match b {
@@ -3053,7 +3058,7 @@ impl App {
                         Paint::LinearGradient { .. } | Paint::RadialGradient { .. } => Paint::Solid(C_ACCENT),
                         Paint::Solid(c) => Paint::LinearGradient {
                             start: (0.0, 0.0), end: (1.0, 0.0),
-                            stops: vec![(0.0, *c), (1.0, Color::rgb8(0x8e, 0x2d, 0xe2))],
+                            stops: vec![(0.0, *c), (1.0, Color::from_rgb8(0x8e, 0x2d, 0xe2))],
                         },
                         other => other.clone(),
                     };
@@ -3106,7 +3111,7 @@ impl App {
                     if p.x >= ix2 + 148.0 && p.x <= ix2 + 166.0 { self.editor.remove_stroke_layer(&id, stroke_idx); self.stroke_layer_index = self.stroke_layer_index.saturating_sub(1); self.status = "stroke layer removed".into(); return; }
                 }
                 if p.y >= shy - 3.0 && p.y <= shy + 11.0 && p.x >= ix2 + INSPECTOR_W - 28.0 {
-                    self.editor.add_stroke_layer(&id, arco_native::Stroke { color: Color::rgb8(0xe5, 0xe7, 0xeb), width: 1.0 });
+                    self.editor.add_stroke_layer(&id, x_native::Stroke::solid(Color::from_rgb8(0xe5, 0xe7, 0xeb), 1.0));
                     self.stroke_layer_index = stroke_len;
                     self.status = "stroke layer added".into();
                     return;
@@ -3135,7 +3140,7 @@ impl App {
                         self.editor.mutate_visual_stack(&id, |nm| {
                             if let Some(l) = nm.stroke_layers.get_mut(stroke_idx) {
                                 l.stroke.width += 1.0;
-                                if l.stroke.color.a == 0 { l.stroke.color = Color::rgb8(0xe5, 0xe7, 0xeb); }
+                                if l.stroke.solid_color().map(|c| c.components[3] == 0.0).unwrap_or(false) { l.stroke.set_solid_color(Color::from_rgb8(0xe5, 0xe7, 0xeb)); }
                             }
                         });
                         self.status = format!("stroke {:.0}", w0 + 1.0);
@@ -3143,15 +3148,15 @@ impl App {
                     }
                     if p.x >= ix2 + 12.0 && p.x <= ix2 + 34.0 {
                         // swatch click: cycle stroke color through the palette
-                        let cur = stroke.color;
+                        let cur = stroke.solid_color().unwrap_or(Color::TRANSPARENT);
                         let pos = PALETTE.iter().position(|c| *c == cur).map(|i| (i + 1) % PALETTE.len()).unwrap_or(0);
                         self.editor.mutate_visual_stack(&id, |nm| {
                             if let Some(l) = nm.stroke_layers.get_mut(stroke_idx) {
-                                l.stroke.color = PALETTE[pos];
+                                l.stroke.set_solid_color(PALETTE[pos]);
                                 if l.stroke.width == 0.0 { l.stroke.width = 1.0; }
                             }
                         });
-                        self.status = format!("stroke color -> {}", arco_native::color_to_hex(PALETTE[pos]));
+                        self.status = format!("stroke color -> {}", x_native::color_to_hex(PALETTE[pos]));
                         return;
                     }
                 }
@@ -3171,8 +3176,8 @@ impl App {
                     if p.x >= ix2 + 148.0 && p.x <= ix2 + 166.0 { self.editor.remove_effect_layer(&id, effect_idx); self.effect_layer_index = self.effect_layer_index.saturating_sub(1); self.status = "effect layer removed".into(); return; }
                 }
                 if p.y >= fxh - 3.0 && p.y <= fxh + 11.0 && p.x >= ix2 + INSPECTOR_W - 28.0 {
-                    self.editor.add_effect_layer(&id, arco_native::Effect::DropShadow {
-                        dx: 4.0, dy: 6.0, blur: 10.0, color: Color::rgba8(0, 0, 0, 160) });
+                    self.editor.add_effect_layer(&id, x_native::Effect::DropShadow {
+                        dx: 4.0, dy: 6.0, blur: 10.0, color: Color::from_rgba8(0, 0, 0, 160) });
                     self.effect_layer_index = fx_len;
                     self.status = "drop shadow added".into();
                     return;
@@ -3194,7 +3199,7 @@ impl App {
                                             Effect::DropShadow { dx, dy, blur, color } => Effect::InnerShadow { dx, dy, blur, color },
                                             Effect::InnerShadow { blur, .. } => Effect::LayerBlur { radius: blur },
                                             Effect::LayerBlur { radius } => Effect::BackgroundBlur { radius },
-                                            Effect::BackgroundBlur { radius } => Effect::DropShadow { dx: 4.0, dy: 6.0, blur: radius, color: Color::rgba8(0, 0, 0, 160) },
+                                            Effect::BackgroundBlur { radius } => Effect::DropShadow { dx: 4.0, dy: 6.0, blur: radius, color: Color::from_rgba8(0, 0, 0, 160) },
                                         };
                                     }
                                 });
@@ -3227,16 +3232,16 @@ impl App {
                 for i in 0..6usize {
                     let x = ix2 + 12.0 + i as f64 * 32.0;
                     if p.x >= x && p.x <= x + 28.0 {
-                        use arco_native::editor::AlignKind::*;
+                        use x_native::editor::AlignKind::*;
                         let kind = [Left, CenterH, Right, Top, CenterV, Bottom][i];
                         let ids = self.editor.selection.clone();
                         if ids.len() >= 2 {
-                            arco_native::editor::align(&mut self.editor.root, &ids, kind);
+                            x_native::editor::align(&mut self.editor.root, &ids, kind);
                             self.status = format!("aligned {:?}", kind);
                         } else if let Some(id) = ids.first() {
                             // single selection: align within its parent frame 
                             let rootw = self.editor.root.w; let rooth = self.editor.root.h;
-                            if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, id) {
+                            if let Some(n) = x_native::editor::find_mut(&mut self.editor.root, id) {
                                 match kind {
                                     Left => n.transform.x = 0.0,
                                     Right => n.transform.x = rootw - n.w,
@@ -3262,7 +3267,7 @@ impl App {
                     for i in 0..5usize {
                         let x = ix2 + 12.0 + i as f64 * 34.0;
                         if p.x >= x && p.x <= x + 30.0 {
-                            use arco_native::HPin::*;
+                            use x_native::HPin::*;
                             let h = [Left, Right, CenterH, StretchH, ScaleH][i];
                             let v = find(&self.editor.root, &id).map(|n| n.pin.1).unwrap_or_default();
                             self.editor.set_pin(&id, h, v);
@@ -3275,7 +3280,7 @@ impl App {
                     for i in 0..5usize {
                         let x = ix2 + 12.0 + i as f64 * 34.0;
                         if p.x >= x && p.x <= x + 30.0 {
-                            use arco_native::VPin::*;
+                            use x_native::VPin::*;
                             let v = [Top, Bottom, CenterV, StretchV, ScaleV][i];
                             let h = find(&self.editor.root, &id).map(|n| n.pin.0).unwrap_or_default();
                             self.editor.set_pin(&id, h, v);
@@ -3289,7 +3294,7 @@ impl App {
         // FONT BROWSER + typography steppers (text node, Design tab)
         if self.inspector_tab == 0 {
             if let Some(n) = self.selected_single() {
-                if matches!(n.kind, arco_native::NodeKind::Text { .. }) {
+                if matches!(n.kind, x_native::NodeKind::Text { .. }) {
                     let id = n.id.clone();
                     let ixf = self.win_w - INSPECTOR_W;
                     let fy = TOP_H + IY_FONT;
@@ -3312,7 +3317,7 @@ impl App {
                                         1 => {
                                             let cur = n.bindings.get("ls").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
                                             let nv = (cur + if up { 0.5 } else { -0.5 }).clamp(-5.0, 40.0);
-                                            if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                                            if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                                                 nm.bindings.insert("ls".into(), format!("{nv}"));
                                                 nm.dirty = true;
                                             }
@@ -3321,7 +3326,7 @@ impl App {
                                         _ => {
                                             let cur = n.bindings.get("lh").and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.2);
                                             let nv = (cur + if up { 0.1 } else { -0.1 }).clamp(0.6, 3.0);
-                                            if let Some(nm) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                                            if let Some(nm) = x_native::editor::find_mut(&mut self.editor.root, &id) {
                                                 nm.bindings.insert("lh".into(), format!("{nv:.2}"));
                                                 nm.dirty = true;
                                             }
@@ -3357,7 +3362,7 @@ impl App {
                         for i in 0..self.font_weights.len() {
                             let (_, w, italic) = &self.font_weights[i];
                             let text = if *italic { "IT".to_string() } else { format!("{w}") };
-                            let cw = arco_native::text::measure(&text, 7.5) + 10.0;
+                            let cw = x_native::text::measure(&text, 7.5) + 10.0;
                             if wx + cw > self.win_w - 12.0 { wx = ixf + 12.0; wrow += 18.0; }
                             if p.x >= wx && p.x <= wx + cw && p.y >= wrow - 2.0 && p.y <= wrow + 12.0 {
                                 self.apply_font_weight(i);
@@ -3390,8 +3395,8 @@ impl App {
                 }
                 // radius steppers (right box)
                 let rad = |app: &mut Self, d: f64| {
-                    if let Some(nm) = arco_native::editor::find_mut(&mut app.editor.root, &id) {
-                        if let arco_native::NodeKind::Rect { radius } = &mut nm.kind {
+                    if let Some(nm) = x_native::editor::find_mut(&mut app.editor.root, &id) {
+                        if let x_native::NodeKind::Rect { radius } = &mut nm.kind {
                             *radius = (*radius + d).max(0.0);
                             nm.dirty = true;
                             return Some(*radius);
@@ -3442,10 +3447,10 @@ impl App {
                                 }
                             }
                         });
-                        self.status = format!("gradient stop {} -> {}", stop + 1, arco_native::color_to_hex(*color));
+                        self.status = format!("gradient stop {} -> {}", stop + 1, x_native::color_to_hex(*color));
                     } else {
                         self.editor.set_fill(&id, Paint::Solid(*color));
-                        self.status = format!("fill {} -> {}", id, arco_native::color_to_hex(*color));
+                        self.status = format!("fill {} -> {}", id, x_native::color_to_hex(*color));
                     }
                 }
                 return;
@@ -3470,7 +3475,7 @@ impl App {
                 for pid in page_ids {
                     if bx + 60.0 > self.win_w - 8.0 { bx = ix + 12.0; by += 22.0; }
                     if p.x >= bx && p.x <= bx + 56.0 && p.y >= by && p.y <= by + 18.0 {
-                        self.editor.set_prototype(&id, Some(arco_native::PrototypeAction { destination: pid.clone(), transition_ms: 350 }));
+                        self.editor.set_prototype(&id, Some(x_native::PrototypeAction { destination: pid.clone(), transition_ms: 350 }));
                         self.status = format!("{id} -> {pid} on click");
                         return;
                     }
@@ -3480,7 +3485,7 @@ impl App {
         }}
         // auto layout controls (frames only; mockup's Auto Layout section)
         if let Some(n) = self.selected_single() {
-            if matches!(n.kind, arco_native::NodeKind::Frame { .. }) {
+            if matches!(n.kind, x_native::NodeKind::Frame { .. }) {
                 let id = n.id.clone();
                 let ix = self.win_w - INSPECTOR_W;
                 let ly = TOP_H + IY_AL_HDR;
@@ -3495,7 +3500,7 @@ impl App {
                                 0 => None,
                                 _ => {
                                     let mut l = current.clone().unwrap_or(AutoLayout {
-                                        gap: 16.0, padding: 16.0, align: CrossAlign::Center, ..Default::default()
+                                        gap: 16.0, padding: [16.0; 4], align: CrossAlign::Center, ..Default::default()
                                     });
                                     l.direction = if i == 1 { LayoutDirection::Horizontal } else { LayoutDirection::Vertical };
                                     Some(l)
@@ -3516,18 +3521,70 @@ impl App {
                                 else if p.x >= ix + 162.0 && p.x <= ix + 180.0 { 4.0 }
                                 else { continue };
                             let mut nl = l.clone();
-                            if is_gap { nl.gap = (nl.gap + delta).max(0.0); } else { nl.padding = (nl.padding + delta).max(0.0); }
+                            if is_gap { nl.gap = (nl.gap + delta).max(0.0); } else { nl.padding = nl.padding.map(|p| (p + delta).max(0.0)); }
                             self.editor.set_auto_layout(&id, Some(nl.clone()), &vars);
-                            self.status = format!("gap {:.0} pad {:.0}", nl.gap, nl.padding);
+                            self.status = format!("gap {:.0} pad {}", nl.gap,
+                                if nl.uniform_pad() { format!("{:.0}", nl.padding[0]) } else { format!("L{:.0} R{:.0} T{:.0} B{:.0}", nl.padding[0], nl.padding[1], nl.padding[2], nl.padding[3]) });
                             return;
                         }
+                    }
+                    // WRAP toggle — only affects Fixed-sizing frames (the
+                    // engine ignores wrap on a Hug frame, same as Figma).
+                    let wy = ly + 44.0 + 2.0 * 22.0;
+                    if p.y >= wy - 3.0 && p.y <= wy + 12.0 && p.x >= ix + 140.0 && p.x <= ix + 180.0 {
+                        let mut nl = l.clone();
+                        nl.wrap = if nl.wrap == x_native::AutoLayoutWrap::Wrap { x_native::AutoLayoutWrap::NoWrap } else { x_native::AutoLayoutWrap::Wrap };
+                        let now_on = nl.wrap == x_native::AutoLayoutWrap::Wrap;
+                        self.editor.set_auto_layout(&id, Some(nl), &vars);
+                        self.status = format!("wrap: {}", if now_on { "on" } else { "off" });
+                        return;
+                    }
+                    // MAIN / CROSS axis sizing — Fixed vs Hug
+                    for row in 0..2usize {
+                        let ry = ly + 44.0 + (3 + row) as f64 * 22.0;
+                        if p.y < ry - 3.0 || p.y > ry + 12.0 { continue; }
+                        for i in 0..2usize {
+                            let bx = ix + 140.0 + i as f64 * 48.0;
+                            if p.x >= bx && p.x <= bx + 44.0 {
+                                let new_sizing = if i == 1 { x_native::Sizing::Hug } else { x_native::Sizing::Fixed };
+                                let mut nl = l.clone();
+                                if row == 0 { nl.sizing = new_sizing; } else { nl.cross_sizing = Some(new_sizing); }
+                                self.editor.set_auto_layout(&id, Some(nl), &vars);
+                                self.status = format!("{}: {}", if row == 0 { "main" } else { "cross" }, if i == 1 { "hug" } else { "fixed" });
+                                return;
+                            }
+                        }
+                    }
+                    // ALIGN — cross-axis alignment (Start/Center/End)
+                    let ay = ly + 44.0 + 5.0 * 22.0;
+                    if p.y >= ay - 3.0 && p.y <= ay + 12.0 {
+                        for i in 0..3usize {
+                            let bx = ix + 140.0 + i as f64 * 34.0;
+                            if p.x >= bx && p.x <= bx + 30.0 {
+                                let mut nl = l.clone();
+                                nl.align = [x_native::CrossAlign::Start, x_native::CrossAlign::Center, x_native::CrossAlign::End][i];
+                                self.editor.set_auto_layout(&id, Some(nl), &vars);
+                                self.status = format!("align: {}", ["start", "center", "end"][i]);
+                                return;
+                            }
+                        }
+                    }
+                    // SPACE BETWEEN toggle
+                    let sy = ly + 44.0 + 6.0 * 22.0;
+                    if p.y >= sy - 3.0 && p.y <= sy + 12.0 && p.x >= ix + 140.0 && p.x <= ix + 180.0 {
+                        let mut nl = l.clone();
+                        nl.space_between = !nl.space_between;
+                        let now_on = nl.space_between;
+                        self.editor.set_auto_layout(&id, Some(nl), &vars);
+                        self.status = format!("space between: {}", if now_on { "on" } else { "off" });
+                        return;
                     }
                 }
             }
         }
     }
 
-    pub fn gradient_geometry(&self) -> Option<(usize, Point, Point, Vec<(f32, Color)>)> {
+    pub fn gradient_geometry(&self) -> Option<GradientGeom> {
         if !self.gradient_editing || self.editor.selection.len() != 1 { return None; }
         let id = &self.editor.selection[0];
         let n = find(&self.editor.root, id)?;
@@ -3577,8 +3634,12 @@ fn gradient_color_at(stops: &[(f32, Color)], t: f32) -> Color {
         let (a, b) = (pair[0], pair[1]);
         if t <= b.0 {
             let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
-            let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * u).round() as u8;
-            return Color::rgba8(mix(a.1.r, b.1.r), mix(a.1.g, b.1.g), mix(a.1.b, b.1.b), mix(a.1.a, b.1.a));
+            let mixc = |x: f32, y: f32| (x + (y - x) * u).clamp(0.0, 1.0);
+            return Color::from_rgba8(
+                (mixc(a.1.components[0], b.1.components[0]) * 255.0).round() as u8,
+                (mixc(a.1.components[1], b.1.components[1]) * 255.0).round() as u8,
+                (mixc(a.1.components[2], b.1.components[2]) * 255.0).round() as u8,
+                (mixc(a.1.components[3], b.1.components[3]) * 255.0).round() as u8);
         }
     }
     stops.last().map(|s| s.1).unwrap_or(Color::TRANSPARENT)

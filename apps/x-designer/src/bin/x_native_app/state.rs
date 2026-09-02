@@ -145,23 +145,23 @@ pub struct App {
     /// minimap layer list filter
     pub layer_filter: String,
     /// decoded image assets (GPU-side cache; Phase 4.2)
-    pub assets: arco_native::Assets,
+    pub assets: x_native::Assets,
     /// document-level content-addressed asset manager (asset:// ids);
     /// embedded records persist inside .x — the render cache above is a
     /// decoded view of this store plus legacy assets/ files
-    pub store: arco_native::AssetStore,
+    pub store: x_native::AssetStore,
     /// real typography (P0): system TTFs via x-text FontManager
-    pub fonts: arco_native::text::FontManager,
+    pub fonts: x_native::text::FontManager,
     /// retained UI: right-click context menu (x-ui)
-    pub ctx_menu: arco_native::ui::Menu,
+    pub ctx_menu: x_native::ui::Menu,
     /// retained UI: delayed tooltip state (x-ui)
-    pub tooltip: arco_native::ui::TooltipState,
+    pub tooltip: x_native::ui::TooltipState,
     /// app start instant for tooltip timing
     pub t0: std::time::Instant,
     /// enumerated system font database (P0 fonts)
-    pub sysfonts: arco_native::text::SystemFonts,
+    pub sysfonts: x_native::text::SystemFonts,
     /// google fonts client (disk-cached)
-    pub gfonts: arco_native::text::GoogleFonts,
+    pub gfonts: x_native::text::GoogleFonts,
     /// font browser: query, scroll offset, resolved results
     pub font_query: String,
     pub font_scroll: usize,
@@ -186,7 +186,7 @@ pub struct App {
     /// bezier handle being dragged: (anchor idx, outgoing?, undo depth)
     pub handle_drag: Option<(usize, bool, usize)>,
     /// named reusable styles (Figma paint/text/effect styles), persisted in .x
-    pub styles: std::collections::HashMap<String, arco_native::Style>,
+    pub styles: std::collections::HashMap<String, x_native::Style>,
     /// styles browser: filter query + selected style (management target)
     pub style_query: String,
     pub style_sel: Option<String>,
@@ -195,10 +195,10 @@ pub struct App {
     pub asset_query: String,
     pub asset_sel: Option<String>,
     /// document library state: pinned deps + snapshots (persisted in .x)
-    pub library_deps: Vec<arco_native::LibraryDependency>,
-    pub library_snapshots: std::collections::HashMap<String, arco_native::Library>,
+    pub library_deps: Vec<x_native::LibraryDependency>,
+    pub library_snapshots: std::collections::HashMap<String, x_native::Library>,
     /// a newer .xlib detected on disk, awaiting review: (dep idx, newer lib, changes)
-    pub library_update: Option<(usize, arco_native::Library, Vec<arco_native::LibraryChange>)>,
+    pub library_update: Option<(usize, x_native::Library, Vec<x_native::LibraryChange>)>,
     /// review overlay open?
     pub library_review: bool,
     /// integrity results from the last load (library_id -> ok?)
@@ -219,7 +219,7 @@ pub struct App {
     pub saved_undo_depth: usize,
     /// incremental render: dirty-subtree frame cache (skips lowering AND
     /// encoding for unchanged subtrees/frames)
-    pub scene_cache: arco_native::FrameCache,
+    pub scene_cache: x_native::FrameCache,
     /// per-phase timings for the HUD: (ir_ms, encode_ms, chrome_ms)
     pub phase_ms: (f32, f32, f32),
     /// scene-cache hit flag for the HUD
@@ -227,7 +227,7 @@ pub struct App {
     /// layer-rows rebuild fingerprint (skip identical walks)
     pub layer_rows_fp: Option<(usize, String, usize)>,
     /// staged import awaiting preview-accept: (source, doc, report)
-    pub import_pending: Option<(String, Document, arco_native::fileio::ImportReport)>,
+    pub import_pending: Option<(String, Document, x_native::fileio::ImportReport)>,
     /// last command's latency (name, ms) for the HUD/status
     pub last_cmd: Option<(String, f32)>,
     /// left panel tab: 0 Layers, 1 Assets, 2 Components, 3 Library (mockup)
@@ -250,6 +250,8 @@ pub struct App {
     pub dash_query: String,
     /// dashboard context-menu target: file path the menu acts on
     pub dash_ctx_path: Option<String>,
+    /// pages-list context-menu target: page index the menu acts on
+    pub page_ctx_idx: Option<usize>,
 }
 
 pub struct Present {
@@ -260,11 +262,11 @@ pub struct Present {
 }
 
 pub fn kind_label(n: &Node) -> &'static str {
-    use arco_native::NodeKind::*;
+    use x_native::NodeKind::*;
     match &n.kind {
         Frame { .. } => "FRAME", Group => "GROUP", Rect { .. } => "RECT", Ellipse => "ELLIPSE",
         Line => "LINE", Text { .. } => "TEXT", Image { .. } => "IMAGE", Vector { .. } => "VECTOR",
-        VectorNetwork(_) => "NET", Component { .. } => "COMP", Instance { .. } => "INST",
+        Component { .. } => "COMP", Instance { .. } => "INST",
     }
 }
 

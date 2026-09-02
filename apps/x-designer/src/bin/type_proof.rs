@@ -1,6 +1,6 @@
 //! Headless GPU proof of the typography stack: renders a specimen sheet
 //! through rustybuzz shaping -> Vello -> wgpu -> PNG.
-use arco_native::text::{encode_rich_text, Align, FontManager, Span, TextBlockStyle};
+use x_native::text::{encode_rich_text, Align, FontManager, Span, TextBlockStyle};
 use vello::kurbo::Affine;
 use vello::peniko::Color;
 use vello::{AaConfig, RenderParams, Renderer, RendererOptions, Scene};
@@ -15,19 +15,19 @@ async fn run() {
     let _ = fm.load_file("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
     let _ = fm.load_file("NotoSansDevanagari", "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf");
     // google families for the fixture header (cache-first, skip offline)
-    let gf = arco_native::text::GoogleFonts::new();
+    let gf = x_native::text::GoogleFonts::new();
     let _ = gf.load_into(&mut fm, "Inter", 400);
     let _ = gf.load_into(&mut fm, "Roboto", 400);
     eprintln!("fonts loaded: {}", n + 1);
     let f = fm.default_font().expect("fonts");
 
     let mut scene = Scene::new();
-    let white = Color::rgb8(0xff, 0xff, 0xff);
-    let accent = Color::rgb8(0x0d, 0x99, 0xff);
-    let dim = Color::rgb8(0x9a, 0x9a, 0xa2);
+    let white = Color::from_rgb8(0xff, 0xff, 0xff);
+    let accent = Color::from_rgb8(0x0d, 0x99, 0xff);
+    let dim = Color::from_rgb8(0x9a, 0x9a, 0xa2);
     let style = |w: f64| TextBlockStyle { max_width: w, line_height: 1.25, align: Align::Left };
     let mut y = 30.0;
-    let mut put = |scene: &mut Scene, spans: &[Span], y: &mut f64, w: f64| {
+    let put = |scene: &mut Scene, spans: &[Span], y: &mut f64, w: f64| {
         let (_, h) = encode_rich_text(scene, &fm, spans, f, Affine::translate((40.0, *y)), &style(w));
         *y += h + 18.0;
     };
@@ -75,20 +75,20 @@ async fn run() {
     ], &mut y, 820.0);
     put(&mut scene, &[
         Span::new("Rich text: ", 18.0).color(dim),
-        Span::new("red ", 20.0).color(Color::rgb8(0xff, 0x5a, 0x52)),
+        Span::new("red ", 20.0).color(Color::from_rgb8(0xff, 0x5a, 0x52)),
         Span::new("blue ", 26.0).color(accent),
         Span::new("small ", 13.0).color(white),
         Span::new("and wrapped together in one paragraph flowing naturally.", 20.0).color(dim),
     ], &mut y, 480.0);
 
     // ---- wgpu headless render (same as render_headless) ----
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..Default::default() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await.expect("adapter");
-    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default(), None).await.expect("device");
-    let mut renderer = Renderer::new(&device, RendererOptions {
-        surface_format: None, use_cpu: false,
+    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor::default()).await.expect("device");
+    let mut renderer = Renderer::new(&device, RendererOptions { use_cpu: false,
         antialiasing_support: vello::AaSupport::all(),
         num_init_threads: std::num::NonZeroUsize::new(1),
+        ..Default::default()
     }).expect("renderer");
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: None, size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -99,20 +99,20 @@ async fn run() {
     });
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
     renderer.render_to_texture(&device, &queue, &scene, &view, &RenderParams {
-        base_color: Color::rgb8(0x1b, 0x1d, 0x21), width, height, antialiasing_method: AaConfig::Area,
+        base_color: Color::from_rgb8(0x1b, 0x1d, 0x21), width, height, antialiasing_method: AaConfig::Area,
     }).expect("render");
-    let bpr = (width * 4 + 255) / 256 * 256;
+    let bpr = (width * 4).div_ceil(256) * 256;
     let buf = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (bpr * height) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
     let mut enc = device.create_command_encoder(&Default::default());
     enc.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-        wgpu::ImageCopyBuffer { buffer: &buf, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(bpr), rows_per_image: Some(height) } },
+        wgpu::TexelCopyTextureInfo { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(bpr), rows_per_image: Some(height) } },
         wgpu::Extent3d { width, height, depth_or_array_layers: 1 });
     queue.submit(Some(enc.finish()));
     let slice = buf.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();
     slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     rx.recv().unwrap().unwrap();
     let data = slice.get_mapped_range();
     let mut px = vec![0u8; (width * height * 4) as usize];

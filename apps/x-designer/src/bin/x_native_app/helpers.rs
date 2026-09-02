@@ -48,9 +48,9 @@ pub fn draw_tool_icon(s: &mut Scene, tool: Tool, cx: f64, cy: f64, c: Color) {
             let mut p = BezPath::new();
             for (i, cmd) in regular_polygon(6, 14.0, 14.0).iter().enumerate() {
                 match cmd {
-                    arco_native::PathCmd::MoveTo(x, y) => p.move_to((*x + 1.0, *y + 1.0)),
-                    arco_native::PathCmd::LineTo(x, y) => p.line_to((*x + 1.0, *y + 1.0)),
-                    arco_native::PathCmd::Close => p.close_path(),
+                    x_native::PathCmd::MoveTo(x, y) => p.move_to((*x + 1.0, *y + 1.0)),
+                    x_native::PathCmd::LineTo(x, y) => p.line_to((*x + 1.0, *y + 1.0)),
+                    x_native::PathCmd::Close => p.close_path(),
                     _ => { let _ = i; }
                 }
             }
@@ -60,9 +60,9 @@ pub fn draw_tool_icon(s: &mut Scene, tool: Tool, cx: f64, cy: f64, c: Color) {
             let mut p = BezPath::new();
             for cmd in star_path(5, 15.0, 15.0) {
                 match cmd {
-                    arco_native::PathCmd::MoveTo(x, y) => p.move_to((x + 0.5, y + 0.5)),
-                    arco_native::PathCmd::LineTo(x, y) => p.line_to((x + 0.5, y + 0.5)),
-                    arco_native::PathCmd::Close => p.close_path(),
+                    x_native::PathCmd::MoveTo(x, y) => p.move_to((x + 0.5, y + 0.5)),
+                    x_native::PathCmd::LineTo(x, y) => p.line_to((x + 0.5, y + 0.5)),
+                    x_native::PathCmd::Close => p.close_path(),
                     _ => {}
                 }
             }
@@ -88,12 +88,12 @@ pub fn fill_rect(s: &mut Scene, r: Rect, c: Color) {
 pub fn stroke_rect(s: &mut Scene, r: Rect, c: Color, w: f64) {
     s.stroke(&vello::kurbo::Stroke::new(w), Affine::IDENTITY, c, None, &r.into_path(0.1));
 }
-/// Global UI font (shaped real typography for ALL chrome text — the
-/// blocky vector font is retired). ShapedTextCache makes this cheap:
-/// every distinct label shapes once per (text,size,color).
+// Global UI font (shaped real typography for ALL chrome text — the
+// blocky vector font is retired). ShapedTextCache makes this cheap:
+// every distinct label shapes once per (text,size,color).
 thread_local! {
-    static UI_FONTS: arco_native::text::FontManager = {
-        let mut fm = arco_native::text::FontManager::new();
+    static UI_FONTS: x_native::text::FontManager = {
+        let mut fm = x_native::text::FontManager::new();
         fm.load_system_fonts();
         fm
     };
@@ -108,7 +108,7 @@ pub fn label(s: &mut Scene, text: &str, x: f64, y: f64, size: f64, c: Color) {
         // node_text_outlines sizes text as node-height (0.72em factor):
         // scale so `size` behaves like a font pixel size for UI labels
         let key_size = size * 1.42;
-        if let Some((glyphs, _)) = arco_native::text::node_text_outlines(
+        if let Some((glyphs, _)) = x_native::text::node_text_outlines(
             fm, text, key_size, 10_000.0, None, c) {
             let world = Affine::translate((x, y - size * 0.18));
             for g in &glyphs {
@@ -141,8 +141,8 @@ pub fn world_transform_of(root: &Node, id: &str) -> Option<(Affine, f64, f64)> {
 }
 
 /// Regular n-gon inscribed in (w,h), point-up.
-pub fn regular_polygon(sides: usize, w: f64, h: f64) -> Vec<arco_native::PathCmd> {
-    use arco_native::PathCmd::*;
+pub fn regular_polygon(sides: usize, w: f64, h: f64) -> Vec<x_native::PathCmd> {
+    use x_native::PathCmd::*;
     let (rx, ry, cx, cy) = (w / 2.0, h / 2.0, w / 2.0, h / 2.0);
     let mut out = vec![];
     for i in 0..sides {
@@ -155,8 +155,8 @@ pub fn regular_polygon(sides: usize, w: f64, h: f64) -> Vec<arco_native::PathCmd
 }
 
 /// n-point star inscribed in (w,h), point-up.
-pub fn star_path_with_ratio(points: usize, w: f64, h: f64, inner_ratio: f64) -> Vec<arco_native::PathCmd> {
-    use arco_native::PathCmd::*;
+pub fn star_path_with_ratio(points: usize, w: f64, h: f64, inner_ratio: f64) -> Vec<x_native::PathCmd> {
+    use x_native::PathCmd::*;
     let (rx, ry, cx, cy) = (w / 2.0, h / 2.0, w / 2.0, h / 2.0);
     let mut out = vec![];
     for i in 0..(points * 2) {
@@ -170,7 +170,7 @@ pub fn star_path_with_ratio(points: usize, w: f64, h: f64, inner_ratio: f64) -> 
     out
 }
 
-pub fn star_path(points: usize, w: f64, h: f64) -> Vec<arco_native::PathCmd> {
+pub fn star_path(points: usize, w: f64, h: f64) -> Vec<x_native::PathCmd> {
     star_path_with_ratio(points, w, h, 0.4)
 }
 
@@ -188,20 +188,20 @@ pub fn quad_bounds(world: Affine, w: f64, h: f64) -> Rect {
 
 
 /// Bridge: x-ui PaintOps -> Vello scene (one place, all retained widgets).
-pub fn paint_ui_ops(scene: &mut Scene, ops: &[arco_native::ui::PaintOp]) {
+pub fn paint_ui_ops(scene: &mut Scene, ops: &[x_native::ui::PaintOp]) {
     for op in ops {
         match op {
-            arco_native::ui::PaintOp::Rect { r, color, alpha, radius } => {
+            x_native::ui::PaintOp::Rect { r, color, alpha, radius } => {
                 let rect = Rect::new(r.x, r.y, r.x + r.w, r.y + r.h);
-                let c = Color::rgba8(color[0], color[1], color[2], *alpha);
+                let c = Color::from_rgba8(color[0], color[1], color[2], *alpha);
                 if *radius > 0.0 { fill_rrect(scene, rect, *radius, c); } else { fill_rect(scene, rect, c); }
             }
-            arco_native::ui::PaintOp::Border { r, color, width } => {
+            x_native::ui::PaintOp::Border { r, color, width } => {
                 let rect = Rect::new(r.x, r.y, r.x + r.w, r.y + r.h);
-                stroke_rect(scene, rect, Color::rgb8(color[0], color[1], color[2]), *width);
+                stroke_rect(scene, rect, Color::from_rgb8(color[0], color[1], color[2]), *width);
             }
-            arco_native::ui::PaintOp::Text { x, y, size, color, text } => {
-                label(scene, text, *x, *y, *size, Color::rgb8(color[0], color[1], color[2]));
+            x_native::ui::PaintOp::Text { x, y, size, color, text } => {
+                label(scene, text, *x, *y, *size, Color::from_rgb8(color[0], color[1], color[2]));
             }
         }
     }
@@ -214,36 +214,36 @@ pub fn paint_ui_ops(scene: &mut Scene, ops: &[arco_native::ui::PaintOp]) {
 pub fn export_png(
     root: &Node,
     vars: &Variables,
-    assets: &arco_native::Assets,
-    fonts: &arco_native::text::FontManager,
+    assets: &x_native::Assets,
+    fonts: &x_native::text::FontManager,
     path: &str,
 ) -> Result<(u32, u32), String> {
-    let width = root.w.max(1.0).min(4096.0) as u32;
-    let height = root.h.max(1.0).min(4096.0) as u32;
-    let (scene, _tree) = arco_native::render_via_ir(root, vars, Some(assets), Some(fonts));
+    let width = root.w.clamp(1.0, 4096.0) as u32;
+    let height = root.h.clamp(1.0, 4096.0) as u32;
+    let (scene, _tree) = x_native::render_via_ir(root, vars, Some(assets), Some(fonts));
 
     pollster::block_on(async move {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
-            ..Default::default()
-        });
+            ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
-            .ok_or("no wgpu adapter for PNG export")?;
+            .map_err(|e| format!("no wgpu adapter for PNG export: {e}"))?;
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
-            }, None)
+                ..Default::default()
+            })
             .await
             .map_err(|e| e.to_string())?;
         let mut renderer = Renderer::new(&device, RendererOptions {
-            surface_format: None,
             use_cpu: false,
             antialiasing_support: vello::AaSupport::all(),
             num_init_threads: std::num::NonZeroUsize::new(1),
+            ..Default::default()
         }).map_err(|e| e.to_string())?;
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("png export target"),
@@ -265,7 +265,7 @@ pub fn export_png(
         let bpp = 4u32;
         let unpadded = width * bpp;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded = (unpadded + align - 1) / align * align;
+        let padded = unpadded.div_ceil(align) * align;
         let buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("png export readback"),
             size: (padded * height) as u64,
@@ -274,15 +274,15 @@ pub fn export_png(
         });
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         enc.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::ImageCopyBuffer { buffer: &buf, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(height) } },
+            wgpu::TexelCopyTextureInfo { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(height) } },
             wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
         );
         queue.submit(Some(enc.finish()));
         let slice = buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv().map_err(|e| e.to_string())?.map_err(|e| format!("{e:?}"))?;
         let data = slice.get_mapped_range();
         let mut pixels = vec![0u8; (width * height * 4) as usize];

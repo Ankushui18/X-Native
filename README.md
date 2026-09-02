@@ -19,7 +19,7 @@ X-Native/
 │       └── src/
 │           └── bin/
 │               ├── x_native_app/    # Windowed editor (chrome.rs + app.rs)
-│               ├── arco_native.rs   # CLI automation
+│               ├── x_native.rs   # CLI automation
 │               └── render_headless.rs # GPU rendering tests
 └── crates/
     ├── x-core/              # Document model, geometry, layout
@@ -28,13 +28,16 @@ X-Native/
     ├── x-text/              # Text shaping, font cache
     ├── x-components/        # Component system
     ├── x-format/            # File I/O (.x, .xlib, SVG, PDF)
-    ├── x-native/            # Native windowing (arco_native)
+    ├── x-native/            # Native windowing (x_native)
     └── x-ui/                # UI primitives
 ```
 
 ## Building
 
 ```bash
+# Linux: the native file dialogs (rfd) need GTK3 headers first
+sudo apt-get install -y libgtk-3-dev
+
 # Build all workspace members
 cargo build --workspace
 
@@ -64,7 +67,7 @@ cargo test -p x-editor
 | Binary | Size (debug) | Purpose |
 |--------|--------------|---------|
 | `x_native_app` | ~250 MB | Main windowed editor |
-| `arco_native` | ~105 MB | CLI automation/scripting |
+| `x_native` | ~105 MB | CLI automation/scripting |
 | `render_headless` | ~127 MB | GPU PNG rendering tests |
 
 ## System Requirements
@@ -72,6 +75,8 @@ cargo test -p x-editor
 - **OS**: macOS 10.15+, Windows 10+, Linux (with X11/Wayland)
 - **GPU**: Vulkan, Metal, or OpenGL 4.3+ support
 - **Display**: Required for `x_native_app` (headless mode available for rendering)
+- **Linux build**: `libgtk-3-dev` (file dialogs via `rfd`); `fonts-noto-core`
+  recommended for full script coverage in the typography tests
 
 ## File Formats
 
@@ -94,10 +99,19 @@ X-Native is an independent design tool. "Figma" is a trademark of Figma, Inc. Re
 
 ## License
 
-[Add your license here]
+**Not yet chosen.** No license has been selected for this project yet, which
+means the code is all-rights-reserved by default: nobody may legally use,
+copy, modify, or redistribute it until a license is added. If you're
+interested in using X-Native, open an issue.
+
+<!-- TODO(author): pick a license (MIT / Apache-2.0 / GPL-3.0), add the
+     LICENSE file at the repo root, and update this section. -->
 
 ## Status
 
 **Beta** - Core editor functional, UI polish in progress.
 
-See individual crate READMEs for detailed feature documentation.
+- Test suite: `cargo test --workspace` green (295 tests, incl. import
+  conformance across Sketch/SVG/Figma-JSON/PNG, mask semantics, render-IR
+  goldens, typography fixtures)
+- CI: `.github/workflows/ci.yml` (build + tests + clippy blocking; rustfmt advisory — compact style by design)

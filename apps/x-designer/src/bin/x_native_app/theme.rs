@@ -33,23 +33,23 @@ pub const ROW_H: f64 = 28.0;  // Standard row height (increased for better touch
 // hierarchy remains legible on all displays without bright divider noise.
 
 // Backgrounds (Graphite Series - X-Native signature look)
-pub const C_PANEL: Color = Color::rgb8(0x14, 0x15, 0x19);  // Primary panel background
-pub const C_PANEL2: Color = Color::rgb8(0x1b, 0x1d, 0x23); // Elevated surfaces
-pub const C_PANEL_EDGE: Color = Color::rgb8(0x2d, 0x30, 0x39); // Subtle borders
+pub const C_PANEL: Color = Color::from_rgb8(0x14, 0x15, 0x19);  // Primary panel background
+pub const C_PANEL2: Color = Color::from_rgb8(0x1b, 0x1d, 0x23); // Elevated surfaces
+pub const C_PANEL_EDGE: Color = Color::from_rgb8(0x2d, 0x30, 0x39); // Subtle borders
 
 // Text Hierarchy
-pub const C_TEXT: Color = Color::rgb8(0xf2, 0xf3, 0xf7);  // Primary text
-pub const C_DIM: Color = Color::rgb8(0x9a, 0x9e, 0xaa);   // Secondary text
+pub const C_TEXT: Color = Color::from_rgb8(0xf2, 0xf3, 0xf7);  // Primary text
+pub const C_DIM: Color = Color::from_rgb8(0x9a, 0x9e, 0xaa);   // Secondary text
 
 // Brand Accent (X-Native Violet - our signature color)
-pub const C_ACCENT: Color = Color::rgb8(0x7c, 0x5c, 0xfc); // Primary brand color
+pub const C_ACCENT: Color = Color::from_rgb8(0x7c, 0x5c, 0xfc); // Primary brand color
 
 // Canvas & Interaction
-pub const C_CANVAS: Color = Color::rgb8(0x22, 0x24, 0x2a); // Canvas background
-pub const C_FIELD: Color = Color::rgb8(0x1e, 0x20, 0x27);   // Input fields (slightly darker for depth)
+pub const C_CANVAS: Color = Color::from_rgb8(0x22, 0x24, 0x2a); // Canvas background
+pub const C_FIELD: Color = Color::from_rgb8(0x1e, 0x20, 0x27);   // Input fields (slightly darker for depth)
 
 // Section headers
-pub const C_SECTION: Color = Color::rgb8(0xd7, 0xd9, 0xe1);
+pub const C_SECTION: Color = Color::from_rgb8(0xd7, 0xd9, 0xe1);
 
 // ---- inspector Design-tab section y-map (offsets from TOP_H) ----
 // ONE map consumed by BOTH the chrome painter and click_inspector so the
@@ -91,7 +91,10 @@ pub const LPAGES_Y0: f64 = LTAB_H + 60.0;
 
 /// header dropdown menus (REAL, not visual): (title, items);
 /// item = (label, shortcut hint, action tag consumed by run_menu_tag)
-pub const MENUS: [(&str, &[(&str, &str, &str)]); 7] = [
+/// (label, shortcut hint, action tag)
+pub type MenuItemDef = (&'static str, &'static str, &'static str);
+
+pub const MENUS: [(&str, &[MenuItemDef]); 7] = [
     ("File", &[
         ("New File", "", "file.new"),
         ("New Page", "", "file.new_page"),
@@ -184,14 +187,14 @@ pub const FRAME_PRESETS: [(&str, f64, f64); 5] = [
 ];
 
 pub const PALETTE: [Color; 8] = [
-    Color::rgb8(0x7c, 0x5c, 0xfc),
-    Color::rgb8(0xf2, 0x48, 0x22),
-    Color::rgb8(0x2e, 0xcc, 0x71),
-    Color::rgb8(0x9b, 0x59, 0xb6),
-    Color::rgb8(0xff, 0xd7, 0x00),
-    Color::rgb8(0xff, 0xff, 0xff),
-    Color::rgb8(0x55, 0x55, 0x55),
-    Color::rgb8(0x11, 0x11, 0x11),
+    Color::from_rgb8(0x7c, 0x5c, 0xfc),
+    Color::from_rgb8(0xf2, 0x48, 0x22),
+    Color::from_rgb8(0x2e, 0xcc, 0x71),
+    Color::from_rgb8(0x9b, 0x59, 0xb6),
+    Color::from_rgb8(0xff, 0xd7, 0x00),
+    Color::from_rgb8(0xff, 0xff, 0xff),
+    Color::from_rgb8(0x55, 0x55, 0x55),
+    Color::from_rgb8(0x11, 0x11, 0x11),
 ];
 
 // ---- X-Native Typography Scale (professional hierarchy) ----
@@ -213,10 +216,10 @@ pub const LINE_HEIGHT_RELAXED: f64 = 1.75; // Spacious layouts, reading mode
 // ---- Enhanced Interaction States ----
 // Complete state palette for accessible, polished interactions.
 
-pub const C_HOVERBG: Color = Color::rgb8(0x2a, 0x2d, 0x36); // Hover states (subtle lift)
-pub const C_PRESSED: Color = Color::rgb8(0x3a, 0x3d, 0x46); // Active/pressed states
-pub const C_SELECTED: Color = Color::rgba8(0x7c, 0x5c, 0xfc, 35); // Selected items (increased from 20 alpha)
-pub const C_FOCUS_RING: Color = Color::rgba8(0x7c, 0x5c, 0xfc, 180); // Keyboard focus indicator
+pub const C_HOVERBG: Color = Color::from_rgb8(0x2a, 0x2d, 0x36); // Hover states (subtle lift)
+pub const C_PRESSED: Color = Color::from_rgb8(0x3a, 0x3d, 0x46); // Active/pressed states
+pub const C_SELECTED: Color = Color::from_rgba8(0x7c, 0x5c, 0xfc, 35); // Selected items (increased from 20 alpha)
+pub const C_FOCUS_RING: Color = Color::from_rgba8(0x7c, 0x5c, 0xfc, 180); // Keyboard focus indicator
 
 // ---- Standardized Corner Radii ----
 // Three radii for visual consistency across all UI elements.

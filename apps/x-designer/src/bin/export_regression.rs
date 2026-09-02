@@ -6,13 +6,14 @@
 //!      VelloSink -> wgpu offscreen) -> canvas_<name>.png
 //!   2. exports SVG -> svg_<name>.svg (rasterize externally w/ rsvg-convert)
 //!   3. exports PDF -> pdf_<name>.pdf (rasterize externally w/ ghostscript)
+//!
 //! The driving shell script rasterizes 2+3 and computes per-fixture RMSE
 //! against the canvas render: VISUAL comparison, not structural.
 
-use arco_native::editor::{BoolOp, Editor};
-use arco_native::fileio::export_svg_full;
-use arco_native::{
-    apply_layout_recursive, build_render_tree, export_pdf_full, svg_text_outliner, Assets,
+use x_native::editor::{BoolOp, Editor};
+use x_native::fileio::export_svg_full;
+use x_native::{
+    apply_layout_recursive, export_pdf_full, svg_text_outliner, Assets,
     AutoLayout, Color, CrossAlign, Effect, ImageFit, LayoutDirection, Node, NodeKind, Paint,
     PathCmd, Variables,
 };
@@ -27,14 +28,14 @@ fn fixtures() -> Vec<(&'static str, Node)> {
     v.push(("gradients", Node::frame("page", W, H)
         .child(Node::rect("lin", 20.0, 20.0, 170.0, 120.0, Color::WHITE).fill_paint(Paint::LinearGradient {
             start: (0.0, 0.0), end: (170.0, 0.0),
-            stops: vec![(0.0, Color::rgb8(255, 90, 0)), (1.0, Color::rgb8(142, 45, 226))],
+            stops: vec![(0.0, Color::from_rgb8(255, 90, 0)), (1.0, Color::from_rgb8(142, 45, 226))],
         }))
-        .child(Node::rect("solid", 210.0, 20.0, 170.0, 120.0, Color::rgb8(0x0d, 0x99, 0xff)).radius(14.0))
-        .child(Node::ellipse("dot", 20.0, 160.0, 120.0, 120.0, Color::rgb8(0x2e, 0xcc, 0x71)))));
+        .child(Node::rect("solid", 210.0, 20.0, 170.0, 120.0, Color::from_rgb8(0x0d, 0x99, 0xff)).radius(14.0))
+        .child(Node::ellipse("dot", 20.0, 160.0, 120.0, 120.0, Color::from_rgb8(0x2e, 0xcc, 0x71)))));
 
     v.push(("masks", Node::frame("page", W, H)
         .child(Node::ellipse("m", 40.0, 40.0, 180.0, 180.0, Color::WHITE).mask(true))
-        .child(Node::rect("clipped", 40.0, 40.0, 300.0, 200.0, Color::rgb8(0xe7, 0x4c, 0x3c)))));
+        .child(Node::rect("clipped", 40.0, 40.0, 300.0, 200.0, Color::from_rgb8(0xe7, 0x4c, 0x3c)))));
 
     // images: all four fit modes of the checker asset side by side
     v.push(("images", Node::frame("page", W, H)
@@ -49,8 +50,8 @@ fn fixtures() -> Vec<(&'static str, Node)> {
     // boolean union traced through the editor (same code path as the app)
     let bool_doc = {
         let page = Node::frame("page", W, H)
-            .child(Node::rect("a", 60.0, 60.0, 140.0, 140.0, Color::rgb8(0x8e, 0x2d, 0xe2)))
-            .child(Node::ellipse("b", 150.0, 100.0, 140.0, 140.0, Color::rgb8(0x8e, 0x2d, 0xe2)));
+            .child(Node::rect("a", 60.0, 60.0, 140.0, 140.0, Color::from_rgb8(0x8e, 0x2d, 0xe2)))
+            .child(Node::ellipse("b", 150.0, 100.0, 140.0, 140.0, Color::from_rgb8(0x8e, 0x2d, 0xe2)));
         let mut ed = Editor::new(page);
         ed.selection = vec!["a".into(), "b".into()];
         ed.boolean_selected(BoolOp::Union).expect("union");
@@ -68,11 +69,11 @@ fn fixtures() -> Vec<(&'static str, Node)> {
             .child({
                 let mut row = Node::frame("row", 200.0, 90.0)
                     .auto_layout(AutoLayout {
-                        direction: LayoutDirection::Horizontal, gap: 10.0, padding: 10.0,
+                        direction: LayoutDirection::Horizontal, gap: 10.0, padding: [10.0; 4],
                         align: CrossAlign::Center, ..Default::default()
                     })
-                    .child(Node::rect("chip", 0.0, 0.0, 60.0, 60.0, Color::rgb8(0xf3, 0x9c, 0x12)).radius(8.0))
-                    .child(Node::rect("bar", 0.0, 0.0, 100.0, 30.0, Color::rgb8(0x34, 0x49, 0x5e)));
+                    .child(Node::rect("chip", 0.0, 0.0, 60.0, 60.0, Color::from_rgb8(0xf3, 0x9c, 0x12)).radius(8.0))
+                    .child(Node::rect("bar", 0.0, 0.0, 100.0, 30.0, Color::from_rgb8(0x34, 0x49, 0x5e)));
                 apply_layout_recursive(&mut row, &Variables::default());
                 row
             });
@@ -86,8 +87,8 @@ fn fixtures() -> Vec<(&'static str, Node)> {
     v.push(("components", comp_doc));
 
     v.push(("effects", Node::frame("page", W, H)
-        .child(Node::rect("sh", 60.0, 60.0, 160.0, 110.0, Color::rgb8(0x0d, 0x99, 0xff)).radius(12.0)
-            .effect(Effect::DropShadow { dx: 8.0, dy: 10.0, blur: 18.0, color: Color::rgba8(0, 0, 0, 150) }))));
+        .child(Node::rect("sh", 60.0, 60.0, 160.0, 110.0, Color::from_rgb8(0x0d, 0x99, 0xff)).radius(12.0)
+            .effect(Effect::DropShadow { dx: 8.0, dy: 10.0, blur: 18.0, color: Color::from_rgba8(0, 0, 0, 150) }))));
 
     // vector path fixture (bezier) — exercises PathCmd through all three sinks
     let heart = vec![
@@ -99,7 +100,7 @@ fn fixtures() -> Vec<(&'static str, Node)> {
         PathCmd::Close,
     ];
     v.push(("vectors", Node::frame("page", W, H)
-        .child(Node::vector("heart", 120.0, 80.0, 120.0, 100.0, heart).fill_paint(Paint::Solid(Color::rgb8(0xe7, 0x4c, 0x3c))))));
+        .child(Node::vector("heart", 120.0, 80.0, 120.0, 100.0, heart).fill_paint(Paint::Solid(Color::from_rgb8(0xe7, 0x4c, 0x3c))))));
 
     v
 }
@@ -111,16 +112,16 @@ fn main() {
 async fn run() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
-        ..Default::default()
-    });
+        ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await.expect("adapter");
     let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
         label: None, required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::default(),
-    }, None).await.expect("device");
-    let mut renderer = Renderer::new(&device, RendererOptions {
-        surface_format: None, use_cpu: false,
+        ..Default::default()
+    }).await.expect("device");
+    let mut renderer = Renderer::new(&device, RendererOptions { use_cpu: false,
         antialiasing_support: vello::AaSupport::all(),
         num_init_threads: std::num::NonZeroUsize::new(1),
+        ..Default::default()
     }).expect("renderer");
 
     std::fs::create_dir_all("export_fixtures").unwrap();
@@ -130,13 +131,13 @@ async fn run() {
         std::fs::read(format!("assets/{name}.png")).ok()
     };
     // TEXT PARITY: same fonts drive canvas, SVG, and PDF text geometry
-    let mut fonts = arco_native::text::FontManager::new();
+    let mut fonts = x_native::text::FontManager::new();
     fonts.load_system_fonts();
     let outliner = svg_text_outliner(&fonts);
     let vars = Variables::default();
     for (name, doc) in fixtures() {
         // 1. canvas render (GPU, via the IR — identical to the app's path)
-        let (scene, tree) = arco_native::render_via_ir(&doc, &vars, Some(&assets), Some(&fonts));
+        let (scene, tree) = x_native::render_via_ir(&doc, &vars, Some(&assets), Some(&fonts));
         let (w, h) = (W as u32, H as u32);
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -156,7 +157,7 @@ async fn run() {
         let bpp = 4u32;
         let unpadded = w * bpp;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded = (unpadded + align - 1) / align * align;
+        let padded = unpadded.div_ceil(align) * align;
         let buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: None, size: (padded * h) as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
@@ -164,15 +165,15 @@ async fn run() {
         });
         let mut enc = device.create_command_encoder(&Default::default());
         enc.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::ImageCopyBuffer { buffer: &buf, layout: wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) } },
+            wgpu::TexelCopyTextureInfo { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) } },
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         queue.submit(Some(enc.finish()));
         let slice = buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| { let _ = tx.send(r); });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
         rx.recv().unwrap().unwrap();
         let data = slice.get_mapped_range();
         let mut px = vec![0u8; (w * h * 4) as usize];

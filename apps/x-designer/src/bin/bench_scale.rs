@@ -7,7 +7,7 @@
 //! count bites. GPU submit is excluded on purpose: it needs a display
 //! and is constant-ish per frame area.
 
-use arco_native::{build_render_tree, Assets, Color, FrameCache, Node, Paint, Variables, VelloSink};
+use x_native::{build_render_tree, Assets, Color, FrameCache, Node, Paint, Variables, VelloSink};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -34,7 +34,7 @@ static A: Counting = Counting;
 fn mem_mb() -> (f64, f64) {
     (LIVE.load(Ordering::Relaxed) as f64 / 1e6, PEAK.load(Ordering::Relaxed) as f64 / 1e6)
 }
-use arco_native::text::{FontManager, ShapedTextCache};
+use x_native::text::{FontManager, ShapedTextCache};
 use std::time::Instant;
 
 fn rect_farm(n: usize) -> Node {
@@ -44,7 +44,7 @@ fn rect_farm(n: usize) -> Node {
         let (c, r) = (i % cols, i / cols);
         page.children.push(
             Node::rect(&format!("r{i}"), c as f64 * 12.0, r as f64 * 12.0, 10.0, 10.0,
-                Color::rgb8((i % 255) as u8, 0x99, 0xff)).radius(2.0));
+                Color::from_rgb8((i % 255) as u8, 0x99, 0xff)).radius(2.0));
     }
     page
 }
@@ -53,7 +53,7 @@ fn mixed_workload(n: usize) -> Node {
     let mut page = Node::frame("page", 4000.0, 4000.0);
     // one component master, instanced heavily (the realistic pattern)
     page.children.push(Node::component("m", "Chip", 60.0, 24.0)
-        .child(Node::rect("m-bg", 0.0, 0.0, 60.0, 24.0, Color::rgb8(0x0d, 0x99, 0xff)).radius(6.0))
+        .child(Node::rect("m-bg", 0.0, 0.0, 60.0, 24.0, Color::from_rgb8(0x0d, 0x99, 0xff)).radius(6.0))
         .child(Node::text("m-t", 8.0, 5.0, 44.0, 12.0, "CHIP")));
     let cols = (n as f64).sqrt().ceil() as usize;
     for i in 0..n {
@@ -61,12 +61,12 @@ fn mixed_workload(n: usize) -> Node {
         let (x, y) = (c as f64 * 70.0, r as f64 * 30.0);
         let id = format!("n{i}");
         page.children.push(match i % 5 {
-            0 => Node::rect(&id, x, y, 60.0, 24.0, Color::rgb8(0xf3, 0x9c, 0x12)).radius(4.0),
-            1 => Node::ellipse(&id, x, y, 24.0, 24.0, Color::rgb8(0x2e, 0xcc, 0x71)),
+            0 => Node::rect(&id, x, y, 60.0, 24.0, Color::from_rgb8(0xf3, 0x9c, 0x12)).radius(4.0),
+            1 => Node::ellipse(&id, x, y, 24.0, 24.0, Color::from_rgb8(0x2e, 0xcc, 0x71)),
             2 => Node::text(&id, x, y, 60.0, 12.0, "lorem ipsum"),
             3 => Node::rect(&id, x, y, 60.0, 24.0, Color::WHITE).fill_paint(Paint::LinearGradient {
                 start: (0.0, 0.0), end: (60.0, 0.0),
-                stops: vec![(0.0, Color::rgb8(255, 90, 0)), (1.0, Color::rgb8(142, 45, 226))],
+                stops: vec![(0.0, Color::from_rgb8(255, 90, 0)), (1.0, Color::from_rgb8(142, 45, 226))],
             }),
             _ => Node::instance(&id, "Chip", x, y, 60.0, 24.0),
         });
@@ -150,7 +150,7 @@ fn main() {
     for (n, budget) in [(1_000, 17), (10_000, 33), (100_000, 100)] {
         bench_interaction_vp(&format!("mixed/{n}"), mixed_workload(n), &fonts, budget, None);
         let (live, peak) = mem_mb();
-        let (cache_bytes, evictions) = arco_native::text::ShapedTextCache::global().memory();
+        let (cache_bytes, evictions) = x_native::text::ShapedTextCache::global().memory();
         println!("  mem: live={live:.1}MB peak={peak:.1}MB | text-cache {:.1}MB ({evictions} evictions)", cache_bytes as f64 / 1e6);
     }
     println!("--- INTERACTION + VIEWPORT (app conditions: ~1500x1000 window) ---");

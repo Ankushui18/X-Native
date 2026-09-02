@@ -5,9 +5,8 @@
 //! strongest verification available without a live window/display: actual
 //! rendered pixels, not just "the code compiled" or "the draw-op count was
 //! right".
-use arco_native::{build_scene, AutoLayout, Color, LayoutDirection, Node, Sizing, Variables, PI};
+use x_native::{build_scene, AutoLayout, Color, LayoutDirection, Node, Sizing, Variables, PI};
 use vello::{AaConfig, RenderParams, Renderer, RendererOptions};
-use wgpu::util::DeviceExt as _;
 
 fn main() {
     pollster::block_on(run());
@@ -19,8 +18,7 @@ async fn run() {
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
-        ..Default::default()
-    });
+        ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
@@ -38,8 +36,8 @@ async fn run() {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
+                ..Default::default()
             },
-            None,
         )
         .await
         .expect("failed to create wgpu device");
@@ -64,26 +62,26 @@ async fn run() {
     vars.numbers.insert("gap-lg".into(), 28.0);
 
     let mut button = Node::component("btn-def", "Button", 120.0, 60.0)
-        .child(Node::rect("btn-bg", 0.0, 0.0, 120.0, 60.0, Color::rgb8(0x33, 0x33, 0x33)).radius(10.0));
+        .child(Node::rect("btn-bg", 0.0, 0.0, 120.0, 60.0, Color::from_rgb8(0x33, 0x33, 0x33)).radius(10.0));
     button.visible = false;
 
     let row = Node::frame("row", 0.0, 0.0)
         .auto_layout(AutoLayout {
             direction: LayoutDirection::Horizontal,
             gap: 20.0,
-            padding: 24.0,
+            padding: [24.0; 4],
             sizing: Sizing::Fixed,
             gap_var: Some("gap-lg".into()),
             ..Default::default()
         })
         .child(
-            Node::rect("card", 0.0, 0.0, 200.0, 120.0, Color::rgb8(0x0d, 0x99, 0xff))
+            Node::rect("card", 0.0, 0.0, 200.0, 120.0, Color::from_rgb8(0x0d, 0x99, 0xff))
                 .radius(18.0)
                 .rotate(PI / 8.0)
                 // v0.4: real drop shadow behind the rotated card
-                .effect(arco_native::Effect::DropShadow { dx: 6.0, dy: 8.0, blur: 12.0, color: Color::BLACK }),
+                .effect(x_native::Effect::DropShadow { dx: 6.0, dy: 8.0, blur: 12.0, color: Color::BLACK }),
         )
-        .child(Node::ellipse("dot", 0.0, 0.0, 100.0, 100.0, Color::rgb8(0xf2, 0x48, 0x22)).opacity(0.75))
+        .child(Node::ellipse("dot", 0.0, 0.0, 100.0, 100.0, Color::from_rgb8(0xf2, 0x48, 0x22)).opacity(0.75))
         .child(Node::instance("btn-1", "Button", 0.0, 0.0, 120.0, 60.0).override_prop("btn-bg", "#2ecc71"))
         .child(Node::instance("btn-2", "Button", 0.0, 0.0, 120.0, 60.0).override_prop("btn-bg", "#9b59b6"))
         .child(Node::instance("btn-3", "Button", 0.0, 0.0, 120.0, 60.0)); // no override -> component's own dark fill
@@ -93,25 +91,25 @@ async fn run() {
     // - a Text node that now draws actual vector glyphs
     let gradient_bar = Node::rect("grad", 40.0, 40.0, 380.0, 60.0, Color::WHITE)
         .radius(12.0)
-        .fill_paint(arco_native::Paint::LinearGradient {
+        .fill_paint(x_native::Paint::LinearGradient {
             start: (0.0, 0.0),
             end: (380.0, 0.0),
             stops: vec![
-                (0.0, Color::rgb8(0xff, 0x5a, 0x00)),
-                (1.0, Color::rgb8(0x8e, 0x2d, 0xe2)),
+                (0.0, Color::from_rgb8(0xff, 0x5a, 0x00)),
+                (1.0, Color::from_rgb8(0x8e, 0x2d, 0xe2)),
             ],
         });
     let title = Node::text("headline", 460.0, 55.0, 320.0, 34.0, "X NATIVE 0.5");
 
     // v0.5: editable vector path (pen-tool data model) — a real star polygon
     let star = {
-        use arco_native::PathCmd::*;
+        use x_native::PathCmd::*;
         let mut n = Node::vector("star", 60.0, 420.0, 120.0, 120.0, vec![
             MoveTo(60.0, 0.0), LineTo(75.0, 42.0), LineTo(120.0, 42.0), LineTo(84.0, 69.0),
             LineTo(97.0, 112.0), LineTo(60.0, 85.0), LineTo(23.0, 112.0), LineTo(36.0, 69.0),
             LineTo(0.0, 42.0), LineTo(45.0, 42.0), Close,
         ]);
-        n.fill = arco_native::Paint::Solid(Color::rgb8(0xff, 0xd7, 0x00));
+        n.fill = x_native::Paint::Solid(Color::from_rgb8(0xff, 0xd7, 0x00));
         n
     };
 
@@ -120,10 +118,10 @@ async fn run() {
     // the interpolator output is renderable scene content.
     let anim_mid = {
         let from = Node::frame("sa-from", 300.0, 160.0)
-            .child(Node::rect("sa-box", 0.0, 0.0, 100.0, 60.0, Color::rgb8(0xff, 0x00, 0x00)).radius(8.0));
+            .child(Node::rect("sa-box", 0.0, 0.0, 100.0, 60.0, Color::from_rgb8(0xff, 0x00, 0x00)).radius(8.0));
         let to = Node::frame("sa-to", 300.0, 160.0)
-            .child(Node::rect("sa-box", 120.0, 60.0, 160.0, 80.0, Color::rgb8(0x00, 0x00, 0xff)).radius(8.0));
-        let mut mid = arco_native::editor::smart_animate(&from, &to, 0.5);
+            .child(Node::rect("sa-box", 120.0, 60.0, 160.0, 80.0, Color::from_rgb8(0x00, 0x00, 0xff)).radius(8.0));
+        let mut mid = x_native::editor::smart_animate(&from, &to, 0.5);
         mid.transform.x = 280.0;
         mid.transform.y = 420.0;
         mid
@@ -141,7 +139,7 @@ async fn run() {
     // doesn't recurse into children — call it on "row" specifically, then
     // rebuild doc2's row child with the now-positioned version.
     if let Some(row_child) = doc2.children.iter_mut().find(|n| n.id == "row") {
-        arco_native::apply_auto_layout(row_child, &vars);
+        x_native::apply_auto_layout(row_child, &vars);
         row_child.transform.x = 0.0;
         row_child.transform.y = 220.0;
     }
@@ -154,10 +152,10 @@ async fn run() {
     let mut renderer = Renderer::new(
         &device,
         RendererOptions {
-            surface_format: None,
             use_cpu: false,
             antialiasing_support: vello::AaSupport::all(),
             num_init_threads: std::num::NonZeroUsize::new(1),
+            ..Default::default()
         },
     )
     .expect("failed to create vello Renderer");
@@ -181,7 +179,7 @@ async fn run() {
             &scene,
             &target_view,
             &RenderParams {
-                base_color: Color::rgb8(0x38, 0x38, 0x38),
+                base_color: Color::from_rgb8(0x38, 0x38, 0x38),
                 width,
                 height,
                 antialiasing_method: AaConfig::Area,
@@ -193,7 +191,7 @@ async fn run() {
     let bytes_per_pixel = 4u32;
     let unpadded_bytes_per_row = width * bytes_per_pixel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
 
     let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("output buffer"),
@@ -204,15 +202,15 @@ async fn run() {
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &target_texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &output_buffer,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
                 rows_per_image: Some(height),
@@ -227,7 +225,7 @@ async fn run() {
     buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
         tx.send(result).unwrap();
     });
-    device.poll(wgpu::Maintain::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
     rx.recv().unwrap().expect("buffer map failed");
 
     let data = buffer_slice.get_mapped_range();

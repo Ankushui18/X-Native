@@ -9,17 +9,17 @@ path = "src/bin/x_native_app/main.rs"
 name = "render_headless"
 path = "src/bin/render_headless.rs"
 [[bin]]
-name = "arco_native"
-path = "src/bin/arco_native.rs"
+name = "x_native"
+path = "src/bin/x_native.rs"
 [[bin]]
 name = "type_proof"
 path = "src/bin/type_proof.rs"
 
 [dependencies]
-arco_native = { path = "../../crates/x-native", package = "arco_native" }
-vello = "0.1"
-wgpu = "0.19"
-winit = { version = "0.29", features = ["rwh_06"] }
+x-native = { path = "../../crates/x-native" }
+vello = "0.10"
+wgpu = "29"
+winit = "0.30"
 pollster = "1.0.1"
 png = "0.18.1"
 rfd = "0.14"

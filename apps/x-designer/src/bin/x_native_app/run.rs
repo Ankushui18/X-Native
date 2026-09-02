@@ -2,28 +2,28 @@
 use super::*;
 
 
-pub async fn run() {
+pub fn run() {
     // production reliability: full recovery chain (exact -> autosave ->
     // lenient -> backups), then legacy-hash upgrade on the loaded doc
     let mut recovery_note: Option<String> = None;
     let doc = if std::path::Path::new(DOC_PATH).exists() {
-        match arco_native::fileio::open_with_recovery(DOC_PATH) {
+        match x_native::fileio::open_with_recovery(DOC_PATH) {
             Some((mut d, outcome)) => {
-                use arco_native::fileio::OpenOutcome::*;
+                use x_native::fileio::OpenOutcome::*;
                 match &outcome {
                     Clean => {}
                     RecoveredFromAutosave => recovery_note = Some("recovered unsaved changes from autosave".into()),
                     RecoveredLenient(n) => recovery_note = Some(format!("recovered corrupt document ({n} note(s))")),
                     RecoveredFromBackup(b) => recovery_note = Some(format!("recovered from backup {b}")),
                 }
-                let upgraded = arco_native::fileio::upgrade_legacy_library_hashes(&mut d);
+                let upgraded = x_native::fileio::upgrade_legacy_library_hashes(&mut d);
                 if !upgraded.is_empty() { eprintln!("library integrity: upgraded legacy hashes for {upgraded:?}"); }
                 d
             }
             None => demo_document(),
         }
     } else { demo_document() };
-    arco_native::fileio::push_recent(DOC_PATH);
+    x_native::fileio::push_recent(DOC_PATH);
     let vars = doc.variables.clone();
     let styles = doc.styles.clone();
     let doc_assets = doc.assets.clone();
@@ -58,16 +58,16 @@ pub async fn run() {
         outline_view: false,
         space_pan: false,
         layer_filter: String::new(),
-        assets: arco_native::Assets::new(),
+        assets: x_native::Assets::new(),
         store: doc_assets,
         fonts: {
-            let mut fm = arco_native::text::FontManager::new();
+            let mut fm = x_native::text::FontManager::new();
             let n = fm.load_system_fonts();
             if n > 0 { eprintln!("typography: loaded {n} system font(s)"); }
             fm
         },
-        sysfonts: arco_native::text::SystemFonts::enumerate(),
-        gfonts: arco_native::text::GoogleFonts::new(),
+        sysfonts: x_native::text::SystemFonts::enumerate(),
+        gfonts: x_native::text::GoogleFonts::new(),
         font_query: String::new(),
         font_scroll: 0,
         font_results: vec![],
@@ -78,8 +78,8 @@ pub async fn run() {
         node_edit: None,
         anchor_drag: None,
         handle_drag: None,
-        ctx_menu: arco_native::ui::Menu::default(),
-        tooltip: arco_native::ui::TooltipState::default(),
+        ctx_menu: x_native::ui::Menu::default(),
+        tooltip: x_native::ui::TooltipState::default(),
         t0: std::time::Instant::now(),
         styles,
         style_query: String::new(),
@@ -100,7 +100,7 @@ pub async fn run() {
         asset_sort: 0,
         asset_drag: None,
         saved_undo_depth: 0,
-        scene_cache: arco_native::FrameCache::new(),
+        scene_cache: x_native::FrameCache::new(),
         phase_ms: (0.0, 0.0, 0.0),
         encode_skipped: false,
         layer_rows_fp: None,
@@ -116,6 +116,7 @@ pub async fn run() {
         dbl: false,
         dash_query: String::new(),
         dash_ctx_path: None,
+        page_ctx_idx: None,
     };
     // load-time integrity sweep (review item): verify every pinned snapshot
     {
@@ -123,9 +124,9 @@ pub async fn run() {
         d.library_deps = app.library_deps.clone();
         d.library_snapshots = app.library_snapshots.clone();
         let mut verdicts = vec![];
-        for (id, st) in arco_native::fileio::verify_document_libraries(&d) {
+        for (id, st) in x_native::fileio::verify_document_libraries(&d) {
             let msg = format!("{st:?}");
-            let ok = matches!(st, arco_native::fileio::IntegrityStatus::Verified);
+            let ok = matches!(st, x_native::fileio::IntegrityStatus::Verified);
             if !ok {
                 eprintln!("library integrity: {id}: {msg}");
                 app.status = format!("LIBRARY WARNING: {id} {msg} — FROZEN");
@@ -135,7 +136,7 @@ pub async fn run() {
         }
         // FREEZE-ON-CORRUPT: unverified snapshots removed from resolution;
         // bound values stay at last-applied (never resolve corrupt data)
-        let frozen = arco_native::freeze_unverified(&mut app.library_snapshots, &verdicts);
+        let frozen = x_native::freeze_unverified(&mut app.library_snapshots, &verdicts);
         if !frozen.is_empty() { eprintln!("library integrity: frozen {frozen:?}"); }
     }
     if let Some(note) = recovery_note { app.status = note; }
@@ -172,50 +173,126 @@ pub async fn run() {
         app.sysfonts.families.len(), gf_count);
 
     let event_loop = EventLoop::new().expect("create event loop (needs a display)");
-    let window = Arc::new(
-        WindowBuilder::new().with_title("X Native Beta").with_inner_size(PhysicalSize::new(1280, 800))
-            .build(&event_loop).expect("create window"),
-    );
+    let mut host = AppHost { app, window: None, gpu: None };
+    event_loop.run_app(&mut host).expect("event loop");
+}
 
-    let instance = wgpu::Instance::default();
-    let surface = instance.create_surface(window.clone()).expect("create surface");
-    let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        compatible_surface: Some(&surface), force_fallback_adapter: false,
-    }).await.expect("no adapter");
-    let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-        label: None, required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::default(),
-    }, None).await.expect("no device");
+/// wgpu 29 / vello 0.10 surface state. vello 0.10 dropped direct surface
+/// rendering, so the pattern is: render the scene into an offscreen
+/// Rgba8Unorm storage texture, then blit that onto the swapchain frame
+/// with `wgpu::util::TextureBlitter`.
+struct Gpu {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    renderer: Renderer,
+    offscreen_view: wgpu::TextureView,
+    blitter: wgpu::util::TextureBlitter,
+}
 
-    let size = window.inner_size();
-    let caps = surface.get_capabilities(&adapter);
-    let format = caps.formats.iter().copied()
-        .find(|f| matches!(f, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm))
-        .unwrap_or(caps.formats[0]);
-    let mut config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::STORAGE_BINDING,
-        format, width: size.width.max(1), height: size.height.max(1),
-        present_mode: wgpu::PresentMode::AutoVsync, desired_maximum_frame_latency: 2,
-        alpha_mode: wgpu::CompositeAlphaMode::Auto, view_formats: vec![],
-    };
-    surface.configure(&device, &config);
+impl Gpu {
+    fn new(window: &Arc<Window>) -> Self {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::default(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let surface = instance.create_surface(window.clone()).expect("create surface");
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: Some(&surface), force_fallback_adapter: false,
+        })).expect("no adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: None, required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        })).expect("no device");
 
-    let mut renderer = Renderer::new(&device, RendererOptions {
-        surface_format: Some(config.format), use_cpu: false,
-        antialiasing_support: vello::AaSupport::all(),
-        num_init_threads: std::num::NonZeroUsize::new(1),
-    }).expect("create vello renderer");
+        let size = window.inner_size();
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps.formats.iter().copied()
+            .find(|f| matches!(f, wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm))
+            .unwrap_or(caps.formats[0]);
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format, width: size.width.max(1), height: size.height.max(1),
+            present_mode: wgpu::PresentMode::AutoVsync, desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto, view_formats: vec![],
+        };
+        surface.configure(&device, &config);
 
-    event_loop.run(move |event, elwt| {
-        if let Event::WindowEvent { event, .. } = event {
-            match event {
-                WindowEvent::CloseRequested => elwt.exit(),
+        let renderer = Renderer::new(&device, RendererOptions {
+            use_cpu: false,
+            antialiasing_support: vello::AaSupport::all(),
+            num_init_threads: std::num::NonZeroUsize::new(1),
+            ..Default::default()
+        }).expect("create vello renderer");
+
+        Self {
+            offscreen_view: Self::make_offscreen(&device, config.width, config.height),
+            blitter: wgpu::util::TextureBlitter::new(&device, config.format),
+            surface, device, queue, config, renderer,
+        }
+    }
+
+    /// vello's compute target: Rgba8Unorm with STORAGE_BINDING (rendered by
+    /// vello) + TEXTURE_BINDING (sampled by the blitter).
+    fn make_offscreen(device: &wgpu::Device, w: u32, h: u32) -> wgpu::TextureView {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("vello offscreen"),
+            size: wgpu::Extent3d { width: w.max(1), height: h.max(1), depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    fn resize(&mut self, w: u32, h: u32) {
+        self.config.width = w.max(1);
+        self.config.height = h.max(1);
+        self.surface.configure(&self.device, &self.config);
+        self.offscreen_view = Self::make_offscreen(&self.device, self.config.width, self.config.height);
+    }
+}
+
+/// winit 0.30 ApplicationHandler: the window (and GPU state) is created on
+/// `resumed` instead of before the event loop runs.
+struct AppHost {
+    app: App,
+    window: Option<Arc<Window>>,
+    gpu: Option<Gpu>,
+}
+
+impl winit::application::ApplicationHandler for AppHost {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        if self.window.is_some() { return; }
+        let window = Arc::new(event_loop.create_window(
+            winit::window::Window::default_attributes()
+                .with_title("X Native Beta")
+                .with_inner_size(PhysicalSize::new(1280, 800)),
+        ).expect("create window"));
+        self.gpu = Some(Gpu::new(&window));
+        self.window = Some(window);
+        // kick the first frame once everything exists
+        if let Some(w) = self.window.as_ref() { w.request_redraw(); }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        let app = &mut self.app;
+        let window = self.window.as_ref().expect("window");
+        let gpu = self.gpu.as_mut().expect("gpu");
+        match event {
+                WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::Resized(new_size) => {
-                    config.width = new_size.width.max(1);
-                    config.height = new_size.height.max(1);
-                    app.win_w = config.width as f64;
-                    app.win_h = config.height as f64;
-                    surface.configure(&device, &config);
+                    gpu.resize(new_size.width, new_size.height);
+                    app.win_w = gpu.config.width as f64;
+                    app.win_h = gpu.config.height as f64;
                     window.request_redraw();
                 }
                 WindowEvent::ModifiersChanged(m) => {
@@ -264,6 +341,18 @@ pub async fn run() {
                                 window.request_redraw();
                                 return;
                             }
+                            if let Some(idx) = app.page_ctx_idx.take() {
+                                match i {
+                                    0 => app.start_page_rename(idx),
+                                    1 => { app.switch_page(idx); app.duplicate_page(); }
+                                    2 => { app.switch_page(idx); app.reorder_page(-1); }
+                                    3 => { app.switch_page(idx); app.reorder_page(1); }
+                                    4 => app.delete_page(idx),
+                                    _ => {}
+                                }
+                                window.request_redraw();
+                                return;
+                            }
                             app.run_menu_action(i);
                         }
                         window.request_redraw();
@@ -285,42 +374,63 @@ pub async fn run() {
                         if let Some(path) = app.dash_ctx_path.clone() {
                             let deletable = path != "document.x";
                             app.ctx_menu.items = vec![
-                                arco_native::ui::MenuItem { label: "OPEN".into(), shortcut: None, enabled: true },
-                                arco_native::ui::MenuItem { label: "RENAME".into(), shortcut: None, enabled: true },
-                                arco_native::ui::MenuItem { label: "DUPLICATE".into(), shortcut: None, enabled: true },
-                                arco_native::ui::MenuItem { label: "DELETE".into(), shortcut: None, enabled: deletable },
+                                x_native::ui::MenuItem { label: "OPEN".into(), shortcut: None, enabled: true },
+                                x_native::ui::MenuItem { label: "RENAME".into(), shortcut: None, enabled: true },
+                                x_native::ui::MenuItem { label: "DUPLICATE".into(), shortcut: None, enabled: true },
+                                x_native::ui::MenuItem { label: "DELETE".into(), shortcut: None, enabled: deletable },
                             ];
                             app.ctx_menu.open_at(app.cursor.x, app.cursor.y);
                             window.request_redraw();
                         }
                         return;
                     }
+                    // pages-list context menu: rename / duplicate / move / delete
+                    if app.left_tab == 0 && app.cursor.x < LAYERS_W && app.cursor.y > TOP_H {
+                        let pages_y0 = TOP_H + LPAGES_Y0;
+                        let pages_end = pages_y0 + app.pages.len() as f64 * ROW_H;
+                        if app.cursor.y >= pages_y0 && app.cursor.y < pages_end {
+                            let idx = ((app.cursor.y - pages_y0) / ROW_H) as usize;
+                            if idx < app.pages.len() {
+                                app.page_ctx_idx = Some(idx);
+                                app.ctx_menu.items = vec![
+                                    x_native::ui::MenuItem { label: "RENAME".into(), shortcut: None, enabled: true },
+                                    x_native::ui::MenuItem { label: "DUPLICATE".into(), shortcut: None, enabled: true },
+                                    x_native::ui::MenuItem { label: "MOVE UP".into(), shortcut: None, enabled: idx > 0 },
+                                    x_native::ui::MenuItem { label: "MOVE DOWN".into(), shortcut: None, enabled: idx + 1 < app.pages.len() },
+                                    x_native::ui::MenuItem { label: "DELETE".into(), shortcut: None, enabled: app.pages.len() > 1 },
+                                ];
+                                app.ctx_menu.open_at(app.cursor.x, app.cursor.y);
+                                window.request_redraw();
+                            }
+                            return;
+                        }
+                    }
                     // retained context menu (x-ui): select under cursor, then open
                     if app.canvas_rect().contains(app.cursor) && app.present.is_none() {
                         let wp = app.world_point(app.cursor);
                         // preserve multi-selection when right-clicking inside it
-                        let hit = arco_native::editor::hit_test(&app.editor.root, wp)
-                            .and_then(|id| arco_native::editor::top_level_ancestor(&app.editor.root, &id).or(Some(id)));
-                        let inside_selection = hit.as_ref().map_or(false, |h| app.editor.selection.contains(h));
+                        let hit = x_native::editor::hit_test(&app.editor.root, wp)
+                            .and_then(|id| x_native::editor::top_level_ancestor(&app.editor.root, &id).or(Some(id)));
+                        let inside_selection = hit.as_ref().is_some_and(|h| app.editor.selection.contains(h));
                         if !inside_selection {
                             app.editor.click_select(wp, false, false);
                         }
                         let has_sel = !app.editor.selection.is_empty();
                         let two = app.editor.selection.len() == 2;
                         app.ctx_menu.items = vec![
-                            arco_native::ui::MenuItem { label: "CUT".into(), shortcut: Some("⌘X".into()), enabled: has_sel },
-                            arco_native::ui::MenuItem { label: "COPY".into(), shortcut: Some("⌘C".into()), enabled: has_sel },
-                            arco_native::ui::MenuItem { label: "PASTE".into(), shortcut: Some("⌘V".into()), enabled: app.editor.clipboard_len() > 0 },
-                            arco_native::ui::MenuItem { label: "DUPLICATE".into(), shortcut: Some("⌘D".into()), enabled: has_sel },
-                            arco_native::ui::MenuItem { label: "DELETE".into(), shortcut: Some("DEL".into()), enabled: has_sel },
-                            arco_native::ui::MenuItem { label: "BRING TO FRONT".into(), shortcut: Some("⌘]".into()), enabled: has_sel },
-                            arco_native::ui::MenuItem { label: "SEND TO BACK".into(), shortcut: Some("⌘[".into()), enabled: has_sel },
-                            arco_native::ui::MenuItem { label: "GROUP".into(), shortcut: Some("⌘G".into()), enabled: app.editor.selection.len() >= 2 },
-                            arco_native::ui::MenuItem { label: "UNION".into(), shortcut: None, enabled: two },
-                            arco_native::ui::MenuItem { label: "SUBTRACT".into(), shortcut: None, enabled: two },
-                            arco_native::ui::MenuItem { label: "INTERSECT".into(), shortcut: None, enabled: two },
-                            arco_native::ui::MenuItem { label: "EXCLUDE".into(), shortcut: None, enabled: two },
-                            arco_native::ui::MenuItem { label: "USE AS MASK".into(), shortcut: None, enabled: has_sel },
+                            x_native::ui::MenuItem { label: "CUT".into(), shortcut: Some("⌘X".into()), enabled: has_sel },
+                            x_native::ui::MenuItem { label: "COPY".into(), shortcut: Some("⌘C".into()), enabled: has_sel },
+                            x_native::ui::MenuItem { label: "PASTE".into(), shortcut: Some("⌘V".into()), enabled: app.editor.clipboard_len() > 0 },
+                            x_native::ui::MenuItem { label: "DUPLICATE".into(), shortcut: Some("⌘D".into()), enabled: has_sel },
+                            x_native::ui::MenuItem { label: "DELETE".into(), shortcut: Some("DEL".into()), enabled: has_sel },
+                            x_native::ui::MenuItem { label: "BRING TO FRONT".into(), shortcut: Some("⌘]".into()), enabled: has_sel },
+                            x_native::ui::MenuItem { label: "SEND TO BACK".into(), shortcut: Some("⌘[".into()), enabled: has_sel },
+                            x_native::ui::MenuItem { label: "GROUP".into(), shortcut: Some("⌘G".into()), enabled: app.editor.selection.len() >= 2 },
+                            x_native::ui::MenuItem { label: "UNION".into(), shortcut: None, enabled: two },
+                            x_native::ui::MenuItem { label: "SUBTRACT".into(), shortcut: None, enabled: two },
+                            x_native::ui::MenuItem { label: "INTERSECT".into(), shortcut: None, enabled: two },
+                            x_native::ui::MenuItem { label: "EXCLUDE".into(), shortcut: None, enabled: two },
+                            x_native::ui::MenuItem { label: "USE AS MASK".into(), shortcut: None, enabled: has_sel },
                         ];
                         app.ctx_menu.open_at(app.cursor.x, app.cursor.y);
                         window.request_redraw();
@@ -536,8 +646,8 @@ pub async fn run() {
                             // live-preview text edits directly on the node
                             if let Focus::TextNode { id, buffer, .. } = &app.focus {
                                 let id = id.clone(); let buf = buffer.clone();
-                                if let Some(n) = arco_native::editor::find_mut(&mut app.editor.root, &id) {
-                                    if let arco_native::NodeKind::Text { text } = &mut n.kind { *text = buf; }
+                                if let Some(n) = x_native::editor::find_mut(&mut app.editor.root, &id) {
+                                    if let x_native::NodeKind::Text { text } = &mut n.kind { *text = buf; }
                                 }
                             }
                             window.request_redraw();
@@ -564,7 +674,7 @@ pub async fn run() {
                                 else if let Some(id) = app.editor.selection.first().cloned() {
                                     // Esc selects parent; at top level it deselects
                                     let root_id = app.editor.root.id.clone();
-                                    let parent = arco_native::editor::top_level_ancestor(&app.editor.root, &id);
+                                    let parent = x_native::editor::top_level_ancestor(&app.editor.root, &id);
                                     match parent {
                                         Some(pid) if pid != id => { app.editor.selection = vec![pid]; app.status = "selected parent".into(); }
                                         _ => { app.editor.selection.clear(); app.tool = Tool::Select; }
@@ -652,9 +762,9 @@ pub async fn run() {
                                                     // asset:// images the DOCUMENT doesn't reference
                                                     // (store keeps raw bytes; re-decode on demand)
                                                     let mut keep = std::collections::HashSet::new();
-                                                    arco_native::collect_asset_ids(&app.editor.root, &mut keep);
+                                                    x_native::collect_asset_ids(&app.editor.root, &mut keep);
                                                     for (i, pg) in app.pages.iter().enumerate() {
-                                                        if i != app.page_idx { arco_native::collect_asset_ids(pg, &mut keep); }
+                                                        if i != app.page_idx { x_native::collect_asset_ids(pg, &mut keep); }
                                                     }
                                                     let freed = app.assets.evict_except(&keep);
                                                     app.status = format!("asset browser closed ({:.1}MB thumbnails evicted)", freed as f64 / 1e6);
@@ -717,22 +827,31 @@ pub async fn run() {
                         d.library_deps = app.library_deps.clone();
                         d.library_snapshots = app.library_snapshots.clone();
                         d.pages = app.pages.clone();
-                        let text = arco_native::fileio::save_x(&d);
-                        if arco_native::fileio::autosave(&app.doc_path, &text).is_ok() {
+                        let text = x_native::fileio::save_x(&d);
+                        if x_native::fileio::autosave(&app.doc_path, &text).is_ok() {
                             eprintln!("autosave: {} bytes", text.len());
                         }
                         app.last_autosave = std::time::Instant::now();
                     }
                     let scene = app.build_display_scene();
-                    let frame = match surface.get_current_texture() {
-                        Ok(f) => f,
-                        Err(_) => { surface.configure(&device, &config); return; }
+                    let frame = match gpu.surface.get_current_texture() {
+                        wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+                        wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                            gpu.surface.configure(&gpu.device, &gpu.config);
+                            return;
+                        }
+                        // Timeout / Occluded / Validation: skip this frame
+                        _ => return,
                     };
-                    let _ = renderer.render_to_surface(&device, &queue, &scene, &frame, &RenderParams {
+                    let _ = gpu.renderer.render_to_texture(&gpu.device, &gpu.queue, &scene, &gpu.offscreen_view, &RenderParams {
                         base_color: if app.present.is_some() { Color::BLACK } else { C_CANVAS },
-                        width: config.width, height: config.height,
+                        width: gpu.config.width, height: gpu.config.height,
                         antialiasing_method: AaConfig::Msaa16,
                     });
+                    let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    let mut blit_encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                    gpu.blitter.copy(&gpu.device, &mut blit_encoder, &gpu.offscreen_view, &frame_view);
+                    gpu.queue.submit([blit_encoder.finish()]);
                     frame.present();
                     // frame-time instrumentation (rolling 64 frames)
                     let ms = frame_t0.elapsed().as_secs_f32() * 1000.0;
@@ -744,7 +863,6 @@ pub async fn run() {
                     }
                 }
                 _ => {}
-            }
         }
-    }).expect("event loop");
+    }
 }
