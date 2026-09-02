@@ -275,6 +275,11 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
         b
     };
 
+    // Frames clip their children to their own (possibly rounded) bounds by
+    // default, same as Figma frames — this also stops a child's drop
+    // shadow / overflow from bleeding past the frame edge onto the canvas.
+    let mut frame_clip_shape: Option<BezPath> = None;
+
     match &node.kind {
         NodeKind::Rect { radius } => {
             let r = node.bound_number("radius", vars, *radius);
@@ -335,12 +340,21 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
             }
         }
         NodeKind::Frame { .. } => {
-            let has_visible_fill = node.active_fills().iter().any(|l| match &l.paint { Paint::Solid(c) => c.a > 0, _ => true });
-            if has_visible_fill {
-                let shape = Rect::new(0.0, 0.0, node.w, node.h).into_path(0.1);
-                let override_color = overrides.get(&node.id).and_then(|raw| parse_hex_color(raw));
-                emit_visual_layers(tree, node, &key, world, &shape, vars, opacity, override_color);
-            }
+            // Same corner-radii resolution as Rect, so a frame can be given
+            // rounded corners like any other shape (previously this always
+            // fell back to a plain, unrounded Rect).
+            let shape = if let Some([tl, tr, br, bl]) = node.corner_radii {
+                RoundedRect::from_rect(Rect::new(0.0, 0.0, node.w, node.h), RoundedRectRadii::new(tl, tr, br, bl)).into_path(0.1)
+            } else {
+                Rect::new(0.0, 0.0, node.w, node.h).into_path(0.1)
+            };
+            // Always run through emit_visual_layers (not just when there's
+            // a visible fill) so a frame's own effects — drop shadow, inner
+            // shadow, layer/background blur — render even on a frame with
+            // no fill, matching how every other node kind handles effects.
+            let override_color = overrides.get(&node.id).and_then(|raw| parse_hex_color(raw));
+            emit_visual_layers(tree, node, &key, world, &shape, vars, opacity, override_color);
+            frame_clip_shape = Some(shape);
         }
         NodeKind::Instance { component } => {
             if depth < MAX_INSTANCE_DEPTH {
@@ -354,6 +368,9 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
         }
         NodeKind::Group | NodeKind::Component { .. } => {}
         NodeKind::VectorNetwork(_) => { /* TODO: Process vector network IR */ }
+    }
+    if let Some(shape) = &frame_clip_shape {
+        tree.commands.push(RenderCommand::PushClip { key: format!("{key}#frame-clip"), transform: world, path: shape.clone() });
     }
     let mut mask_layers = 0usize;
     for child in &node.children {
@@ -369,6 +386,7 @@ fn lower(node: &Node, parent: Affine, vars: &Variables, registry: &HashMap<&str,
         lower(child, world, vars, registry, overrides, depth, tree, &key);
     }
     for _ in 0..mask_layers { tree.commands.push(RenderCommand::PopLayer); }
+    if frame_clip_shape.is_some() { tree.commands.push(RenderCommand::PopLayer); }
     if blend.is_some() { tree.commands.push(RenderCommand::PopLayer); }
 }
 

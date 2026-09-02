@@ -175,7 +175,12 @@ impl Editor {
     /// Node tool: move a bezier CONTROL HANDLE independently.
     /// `outgoing`: false = incoming handle (c2 of the segment ending at
     /// the anchor), true = outgoing handle (c1 of the next segment).
-    pub fn move_handle(&mut self, id: &str, anchor_idx: usize, outgoing: bool, nx: f64, ny: f64) -> bool {
+    /// `mirror`: when true (the default drag, i.e. Alt is NOT held), the
+    /// opposite handle is moved to match — same distance from the
+    /// anchor, opposite angle — so the point stays smooth, same as every
+    /// major vector tool. Pass false (Alt held) to break the tangent and
+    /// move only this one handle, leaving the other untouched.
+    pub fn move_handle(&mut self, id: &str, anchor_idx: usize, outgoing: bool, nx: f64, ny: f64, mirror: bool) -> bool {
         let Some(n) = find(&self.root, id) else { return false };
         let NodeKind::Vector { path } = &n.kind else { return false };
         let list = anchors(path);
@@ -192,6 +197,15 @@ impl Editor {
                 }
             } else if let PathCmd::CurveTo(_, _, x2, y2, _, _) = &mut p[a.cmd_index] {
                 *x2 = nx; *y2 = ny; changed = true;
+            }
+            if changed && mirror {
+                // reflect through the anchor: same distance, opposite side
+                let (mx, my) = (2.0 * a.x - nx, 2.0 * a.y - ny);
+                if outgoing {
+                    if let PathCmd::CurveTo(_, _, x2, y2, _, _) = &mut p[a.cmd_index] { *x2 = mx; *y2 = my; }
+                } else if a.cmd_index + 1 < p.len() {
+                    if let PathCmd::CurveTo(x1, y1, _, _, _, _) = &mut p[a.cmd_index + 1] { *x1 = mx; *y1 = my; }
+                }
             }
         }
         if !changed { return false; }
@@ -385,13 +399,13 @@ mod tests {
         // anchor 1 at (50,50): incoming handle = (40,50), outgoing = (60,50)
         assert_eq!(e.out_handle("v", 1), Some((60.0, 50.0)));
         // drag the INCOMING handle only
-        assert!(e.move_handle("v", 1, false, 30.0, 80.0));
+        assert!(e.move_handle("v", 1, false, 30.0, 80.0, false));
         let NodeKind::Vector { path } = &find(&e.root, "v").unwrap().kind else { panic!() };
         assert_eq!(path[1], PathCmd::CurveTo(10.0, 0.0, 30.0, 80.0, 50.0, 50.0));
         // outgoing untouched
         assert_eq!(path[2], PathCmd::CurveTo(60.0, 50.0, 90.0, 0.0, 100.0, 0.0));
         // drag the OUTGOING handle only
-        assert!(e.move_handle("v", 1, true, 70.0, 90.0));
+        assert!(e.move_handle("v", 1, true, 70.0, 90.0, false));
         let NodeKind::Vector { path } = &find(&e.root, "v").unwrap().kind else { panic!() };
         assert_eq!(path[2], PathCmd::CurveTo(70.0, 90.0, 90.0, 0.0, 100.0, 0.0));
         // both undoable
@@ -403,7 +417,25 @@ mod tests {
         let mut e2 = Editor::new(Node::frame("p", 100.0, 100.0).child(
             Node::vector("l", 0.0, 0.0, 50.0, 50.0, vec![PathCmd::MoveTo(0.0, 0.0), PathCmd::LineTo(50.0, 0.0)]),
         ));
-        assert!(!e2.move_handle("l", 1, false, 1.0, 1.0));
+        assert!(!e2.move_handle("l", 1, false, 1.0, 1.0, false));
+    }
+
+    #[test]
+    fn bezier_handle_mirrors_by_default_like_figma() {
+        let mut e = Editor::new(Node::frame("page", 800.0, 600.0).child(
+            Node::vector("v", 0.0, 0.0, 100.0, 100.0, vec![
+                PathCmd::MoveTo(0.0, 0.0),
+                PathCmd::CurveTo(10.0, 0.0, 40.0, 50.0, 50.0, 50.0),
+                PathCmd::CurveTo(60.0, 50.0, 90.0, 0.0, 100.0, 0.0),
+            ]),
+        ));
+        // anchor 1 at (50,50); drag the incoming handle to (30,80) with
+        // mirroring on (the default, un-Alted drag) — the outgoing handle
+        // should jump to the reflection of (30,80) through (50,50).
+        assert!(e.move_handle("v", 1, false, 30.0, 80.0, true));
+        let NodeKind::Vector { path } = &find(&e.root, "v").unwrap().kind else { panic!() };
+        assert_eq!(path[1], PathCmd::CurveTo(10.0, 0.0, 30.0, 80.0, 50.0, 50.0));
+        assert_eq!(path[2], PathCmd::CurveTo(70.0, 20.0, 90.0, 0.0, 100.0, 0.0));
     }
 
     #[test]

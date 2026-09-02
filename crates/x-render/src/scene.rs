@@ -114,6 +114,8 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
         scene.push_layer(mix, 1.0, Affine::IDENTITY, &b);
     }
 
+    let mut frame_clip_shape: Option<vello::kurbo::BezPath> = None;
+
     match &node.kind {
         NodeKind::Rect { radius } => {
             let bound_radius = node.bound_number("radius", vars, *radius);
@@ -194,19 +196,28 @@ fn encode(scene: &mut Scene, node: &Node, parent: Affine, viewport: Option<Viewp
         }
         NodeKind::Frame { .. } => {
             // Frames draw their background fill when it isn't transparent
-            // (matches Figma: frames have fills; groups do not).
+            // (matches Figma: frames have fills; groups do not). Corner
+            // radii apply here too, same as a Rect node.
             let color = effective_fill(node, overrides, vars);
+            let shape = shape_for_rect(node, 0.0);
             if color.a > 0 {
-                let shape = Rect::new(0.0, 0.0, node.w, node.h).into_path(0.1);
                 encode_drop_shadows(scene, node, world, &shape, stats);
                 scene.fill(Fill::NonZero, world, &brush_with_alpha(effective_brush(node, overrides, vars), node.opacity), None, &shape);
                 stats.paths += 1;
             }
+            frame_clip_shape = Some(shape);
         }
         NodeKind::Group | NodeKind::Component { .. } => {}
         NodeKind::VectorNetwork(_) => { /* TODO: Render vector network */ }
     }
+    // Clip children to the frame's own (possibly rounded) bounds, so a
+    // child's shadow/overflow can't bleed past the frame edge — matches
+    // Figma's default "clip content" behavior for frames.
+    if let Some(shape) = &frame_clip_shape {
+        scene.push_layer(Mix::Clip, 1.0, world, shape);
+    }
     for child in &node.children { encode(scene, child, world, viewport, vars, stats, registry, overrides, depth, ctx); }
+    if frame_clip_shape.is_some() { scene.pop_layer(); }
 
     if blend.is_some() { scene.pop_layer(); }
 }

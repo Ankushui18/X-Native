@@ -370,6 +370,26 @@ impl Editor {
             }
         }
     }
+    /// Move one step forward in z-order (swap with the next-higher
+    /// sibling) — Figma's plain ⌘] "Bring Forward", distinct from the
+    /// full jump-to-front above.
+    pub fn bring_forward(&mut self, id: &str) {
+        if let Some(p) = find_parent_mut(&mut self.root, id) {
+            if let Some(from) = p.children.iter().position(|c| c.id == id) {
+                let to = from + 1;
+                if to < p.children.len() { self.push(vec![Command::Reorder { id: id.into(), from, to }]); }
+            }
+        }
+    }
+    /// Move one step backward in z-order (swap with the next-lower
+    /// sibling) — Figma's plain ⌘[ "Send Backward".
+    pub fn send_backward(&mut self, id: &str) {
+        if let Some(p) = find_parent_mut(&mut self.root, id) {
+            if let Some(from) = p.children.iter().position(|c| c.id == id) {
+                if from > 0 { self.push(vec![Command::Reorder { id: id.into(), from, to: from - 1 }]); }
+            }
+        }
+    }
     /// Phase 2.9: group the current selection (snapshot-undo).
     pub fn group_selection(&mut self, group_id: &str) {
         if self.selection.len() < 2 { return; }
