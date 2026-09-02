@@ -145,6 +145,8 @@ pub const MENUS: [(&str, &[(&str, &str, &str)]); 7] = [
         ("Ungroup", "⇧⌘G", "obj.ungroup"),
         ("Bring to Front", "⌘]", "obj.front"),
         ("Send to Back", "⌘[", "obj.back"),
+        ("Bring Forward", "]", "obj.forward"),
+        ("Send Backward", "[", "obj.backward"),
         ("Union", "", "obj.union"),
         ("Subtract", "", "obj.subtract"),
         ("Intersect", "", "obj.intersect"),

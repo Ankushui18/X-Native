@@ -31,7 +31,10 @@ impl App {
     }
     /// effective height of the bottom pages strip (collapsible — Figma
     /// gives the canvas maximum viewport; state persists in .xprefs)
-    pub fn thumbs_h(&self) -> f64 { if self.thumbs_collapsed { 22.0 } else { THUMBS_H } }
+    // Figma has no bottom artboard-thumbnail strip — pages are switched
+    // from the simple list at the top of the Layers panel instead, so no
+    // vertical space is reserved for a strip anymore.
+    pub fn thumbs_h(&self) -> f64 { 0.0 }
 
     pub fn canvas_rect(&self) -> Rect {
         if self.chrome_hidden { return Rect::new(0.0, 0.0, self.win_w, self.win_h); }
@@ -583,7 +586,13 @@ impl App {
     pub fn commit_focus(&mut self) {
         match std::mem::replace(&mut self.focus, Focus::None) {
             Focus::TextNode { id, buffer, original, .. } => {
-                if buffer != original {
+                if buffer.trim().is_empty() {
+                    // Figma discards an empty text box on blur instead of
+                    // leaving a stray empty layer behind.
+                    self.editor.selection = vec![id.clone()];
+                    self.editor.delete_selection();
+                    self.status = "empty text discarded".into();
+                } else if buffer != original {
                     self.editor.set_text(&id, &buffer);
                     self.status = format!("text: {buffer}");
                 }
@@ -658,8 +667,13 @@ impl App {
     pub fn cancel_focus(&mut self) {
         if let Focus::TextNode { id, original, .. } = &self.focus {
             let id = id.clone(); let orig = original.clone();
-            // restore original content directly (no undo entry for the cancel)
-            if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+            if orig.trim().is_empty() {
+                // freshly created, never had real content — Esc discards it
+                // instead of leaving an empty layer, same as commit does.
+                self.editor.selection = vec![id];
+                self.editor.delete_selection();
+            } else if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
+                // restore original content directly (no undo entry for the cancel)
                 if let arco_native::NodeKind::Text { text } = &mut n.kind { *text = orig; }
             }
         }
@@ -1224,41 +1238,6 @@ impl App {
                     self.inspector_tab = 1;
                     self.status = "prototype tab".into();
                     return;
-                }
-                return;
-            }
-            // page-thumbnail strip (collapsible; double-click cell = rename)
-            let tr = self.thumbs_rect();
-            if tr.contains(p) {
-                // collapse/expand chevron at the strip's right edge
-                if p.x >= tr.x1 - 26.0 && p.y <= tr.y0 + 22.0 {
-                    self.toggle_thumbs();
-                    return;
-                }
-                if self.thumbs_collapsed {
-                    // slim bar: click anywhere = expand
-                    self.toggle_thumbs();
-                    return;
-                }
-                let cell_w = 96.0;
-                let mut x = tr.x0 + 14.0;
-                for i in 0..self.pages.len() {
-                    if p.x >= x && p.x <= x + cell_w {
-                        if double && i == self.page_idx { self.start_page_rename(i); return; }
-                        self.switch_page(i);
-                        return;
-                    }
-                    x += cell_w + 12.0;
-                    if x + cell_w > tr.x1 - 90.0 { break; }
-                }
-                // + New Page cell
-                if p.x >= x && p.x <= x + cell_w {
-                    self.pages[self.page_idx] = self.editor.root.clone();
-                    let id = format!("page-{}", self.pages.len() + 1);
-                    self.pages.push(Node::frame(&id, 1600.0, 1000.0));
-                    let idx = self.pages.len() - 1;
-                    self.switch_page(idx);
-                    self.status = format!("created {id}");
                 }
                 return;
             }
@@ -1939,7 +1918,7 @@ impl App {
         let has_sel = !self.editor.selection.is_empty();
         match tag {
             "edit.undo" => self.editor.undo_depth() > 0,
-            "edit.duplicate" | "edit.delete" | "obj.front" | "obj.back" | "obj.mask" => has_sel,
+            "edit.duplicate" | "edit.delete" | "obj.front" | "obj.back" | "obj.forward" | "obj.backward" | "obj.mask" => has_sel,
             "edit.cut" | "edit.copy" => has_sel,
             "edit.paste" => self.editor.clipboard_len() > 0,
             "page.delete" => self.pages.len() > 1,
@@ -2028,6 +2007,8 @@ impl App {
             }
             "obj.front" => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.bring_to_front(&id); self.status = "to front".into(); } }
             "obj.back" => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.send_to_back(&id); self.status = "to back".into(); } }
+            "obj.forward" => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.bring_forward(&id); self.status = "forward".into(); } }
+            "obj.backward" => { if let Some(id) = self.editor.selection.first().cloned() { self.editor.send_backward(&id); self.status = "backward".into(); } }
             "obj.union" | "obj.subtract" | "obj.intersect" | "obj.exclude" => {
                 use arco_native::editor::BoolOp::*;
                 let op = match tag { "obj.union" => Union, "obj.subtract" => Subtract, "obj.intersect" => Intersect, _ => Exclude };
@@ -2298,16 +2279,29 @@ impl App {
                 let ratio = w / h;
                 if (nw / w).abs() > (nh / h).abs() { nh = nw / ratio; } else { nw = nh * ratio; }
             }
+            // Alt = resize from the center, growing/shrinking both sides
+            // equally instead of anchoring the opposite edge.
+            if self.alt {
+                nw = w + (nw - w) * 2.0;
+                nh = h + (nh - h) * 2.0;
+            }
             self.editor.resize(&id, nw.max(2.0), nh.max(2.0));
             if let Some(n) = arco_native::editor::find_mut(&mut self.editor.root, &id) {
-                // opposite corner stays fixed
-                match corner {
-                    0 => { n.transform.x = x + dx; n.transform.y = y + dy; }
-                    1 => { n.transform.y = y + dy; }
-                    2 => { n.transform.x = x + dx; }
-                    4 => { n.transform.x = x + dx; }
-                    6 => { n.transform.y = y + dy; }
-                    _ => {}
+                if self.alt {
+                    // keep the shape centered on its original center
+                    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+                    n.transform.x = cx - nw.max(2.0) / 2.0;
+                    n.transform.y = cy - nh.max(2.0) / 2.0;
+                } else {
+                    // opposite corner stays fixed
+                    match corner {
+                        0 => { n.transform.x = x + dx; n.transform.y = y + dy; }
+                        1 => { n.transform.y = y + dy; }
+                        2 => { n.transform.x = x + dx; }
+                        4 => { n.transform.x = x + dx; }
+                        6 => { n.transform.y = y + dy; }
+                        _ => {}
+                    }
                 }
             }
             self.drag = Drag::Resize { corner, start_world, orig, cmds };
@@ -2316,7 +2310,10 @@ impl App {
                 let wp = self.world_point(p);
                 if let Some(n) = find(&self.editor.root, &vid) {
                     let local = (wp.x - n.transform.x, wp.y - n.transform.y);
-                    self.editor.move_handle(&vid, ai, outgoing, local.0, local.1);
+                    // Alt breaks the tangent (independent handle); the
+                    // default drag mirrors the opposite handle, same as
+                    // Figma/Illustrator's smooth-point behavior.
+                    self.editor.move_handle(&vid, ai, outgoing, local.0, local.1, !self.alt);
                 }
             }
             self.cursor = p;
@@ -2447,44 +2444,63 @@ impl App {
             Drag::Create { start_world } => {
                 let wp = self.world_point(p);
                 let r = self.creation_rect(start_world, wp);
-                let valid = if self.tool == Tool::Line {
-                    (r.width() * r.width() + r.height() * r.height()).sqrt() >= 3.0
+                let is_click = r.width() < 3.0 && r.height() < 3.0;
+                // Every creation tool places a sensible default-size shape
+                // on a plain click — a drag is how you size it, not a
+                // requirement to create anything, same as Figma.
+                self.created_count += 1;
+                let id = format!("{}-{}", self.tool.label().to_lowercase(), self.created_count);
+                // A bare click has no dragged box yet — use each tool's
+                // Figma-equivalent default size at the click point.
+                let (bx, by, bw, bh) = if is_click {
+                    match self.tool {
+                        Tool::Text => (start_world.x, start_world.y, 100.0, 24.0),
+                        Tool::Line => (start_world.x, start_world.y, 100.0, 0.0),
+                        _ => (start_world.x, start_world.y, 100.0, 100.0),
+                    }
                 } else {
-                    r.width() >= 3.0 && r.height() >= 3.0
+                    (r.x0, r.y0, r.width(), r.height())
                 };
-                if valid {
-                    self.created_count += 1;
-                    let id = format!("{}-{}", self.tool.label().to_lowercase(), self.created_count);
-                    let node = match self.tool {
-                        Tool::Rectangle => Node::rect(&id, r.x0, r.y0, r.width(), r.height(), C_ACCENT).radius(self.rect_radius),
-                        Tool::Ellipse => Node::ellipse(&id, r.x0, r.y0, r.width(), r.height(), PALETTE[1]),
-                        Tool::Line => Node::line(&id, r.x0, r.y0, r.width(), r.height().max(2.0), Color::WHITE),
-                        Tool::Text => Node::text(&id, r.x0, r.y0, r.width(), r.height().clamp(12.0, 64.0), "TEXT"),
-                        Tool::Polygon => {
-                            let mut n = Node::vector(&id, 0.0, 0.0, r.width(), r.height(), regular_polygon(self.polygon_sides, r.width(), r.height()));
-                            n.transform.x = r.x0; n.transform.y = r.y0;
-                            n.fill = Paint::Solid(PALETTE[2]);
-                            n
-                        }
-                        Tool::Star => {
-                            let mut n = Node::vector(&id, 0.0, 0.0, r.width(), r.height(), star_path_with_ratio(self.star_points, r.width(), r.height(), self.star_inner_ratio));
-                            n.transform.x = r.x0; n.transform.y = r.y0;
-                            n.fill = Paint::Solid(PALETTE[4]);
-                            n
-                        }
-                        Tool::Frame | Tool::Select | Tool::Hand | Tool::Scale | Tool::Pen => {
-                            let mut f = Node::frame(&id, r.width(), r.height());
-                            f.transform.x = r.x0; f.transform.y = r.y0;
-                            f.fill = Paint::Solid(Color::rgb8(0x38, 0x38, 0x38));
-                            f
-                        }
-                    };
-                    let root_id = self.editor.root.id.clone();
-                    self.editor.insert_node(&root_id, node);
-                    self.editor.selection = vec![id.clone()];
+                let node = match self.tool {
+                    Tool::Rectangle => Node::rect(&id, bx, by, bw, bh, C_ACCENT).radius(self.rect_radius),
+                    Tool::Ellipse => Node::ellipse(&id, bx, by, bw, bh, PALETTE[1]),
+                    Tool::Line => Node::line(&id, bx, by, bw, bh.max(2.0), Color::WHITE),
+                    // Starts empty: an un-typed placeholder string would
+                    // commit as real content if you clicked away without
+                    // typing, which Figma never does.
+                    Tool::Text => Node::text(&id, bx, by, bw, bh.clamp(12.0, 64.0), ""),
+                    Tool::Polygon => {
+                        let mut n = Node::vector(&id, 0.0, 0.0, bw, bh, regular_polygon(self.polygon_sides, bw, bh));
+                        n.transform.x = bx; n.transform.y = by;
+                        n.fill = Paint::Solid(PALETTE[2]);
+                        n
+                    }
+                    Tool::Star => {
+                        let mut n = Node::vector(&id, 0.0, 0.0, bw, bh, star_path_with_ratio(self.star_points, bw, bh, self.star_inner_ratio));
+                        n.transform.x = bx; n.transform.y = by;
+                        n.fill = Paint::Solid(PALETTE[4]);
+                        n
+                    }
+                    Tool::Frame | Tool::Select | Tool::Hand | Tool::Scale | Tool::Pen => {
+                        let mut f = Node::frame(&id, bw, bh);
+                        f.transform.x = bx; f.transform.y = by;
+                        f.fill = Paint::Solid(Color::rgb8(0x38, 0x38, 0x38));
+                        f
+                    }
+                };
+                let created_tool = self.tool;
+                let root_id = self.editor.root.id.clone();
+                self.editor.insert_node(&root_id, node);
+                self.editor.selection = vec![id.clone()];
+                self.rebuild_layer_rows();
+                self.tool = Tool::Select;
+                if created_tool == Tool::Text {
+                    // Drop straight into typing, like Figma — no
+                    // separate double-click is needed after creation.
+                    self.focus = Focus::TextNode { id: id.clone(), buffer: String::new(), original: String::new(), caret: 0, sel_anchor: None };
+                    self.status = "editing text — Enter/Esc commits, empty text is discarded".into();
+                } else {
                     self.status = format!("created {id}");
-                    self.rebuild_layer_rows();
-                    self.tool = Tool::Select;
                 }
             }
             Drag::Pan { .. } => {}

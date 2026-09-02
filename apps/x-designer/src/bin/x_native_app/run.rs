@@ -689,9 +689,13 @@ pub async fn run() {
                                         "s" => app.tool = Tool::Star,
                                         "t" => app.tool = Tool::Text,
                                         "b" => { app.tool = Tool::Pen; app.pen_target = None; }
+                                        "]" => { if let Some(id) = app.editor.selection.first().cloned() { app.editor.bring_forward(&id); app.status = "forward".into(); } }
+                                        "[" => { if let Some(id) = app.editor.selection.first().cloned() { app.editor.send_backward(&id); app.status = "backward".into(); } }
                                         _ => {}
                                     }
-                                    if !app.shift { app.status = format!("tool: {:?}", app.tool); }
+                                    // "]"/"[" report their own status (z-order
+                                    // change), not a tool switch — don't stomp it.
+                                    if !app.shift && ch != "]" && ch != "[" { app.status = format!("tool: {:?}", app.tool); }
                                 }
                             }
                             _ => {}

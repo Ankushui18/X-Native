@@ -446,71 +446,6 @@ impl App {
             Focus::DashRename { buffer, .. } => format!("FILE NAME> {buffer}_"),
             Focus::None => self.status.clone(),
         };
-        // ---------- bottom page-thumbnail strip (mockup; collapsible) ----------
-        if self.thumbs_collapsed {
-            // slim bar: page name + count + expand chevron; click = expand
-            let tr = self.thumbs_rect();
-            fill_rect(&mut ui, Rect::new(0.0, tr.y0, self.win_w, tr.y1), C_PANEL);
-            fill_rect(&mut ui, Rect::new(0.0, tr.y0, self.win_w, tr.y0 + 1.0), C_PANEL_EDGE);
-            label(&mut ui, &format!("Pages ({}) — {}", self.pages.len(), self.editor.root.id), tr.x0 + 14.0, tr.y0 + 6.0, 8.5, C_DIM);
-            // up chevron
-            let (cx, cy) = (tr.x1 - 16.0, tr.y0 + 11.0);
-            let st = vello::kurbo::Stroke::new(1.4).with_caps(vello::kurbo::Cap::Round);
-            let mut ch = vello::kurbo::BezPath::new();
-            ch.move_to((cx - 5.0, cy + 2.5)); ch.line_to((cx, cy - 2.5)); ch.line_to((cx + 5.0, cy + 2.5));
-            ui.stroke(&st, Affine::IDENTITY, C_DIM, None, &ch);
-        } else {
-            let tr = self.thumbs_rect();
-            fill_rect(&mut ui, Rect::new(0.0, tr.y0, self.win_w, tr.y1), C_PANEL);
-            fill_rect(&mut ui, Rect::new(0.0, tr.y0, self.win_w, tr.y0 + 1.0), C_PANEL_EDGE);
-            // collapse chevron (down) at the strip's right edge
-            {
-                let (cx, cy) = (tr.x1 - 16.0, tr.y0 + 11.0);
-                let st = vello::kurbo::Stroke::new(1.4).with_caps(vello::kurbo::Cap::Round);
-                let mut ch = vello::kurbo::BezPath::new();
-                ch.move_to((cx - 5.0, cy - 2.5)); ch.line_to((cx, cy + 2.5)); ch.line_to((cx + 5.0, cy - 2.5));
-                ui.stroke(&st, Affine::IDENTITY, C_DIM, None, &ch);
-            }
-            let cell_w = 96.0;
-            let cell_h = 54.0;
-            let mut x = tr.x0 + 14.0;
-            let ty = tr.y0 + 10.0;
-            for (i, page) in self.pages.iter().enumerate() {
-                let cell = Rect::new(x, ty, x + cell_w, ty + cell_h);
-                let cell_hover = cell.contains(self.cursor);
-                // page thumbnail through the REAL render IR
-                let page_ref = if i == self.page_idx { &self.editor.root } else { page };
-                let tree = arco_native::build_render_tree(page_ref, &self.vars);
-                let (thumb, _) = arco_native::thumbnail_scene(&tree, page_ref.w.max(1.0), page_ref.h.max(1.0), cell_w, cell_h);
-                fill_rrect(&mut ui, cell, 4.0, Color::rgb8(0x30, 0x32, 0x38));
-                ui.push_layer(vello::peniko::Mix::Clip, 1.0, Affine::IDENTITY, &cell.to_path(0.1));
-                ui.append(&thumb, Some(Affine::translate((x, ty))));
-                ui.pop_layer();
-                if i == self.page_idx {
-                    stroke_rect(&mut ui, cell, C_ACCENT, 2.0);
-                    fill_rrect(&mut ui, Rect::new(x, ty + cell_h + 4.0, x + cell_w, ty + cell_h + 18.0), 3.0, C_ACCENT);
-                } else if cell_hover {
-                    stroke_rect(&mut ui, cell, Color::rgba8(0x7c, 0x5c, 0xfc, 170), 1.5);
-                }
-                let renaming = matches!(&self.focus, Focus::PageRename { idx, .. } if *idx == i);
-                let name = if renaming {
-                    if let Focus::PageRename { buffer, .. } = &self.focus {
-                        format!("{}_", if buffer.is_empty() { page_ref.id.as_str() } else { buffer.as_str() })
-                    } else { page_ref.id.clone() }
-                } else { page_ref.id.chars().take(12).collect::<String>() };
-                let nw = ui_measure(&name, 8.0);
-                label(&mut ui, &name, x + (cell_w - nw) / 2.0, ty + cell_h + 6.0, 8.0,
-                    if renaming { PALETTE[4] } else if i == self.page_idx { Color::WHITE } else { C_DIM });
-                x += cell_w + 12.0;
-                if x + cell_w > tr.x1 - 90.0 { break; }
-            }
-            // + New Page cell
-            let cell = Rect::new(x, ty, x + cell_w, ty + cell_h);
-            stroke_rect(&mut ui, cell, C_PANEL_EDGE, 1.0);
-            let pw = ui_measure("+ New Page", 8.0);
-            label(&mut ui, "+", x + cell_w / 2.0 - 4.0, ty + cell_h / 2.0 - 8.0, 13.0, C_DIM);
-            label(&mut ui, "+ New Page", x + (cell_w - pw) / 2.0, ty + cell_h + 6.0, 8.0, C_DIM);
-        }
         {
             let sy = self.win_h - STATUS_H;
             fill_rect(&mut ui, Rect::new(0.0, sy, self.win_w, self.win_h), C_PANEL);
@@ -690,28 +625,29 @@ impl App {
             label(&mut ui, &shown, sr.x0 + 26.0, sr.y0 + 6.0, 8.5,
                 if self.layer_filter.is_empty() && !active { C_DIM } else { C_TEXT });
         }
-        // PAGES section (compact; the thumbnail strip is the main page UI)
+        // PAGES section — a plain list (icon + name per row, no thumbnail),
+        // same convention as Figma's Pages list at the top of the Layers
+        // panel: click a row to switch, double-click the name to rename.
         label(&mut ui, "Pages", 12.0, TOP_H + LPAGES_HDR + 6.0, 9.0, C_DIM);
         label(&mut ui, "+", LAYERS_W - 22.0, TOP_H + LPAGES_HDR + 4.0, 11.0, C_DIM);
         let pages_y0 = TOP_H + LPAGES_Y0 + 6.0;
         for (i, pg) in self.pages.iter().enumerate() {
             let y = pages_y0 + i as f64 * ROW_H;
             let row_r = Rect::new(4.0, y - 1.0, LAYERS_W - 8.0, y + ROW_H - 3.0);
-            if i == self.page_idx {
+            let active = i == self.page_idx;
+            if active {
                 fill_rrect(&mut ui, row_r, 5.0, C_SELECTED);
             } else if row_r.contains(self.cursor) {
                 fill_rrect(&mut ui, row_r, 5.0, C_HOVERBG);
             }
-            // IR-powered page thumbnail chip (thumbnail_scene sink)
+            // small page/document glyph — a plain outlined rect, not a
+            // live render of the page (Figma's page rows carry no preview)
             {
-                let live = if i == self.page_idx { &self.editor.root } else { pg };
-                let tree = arco_native::build_render_tree(live, &self.vars);
-                let (thumb, _) = arco_native::thumbnail_scene(&tree, live.w.max(1.0), live.h.max(1.0), 26.0, 14.0);
-                fill_rect(&mut ui, Rect::new(18.0, y, 44.0, y + 14.0), Color::rgb8(0x1a, 0x1c, 0x20));
-                ui.append(&thumb, Some(Affine::translate((18.0, y))));
-                stroke_rect(&mut ui, Rect::new(18.0, y, 44.0, y + 14.0), C_PANEL_EDGE, 1.0);
+                let icon = Rect::new(18.0, y + 2.0, 28.0, y + 13.0);
+                let c = if active { Color::WHITE } else { C_DIM };
+                ui.stroke(&vello::kurbo::Stroke::new(1.1), Affine::IDENTITY, c, None, &icon.to_path(0.1));
             }
-            label(&mut ui, &pg.id, 50.0, y, 9.0, if i == self.page_idx { Color::WHITE } else { C_TEXT });
+            label(&mut ui, &pg.id, 36.0, y, 9.0, if active { Color::WHITE } else { C_TEXT });
         }
         let plus_y = pages_y0 + self.pages.len() as f64 * ROW_H;
         label(&mut ui, "+ New Page", 20.0, plus_y, 8.0, C_DIM);
