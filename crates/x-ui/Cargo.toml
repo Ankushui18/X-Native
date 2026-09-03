@@ -1,6 +1,0 @@
-[package]
-name = "x-ui"
-version = "0.34.0"
-edition = "2021"
-[dependencies]
-x-text = { path = "../x-text" }
