@@ -1,0 +1,10 @@
+[package]
+name = "x-editor"
+version = "0.34.0"
+edition = "2021"
+[dependencies]
+x-components = { path = "../x-components" }
+x-core = { path = "../x-core" }
+[dev-dependencies]
+x-format = { path = "../x-format" }
+x-render = { path = "../x-render" }

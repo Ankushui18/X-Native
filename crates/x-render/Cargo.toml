@@ -1,0 +1,15 @@
+[package]
+name = "x-render"
+version = "0.34.0"
+edition = "2021"
+[dependencies]
+vello = "0.10"
+png = "0.18.1"
+miniz_oxide = "0.8"
+tiny-skia = "0.12"
+jpeg-encoder = "0.7"
+x-core = { path = "../x-core" }
+x-text = { path = "../x-text" }
+
+[dev-dependencies]
+x-components = { path = "../x-components" }

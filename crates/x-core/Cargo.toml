@@ -1,0 +1,7 @@
+[package]
+name = "x-core"
+version = "0.34.0"
+edition = "2021"
+[dependencies]
+kurbo = "0.13"
+peniko = "0.6"
