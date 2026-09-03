@@ -1,365 +1,255 @@
-# X-Native Professional UI Design System
+# X-Native Design System — v2 "Ink & Ember"
 
-## 🎨 Brand Identity: Graphite & Violet
+> **Authoritative.** This document supersedes the v1 "Graphite & Violet"
+> spec in its entirety (v1 is retired; its violet accent, surface ramp, and
+> icon conventions no longer exist in the codebase). `theme.rs` is the
+> machine-readable source of truth for every token printed here; if the two
+> disagree, `theme.rs` wins and this doc must be updated in the same commit.
+> Historical note: the pre-v1 "Arco" exploration is also retired — permanently.
 
-### Core Philosophy
-X-Native is **NOT** a Figma clone. We are a professional, native-first design tool with our own distinct identity inspired by modern tools like Framer, while maintaining professional ergonomics.
+## 1. Identity: why Ink & Ember
 
-### Visual Language Principles
-1. **Distinctive Color Palette**: Deep graphite surfaces with violet accent (#7C5CFC)
-2. **Professional Spacing**: Consistent 8px grid system
-3. **Modern Typography**: Inter for UI, JetBrains Mono for code/values
-4. **Subtle Depth**: Layered surfaces with minimal borders
-5. **Focus on Content**: Canvas-first design, minimal chrome distraction
+X-Native is **not** a Figma clone and not a Sketch clone. The 2026 field:
 
----
+| | Figma (UI3) | Sketch | X-Native v2 |
+|---|---|---|---|
+| Surface | neutral dark, ~5 grays | light, minimal | **cool ink ramp** (7 steps, blue-leaning) |
+| Accent | blue `#0D99FF` (and UI3's growing multi-accent set) | red/pink, sparse | **one warm Ember**, everywhere discipline is needed |
+| Density | roomy, 36–44px rows | airy | **28px rows as a feature** — pros want layers on screen |
+| Icons | in-house set, mixed weights | crisp, light strokes | **one stroke-only set, 24-grid, 1.8 weight** |
+| Personality | friendly-neutral | quiet-craft | **calm ink, one spark** |
 
-## 🎨 Color System
+The differentiator is a single warm accent on a cool ink canvas. Every
+competitor uses a cool accent on a neutral or cool canvas; warm-on-cool gives
+instant brand recognition, and because there is exactly **one** accent, the
+eye learns "Ember means I can act here." Discipline is the design:
+Ember appears on exactly three things — **selection, the primary action,
+and the active underline**. Everything else is neutral.
 
-### Primary Palette
+The palette was chosen against WCAG, not taste: every text token in this
+document ships with its measured contrast ratio (§3).
+
+## 2. Geometry
+
 ```rust
-// Backgrounds (Graphite Series)
-C_BG_PRIMARY:   #0D0E12  // Main app background
-C_BG_SECONDARY: #141519  // Panel backgrounds  
-C_BG_TERTIARY:  #1B1D23  // Elevated surfaces
-C_BG_FIELD:     #202229  // Input fields
-
-// Semantic Colors
-C_ACCENT:       #7C5CFC  // Primary violet (brand color)
-C_ACCENT_HOVER: #8B6EFF  // Hover state
-C_ACCENT_ACTIVE:#6A4CE0  // Active/pressed
-
-// Text Hierarchy
-C_TEXT_PRIMARY:   #F2F3F7  // Primary text
-C_TEXT_SECONDARY: #9A9EAA  // Secondary text
-C_TEXT_DISABLED:  #6B6F7A  // Disabled text
-
-// Functional Colors
-C_SUCCESS: #10B981  // Green - success states
-C_WARNING: #F59E0B  // Amber - warnings
-C_ERROR:   #EF4444  // Red - errors
-C_INFO:    #3B82F6  // Blue - information
-
-// Canvas & Interaction
-C_CANVAS:      #22242A  // Canvas background
-C_HOVER:       #2A2D36  // Hover states
-C_SELECTION:   rgba(124, 92, 252, 0.2)  // Selection overlay
-C_FOCUS_RING:  #A996FF  // Accessibility focus ring
-C_BORDER:      #2D3039  // Subtle dividers
+TAB_H:       30   // document tab strip
+HDR_H:       42   // header row 2 (menus · tool dock · zoom · actions)
+TOP_H:       72   // = TAB_H + HDR_H (chrome above the canvas)
+BOTTOM_BAR_H 28   // (legacy name) tool dock band, now inside the header
+STATUS_H:    24   // bottom status bar
+THUMBS_H:    88   // page thumbnail strip
+LAYERS_W:    264  // left panel
+RAIL_W:      44   // left icon rail (rail tabs are square: LTAB_H = RAIL_W)
+INSPECTOR_W: 288  // right panel
+ROW_H:       28   // list rows (layers, pages, assets) — density is a feature
+PAD:         16   // standard panel padding
 ```
 
-### Contrast Requirements
-- All text must meet WCAG AA minimum (4.5:1 for normal text)
-- Focus indicators must be highly visible (3:1 minimum)
-- No reliance on color alone for information
+Density is intentional: 28px rows put ~40 layer rows on screen where Figma's
+UI3 rows put ~26. Rulers, when visible, are 16px strips inset in the canvas.
 
----
+## 3. Color — Ink ramp + Ember
 
-## 📐 Layout System
+### Surfaces (the ink ramp, cool-leaning)
 
-### Spacing Scale (8px Grid)
-```
-4px   - Tight spacing (icon padding)
-8px   - Base unit (component padding)
-12px  - Comfortable spacing
-16px  - Section spacing
-24px  - Panel margins
-32px  - Large gaps
-48px  - Major sections
-```
+| Token | Value | Role |
+|---|---|---|
+| `C_BASE` | `#0E1117` | window backdrop / dashboard base |
+| `C_CANVAS` | `#131720` | artboard area |
+| `C_PANEL` | `#181D27` | header, tabs, panels |
+| `C_PANEL2` | `#1F2531` | raised: menus, popovers, modals |
+| `C_FIELD` | `#11151D` | recessed wells: inputs, search, thumbnails |
+| `C_HOVER` | `#262D3B` | hover fill |
+| `C_PRESSED` | `#2C3444` | pressed fill / active tool slot |
 
-### Panel Dimensions
-```rust
-// Left Panel (Layers/Assets)
-LAYERS_PANEL_W: 252px
+The ramp is strictly ordered: `FIELD < PANEL < PANEL2 < HOVER < PRESSED`
+in lightness, all hue-shifted toward blue (~222°) so the chrome reads *cool*.
 
-// Right Panel (Inspector)
-INSPECTOR_W: 280px  // Slightly wider for better readability
+### Lines
 
-// Top Bar
-TOP_BAR_H: 48px     // Streamlined from 72px
+| Token | Value | Use |
+|---|---|---|
+| `C_EDGE` | `#232A38` | subtle hairlines |
+| `C_EDGE_2` | `#303949` | strong dividers |
+| `C_HOVERLN` | `#EAECF1 @ 55%` | neutral hover outline (canvas) |
 
-// Bottom Bar  
-BOTTOM_BAR_H: 32px  // Minimal status bar
+### Text (contrast measured against `C_PANEL` `#181D27`)
 
-// Tab Height
-TAB_H: 36px         // Comfortable click target
-```
+| Token | Value | Contrast | Role |
+|---|---|---|---|
+| `C_TEXT` | `#EAECF1` | 13.6:1 | primary |
+| `C_DIM` | `#A8AFBF` | 7.6:1 | secondary, section headers |
+| `C_FAINT` | `#7E8698` | 4.7:1 | tertiary (readable floor) |
+| `C_OFF` | `#4A5160` | 2.0:1 | disabled only — never informational |
+| `C_ACCENT_TXT` | `#FFA259` | 8.9:1 | Ember *as text* / focus ring |
+| `C_ON_ACCENT` | `#1A1206` | 6.9:1 | ink-on-Ember (text on accent fills) |
 
-### Corner Radius System
-```
-2px  - Small elements (buttons, inputs)
-4px  - Medium elements (cards, panels)
-8px  - Large elements (modals, overlays)
-12px - Extra large (floating HUDs)
-```
+All interactive text meets or exceeds WCAG AA (4.5:1). `C_ACCENT`
+(`#F97B22`) itself is 4.6:1 on `C_PANEL` — it is used as a **fill/stroke
+token**, and when Ember must carry small text we use `C_ACCENT_TXT` instead.
 
----
+### Ember (the only accent)
 
-## ✨ Typography
+| Token | Value | Role |
+|---|---|---|
+| `C_ACCENT` | `#F97B22` | base — selection stroke, primary buttons, underlines |
+| `C_ACCENT_HOV` | `#FF9049` | hover state of accent fills |
+| `C_ACCENT_PRS` | `#E16A12` | pressed state |
+| `C_ACCENT_TXT` | `#FFA259` | accent as text / focus ring |
+| `C_ON_ACCENT` | `#1A1206` | content on accent fills (dark-on-light, not white) |
+| `C_SELECTED` | `#F97B22 @ 14%` | selected rows/tiles wash |
+| `C_FOCUS_RING` | `#FFA259 @ 70%` | keyboard focus ring |
 
-### Font Families
-```rust
-UI_FONT: "Inter", -apple-system, BlinkMacSystemFont, sans-serif
-CODE_FONT: "JetBrains Mono", "Fira Code", monospace
-CANVAS_FONT: "Inter", system-ui  // For design text preview
-```
+**Accent discipline — the three allowed uses:** (1) selection & active
+state marks (outline, underline, wash); (2) exactly one primary action per
+surface; (3) focus. Menu hovers are neutral (`C_HOVER`), secondary buttons
+are neutral, the active tool slot is `C_PRESSED` with an Ember glyph —
+**not** an all-accent block. White text is reserved for on-accent and
+on-canvas emphasis; on dark chrome the strongest text is `C_TEXT`.
 
-### Type Scale
-```
-11px - Tiny (labels, hints)
-12px - Small (secondary text)
-13px - Base (body text)
-14px - Medium (emphasis)
-16px - Large (section headers)
-18px - XL (panel titles)
-24px - 2XL (modal titles)
-```
+### Semantic
 
-### Font Weights
-```
-400 - Regular (body text)
-500 - Medium (buttons, labels)
-600 - Semi-bold (headers)
-700 - Bold (emphasis)
-```
+`C_OK #3ECF8E` · `C_WARN #F5B83D` · `C_DANGER #F2545B` · `C_INFO #5CA8FF`
+· `C_SNAP #FF4D6D` (snap guides/rulers) · `C_GRID #EAECF1 @ 14%` ·
+`C_SHADOW`/`C_SHADOW2`/`C_SCRIM` (black @ 40/50/50%).
 
----
+### Canvas interaction colors
 
-## 🎯 Component Guidelines
+Selection stroke = `C_SELECT` (`= C_ACCENT`). Hover outline = `C_HOVERLN`
+(neutral — deliberately distinct from the Ember selection). Vector-edit
+handle lines = Ember @ 67%; anchors are white-filled, Ember-stroked.
+Smart guides = red `#FF3B30`; skew/guide lines = cyan `#00BCD4 @ 70%`.
+These canvas-tool colors are semantic, not brand, and stay literal.
 
-### Buttons
-```rust
-// Primary Button
-background: C_ACCENT
-text: WHITE
-padding: 8px 16px
-radius: 6px
-height: 32px
+### Paper (light theme — planned, not yet implemented)
 
-// Secondary Button  
-background: C_BG_TERTIARY
-text: C_TEXT_PRIMARY
-border: 1px solid C_BORDER
-padding: 8px 16px
-radius: 6px
-height: 32px
+The ramp inverts while Ember stays: `Paper 0 #FFFFFF`, `Paper 1 #F7F8FA`,
+`Paper 2 #EEF0F4`, hover `#E4E7EC`, pressed `#D9DDE3`, field `#EDEFF3`,
+edges `#E2E5EA`/`#C7CCD4`, text `#16181D`, dim `#5A6170`, faint `#8A919E`,
+off `#B6BCC7`. Ember text on Paper uses `#D9640A` (4.6:1 on white); fills
+keep `#F97B22` with `C_ON_ACCENT` content. Ships only when every token in
+this document has a Paper counterpart — no partial themes.
 
-// Ghost Button
-background: transparent
-text: C_TEXT_PRIMARY
-hover: C_HOVER
-padding: 8px 12px
-radius: 6px
-```
+## 4. Radii
 
-### Input Fields
-```rust
-background: C_BG_FIELD
-border: 1px solid C_BORDER
-border_radius: 6px
-height: 32px
-padding: 6px 10px
-font: 13px JetBrains Mono
-focus_border: C_ACCENT
-focus_ring: 2px solid rgba(124, 92, 252, 0.4)
-```
+| Token | Value | Use |
+|---|---|---|
+| `R_XS` | 3 | chips, tiny affordances |
+| `R_SM` | 6 | buttons, inputs, list-row hovers |
+| `R_MD` | 10 | menus, popovers, tooltips, palette, HUD, minimap, tool dock |
+| `R_LG` | 14 | modals, dialogs, large cards |
+| `R_XL` | 20 | hero/dashboard cards |
 
-### Panels
-```rust
-background: C_BG_SECONDARY
-border: 1px solid C_BORDER
-border_radius: 8px
-shadow: 0 4px 12px rgba(0, 0, 0, 0.3)
-```
+Compat aliases `RADIUS_SM/MD/LG` map to `R_SM/R_MD/R_LG`.
 
-### Tabs
-```rust
-inactive_bg: transparent
-inactive_text: C_TEXT_SECONDARY
-active_bg: C_BG_TERTIARY
-active_text: C_TEXT_PRIMARY
-indicator: 2px solid C_ACCENT (bottom)
-height: 36px
-padding: 0 16px
-```
+## 5. Typography
 
----
+- **UI font:** system UI stack via the text pipeline; monospace for values
+  is supplied by the same stack (no separate brand font yet).
+- **Scale:** 20 / 16 / 14 / 13 / 12 / 11 / 10 / 9 / 8 px. 11px is the
+  default for chrome labels (menus, tabs, buttons, zoom); 9–10px for
+  micro-labels (rail captions, status, shortcut hints); 8px reserved for
+  all-caps section headers set in `C_DIM`.
+- `label()` takes the **top** of the glyph box, not a baseline — center
+  text in a band by `y = band_y0 + (band_h - size) / 2`.
+- Section headers: 11px caps in `C_DIM`, never `C_ACCENT`.
 
-## 🚀 Key UI Innovations
+## 6. Iconography — one library, `icons.rs`
 
-### 1. Adaptive Context System
-Panels adapt to current task:
-- **Layout Mode**: Auto-layout controls prominent
-- **Vector Mode**: Pen tool options visible
-- **Text Mode**: Typography panel expands
-- **Component Mode**: Properties show variants
-- **Focus Mode**: All chrome hidden
+Every chrome glyph — toolbar, layer list, left rail, status bar, menus,
+window controls — comes from the single in-binary library `icons.rs`:
 
-### 2. Command Palette (Cmd+K)
-Spotlight-style search for:
-- Layers and components
-- Actions and tools
-- Settings and preferences
-- Keyboard shortcuts
+- **24×24 design grid**, rendered at 9–18px (`icons::paint(scene, icon,
+  cx, cy, size, color)` — centered, scaled `size/24`).
+- **Stroke only** — 1.8-unit stroke (floored at 1px device), round caps
+  and joins, no fills in chrome. One `BezPath` per icon, subpaths for
+  open/closed parts; circles built from four kappa arcs so everything
+  strokes identically.
+- Lucide-inspired open-form geometry (45° cuts, optically balanced
+  circles), but self-contained: zero assets, no font dependency.
+- Mappings live beside the glyphs: `tool_icon(Tool)` covers **all 17
+  tools**; `kind_icon(&NodeKind)` covers all 13 node kinds (Frame, Group,
+  Section, Rect, Ellipse, Arc, Line, Text, Image, Vector, Component,
+  Instance, Slice).
+- The set ships complete (~70 variants) like an icon package; unused
+  variants are allowed so future chrome never reintroduces ad-hoc paths.
+- **No text-glyph icons** ("O" for eye, "*" for lock, "T" for text layers
+  are retired) and no per-surface hand-drawn marks.
 
-### 3. Floating Property HUD
-Inline editing without losing canvas focus:
-- Shows common properties for selection
-- Drag-to-scrub numeric values
-- Quick color picker
-- Dismissable with Esc
+## 7. Chrome anatomy
 
-### 4. Spatial Navigator
-Mini-map showing:
-- Element positions spatially
-- Color-coded by type
-- Click to zoom/select
-- Shows overlap visually
+1. **Tab strip (30px, `C_PANEL`):** monochrome X mark + wordmark in
+   `C_TEXT`; active document tab = no background, full-contrast text,
+   **2px Ember underline inset 8px, flush to the strip's bottom edge**;
+   dirty dot at tab end; `+` in library stroke weight; window controls
+   from the library (Minus / Minimize / Close, 11px, `C_DIM`).
+2. **Header row 2 (42px, `C_PANEL2`):** menus at 11px with neutral hover;
+   center **tool dock** — a recessed `C_FIELD` pill (`R_MD`, hairline
+   `C_EDGE`, soft shadow) holding all 17 tools at **40px pitch, 34px
+   slots**; active tool = `C_PRESSED` slot + Ember glyph, hover = neutral;
+   zoom pill; Share / Prototype as ghost buttons; **Present** is the one
+   accent pill (ink-on-Ember content).
+3. **Left rail (44px):** square icon tabs — 18px library glyph above a
+   9px micro-label; active = Ember glyph + `C_SELECTED` wash + Ember
+   underline at the rail's foot; hover = white @ 4%.
+4. **Left panel (264px):** `C_FIELD` search with library magnifier,
+   `C_FOCUS_RING` focus; Pages with real thumbnails in `C_FIELD` wells;
+   Layers rows at 28px — `C_SELECTED`/`C_HOVER` row fills, library caret +
+   kind glyph, Eye/EyeOff/Lock affordances (hover-revealed, `C_WARN` when
+   engaged); proportional scrollbar.
+5. **Inspector (288px):** Design/Prototype tabs use the same text +
+   Ember-underline language as the document strip; recessed fields with
+   `C_FOCUS_RING`; export rows as neutral chips (hover = `C_HOVER`);
+   the **Export button is the panel's single accent action**.
+6. **Status bar (24px):** `C_OK` ready dot, 10px text, live focus/
+   edit line; selection geometry + zoom right-aligned.
+7. **Popovers/modals:** `C_PANEL2` on `C_SCRIM`, `R_MD`/`R_LG`, `C_EDGE`
+   hairline, `C_SHADOW`/`C_SHADOW2` drop shadows; menu rows hover in
+   neutral `C_HOVER` (never accent), disabled rows in `C_OFF`.
 
-### 5. Focus Mode (Cmd+Shift+F)
-Distraction-free workflow:
-- Hide all panels
-- Canvas fills 95% screen
-- Only essential tools visible
-- Notifications suppressed
+## 8. Interaction states
 
----
+| State | Fill | Content |
+|---|---|---|
+| rest | `C_FIELD` or panel | `C_TEXT` / `C_DIM` |
+| hover | `C_HOVER` | `C_TEXT` |
+| active/pressed | `C_PRESSED` | `C_TEXT` (+ Ember glyph for the active tool) |
+| selected | `C_SELECTED` wash | `C_TEXT`/white |
+| focus | unchanged + `C_FOCUS_RING` stroke | unchanged |
+| primary action | `C_ACCENT` → `C_ACCENT_HOV` → `C_ACCENT_PRS` | `C_ON_ACCENT` |
+| disabled | unchanged | `C_OFF` |
 
-## ♿ Accessibility Standards
+## 9. Accessibility
 
-### Keyboard Navigation
-```
-Tab/Shift+Tab  - Navigate widgets
-Enter/Space    - Activate
-Arrow Keys     - Navigate within widgets
-Esc            - Close/Cancel
-Cmd+K          - Command palette
-Cmd+/          - Shortcuts overlay
-```
+- All interactive text ≥ 4.5:1 (§3 table); focus rings ≥ 3:1 (`C_FOCUS_RING`
+  is 8.9:1 tinted); state is never carried by color alone (lock/eye glyphs,
+  dirty dot, text emphasis).
+- Full keyboard model: tool single-keys and ⇧-variants, ⌘· menus, ⌘.
+  hide-interface, arrow/nudge, ⌥⌘K components, ⇧R rulers, ⌘G/⌥⌘G grouping.
+- The canvas is the only element allowed pure white text; chrome maximum is
+  `C_TEXT` so selection/active states keep the highest local contrast.
 
-### Screen Reader Support
-- All interactive elements have semantic roles
-- Logical focus order
-- Live regions for dynamic updates
-- Descriptive labels for icons
+## 10. Motion
 
-### High Contrast Mode
-Toggle switches to WCAG AAA compliant theme:
-- Pure black background (#000000)
-- White text (#FFFFFF)  
-- Yellow focus rings (#FFFF00)
-- No color-only information
+Chrome motion is currently implicit (hover/active color steps, no
+transitions in the vello UI layer). Policy when animation lands: 120ms for
+state feedback, 200ms for popover/panel reveals, ease-out; no motion on
+text; respect reduced-motion (drop to instant state swaps).
 
-### Reduced Motion
-Respects OS setting:
-- Disables non-essential animations
-- Instant transitions option
-- No auto-playing content
+## 11. Differentiators from Figma / Sketch (v2 recap)
 
----
+1. One warm accent on a cool ink field vs everyone's cool-on-neutral.
+2. 28px density as a pro feature, measured against UI3's roomier rows.
+3. A single stroke-only icon system across every surface, 1.8 weight.
+4. WCAG-measured tokens published as code (`theme.rs`) and prose (here).
+5. Active-tab/tool language that favors neutral surfaces + Ember marks
+   over Figma-style tinted blocks — quieter chrome, louder content.
 
-## 🎭 Motion Design
+## 12. Governance
 
-### Animation Durations
-```
-60ms  - Micro-interactions (hover states)
-80ms  - Selection feedback
-120ms - Small transitions (toggle, checkbox)
-150ms - Panel expand/collapse
-200ms - Modal transitions
-250ms - Page transitions
-```
-
-### Easing Functions
-```rust
-ease_out: cubic-bezier(0.16, 1, 0.3, 1)    // Most UI motions
-ease_in_out: cubic-bezier(0.65, 0, 0.35, 1) // Balanced transitions
-spring: cubic-bezier(0.34, 1.56, 0.64, 1)  // Playful interactions
-```
-
-### Animation Policy
-```rust
-Full      - All animations (default)
-Reduced   - Essential motion only
-None      - Instant changes (accessibility)
-```
-
----
-
-## 📊 Performance Targets
-
-| Metric | Target | Measurement |
-|--------|--------|-------------|
-| First Paint | <100ms | App launch to UI ready |
-| Panel Response | <16ms | Click to visual feedback |
-| Canvas FPS | 120+ | With 1000+ elements |
-| Search Results | <50ms | Cmd+K typing latency |
-| Theme Switch | <100ms | Full theme transition |
-
----
-
-## 🛠 Implementation Checklist
-
-### Phase 1: Foundation ✅
-- [x] Define color system
-- [x] Establish spacing scale
-- [x] Set typography guidelines
-- [ ] Implement theme provider
-- [ ] Create component primitives
-
-### Phase 2: Core Components
-- [ ] Update button styles
-- [ ] Redesign input fields
-- [ ] Modernize panels
-- [ ] Improve tabs
-- [ ] Add tooltips
-
-### Phase 3: Layout Improvements
-- [ ] Streamline top bar (48px)
-- [ ] Widen inspector (280px)
-- [ ] Add command palette
-- [ ] Implement focus mode
-- [ ] Create floating HUD
-
-### Phase 4: Polish
-- [ ] Add micro-animations
-- [ ] Implement keyboard nav overlay
-- [ ] Add performance metrics display
-- [ ] Accessibility audit
-- [ ] User testing iterations
-
----
-
-## 🎯 Success Metrics
-
-### Usability Goals
-- Reduce clicks per common task from 3-5 to 1-2
-- Achieve basic proficiency in <1 day (vs 2-3 for Figma)
-- Score 95+ on accessibility audits
-- Maintain 120+ FPS with complex documents
-
-### User Satisfaction
-- Net Promoter Score >50
-- Task completion rate >95%
-- Error rate <2%
-- Time-on-task reduction >30%
-
----
-
-## 💡 Differentiators from Figma
-
-1. **Native Performance**: Rust + GPU = butter smooth at any scale
-2. **True Offline**: Full functionality without internet
-3. **Local-First**: Your data stays yours
-4. **Open Format**: Documented .x files, backward compatible
-5. **Better Accessibility**: Built-in from day one, not afterthought
-6. **Custom Themes**: User-created themes easily shareable
-7. **Spatial Navigation**: See your design structure visually
-8. **Focus Modes**: Distraction-free workflows built-in
-
----
-
-*Last Updated: 2025*
-*Version: 1.0*
-*X-Native Design Team*
+- Tokens change in `theme.rs` **and** this doc in the same commit.
+- No new hex literal in `chrome.rs`/`helpers.rs` outside: canvas tool
+  colors (§3), avatar/content imagery, and black scrims/shadows via
+  tokens. New chrome color = new token.
+- New glyph = new `Icon` variant + `paint` arm; no ad-hoc paths.
+- Gates: 33 test suites, clippy clean at default level, rustfmt clean.

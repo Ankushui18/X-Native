@@ -2,12 +2,6 @@
 //! Modules: theme (constants), state (Tool/Drag/Focus/App), app (impl App:
 //! input + chrome), helpers (draw utils), demo (starter doc), run (event loop).
 
-use x_native::editor::{find, hit_test_rect, Editor};
-use x_native::text::{encode_text, measure};
-use x_native::{
-    AutoLayout, BlendKind, Color, CrossAlign, Document, Effect, LayoutDirection, Node,
-    Paint, StrokeAlign, Variables,
-};
 use std::sync::Arc;
 use vello::kurbo::{Affine, Point, Rect, Shape};
 use vello::peniko::Fill;
@@ -17,20 +11,32 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::keyboard::{Key, NamedKey};
 use winit::window::Window;
+use x_native::editor::{
+    find, node_gap, node_measurements, node_to_compose, node_to_css, node_to_swift, node_to_xml,
+    node_tokens, parent_id, selection_assets, Editor,
+};
+use x_native::text::{encode_text, measure};
+use x_native::{
+    eval_expr, format_cond, format_expr, parse_cond_text, parse_expr_text, Action, Alignment,
+    Animation, AutoLayout, BlendKind, Color, Condition, CrossAlign, Direction, Distribute,
+    Document, Effect, ExportSettings, Expr, GradSpace, GridPattern, Interaction, LayoutDirection,
+    LayoutGridDef, Node, Overflow, OverlayPosition, Paint, StrokeAlign, Trigger, Value, Variables,
+};
 
-mod theme;
-mod state;
 mod app;
 mod chrome;
-mod helpers;
 mod demo;
+mod helpers;
+mod icons;
 mod run;
+mod state;
+mod theme;
 
-pub use theme::*;
-pub use state::*;
-pub use helpers::*;
 pub use demo::*;
+pub use helpers::*;
 pub use run::*;
+pub use state::*;
+pub use theme::*;
 
 /// OS clipboard bridge (native macOS, then Wayland/X11 fallbacks).
 /// Editor-object clipboard stays internal; this carries TEXT + exported
@@ -50,8 +56,12 @@ pub fn os_clipboard_set(text: &str) {
             .stderr(std::process::Stdio::null())
             .spawn()
         {
-            if let Some(stdin) = child.stdin.as_mut() { let _ = stdin.write_all(text.as_bytes()); }
-            if child.wait().map(|st| st.success()).unwrap_or(false) { return; }
+            if let Some(stdin) = child.stdin.as_mut() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            if child.wait().map(|st| st.success()).unwrap_or(false) {
+                return;
+            }
         }
     }
 }
@@ -66,11 +76,15 @@ pub fn os_clipboard_get() -> Option<String> {
         if let Ok(out) = std::process::Command::new(cmd).args(args).output() {
             if out.status.success() {
                 let s = String::from_utf8_lossy(&out.stdout).to_string();
-                if !s.is_empty() { return Some(s); }
+                if !s.is_empty() {
+                    return Some(s);
+                }
             }
         }
     }
     None
 }
 
-fn main() { run(); }
+fn main() {
+    run();
+}

@@ -7,9 +7,11 @@
 //! count bites. GPU submit is excluded on purpose: it needs a display
 //! and is constant-ish per frame area.
 
-use x_native::{build_render_tree, Assets, Color, FrameCache, Node, Paint, Variables, VelloSink};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use x_native::{
+    build_render_tree, Assets, Color, FrameCache, GradSpace, Node, Paint, Variables, VelloSink,
+};
 
 // ---- memory profiling: counting allocator (peak + live bytes) ----
 struct Counting;
@@ -32,10 +34,13 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static A: Counting = Counting;
 fn mem_mb() -> (f64, f64) {
-    (LIVE.load(Ordering::Relaxed) as f64 / 1e6, PEAK.load(Ordering::Relaxed) as f64 / 1e6)
+    (
+        LIVE.load(Ordering::Relaxed) as f64 / 1e6,
+        PEAK.load(Ordering::Relaxed) as f64 / 1e6,
+    )
 }
-use x_native::text::{FontManager, ShapedTextCache};
 use std::time::Instant;
+use x_native::text::{FontManager, ShapedTextCache};
 
 fn rect_farm(n: usize) -> Node {
     let mut page = Node::frame("page", 4000.0, 4000.0);
@@ -43,8 +48,16 @@ fn rect_farm(n: usize) -> Node {
     for i in 0..n {
         let (c, r) = (i % cols, i / cols);
         page.children.push(
-            Node::rect(&format!("r{i}"), c as f64 * 12.0, r as f64 * 12.0, 10.0, 10.0,
-                Color::from_rgb8((i % 255) as u8, 0x99, 0xff)).radius(2.0));
+            Node::rect(
+                &format!("r{i}"),
+                c as f64 * 12.0,
+                r as f64 * 12.0,
+                10.0,
+                10.0,
+                Color::from_rgb8((i % 255) as u8, 0x99, 0xff),
+            )
+            .radius(2.0),
+        );
     }
     page
 }
@@ -52,9 +65,21 @@ fn rect_farm(n: usize) -> Node {
 fn mixed_workload(n: usize) -> Node {
     let mut page = Node::frame("page", 4000.0, 4000.0);
     // one component master, instanced heavily (the realistic pattern)
-    page.children.push(Node::component("m", "Chip", 60.0, 24.0)
-        .child(Node::rect("m-bg", 0.0, 0.0, 60.0, 24.0, Color::from_rgb8(0x0d, 0x99, 0xff)).radius(6.0))
-        .child(Node::text("m-t", 8.0, 5.0, 44.0, 12.0, "CHIP")));
+    page.children.push(
+        Node::component("m", "Chip", 60.0, 24.0)
+            .child(
+                Node::rect(
+                    "m-bg",
+                    0.0,
+                    0.0,
+                    60.0,
+                    24.0,
+                    Color::from_rgb8(0x0d, 0x99, 0xff),
+                )
+                .radius(6.0),
+            )
+            .child(Node::text("m-t", 8.0, 5.0, 44.0, 12.0, "CHIP")),
+    );
     let cols = (n as f64).sqrt().ceil() as usize;
     for i in 0..n {
         let (c, r) = (i % cols, i / cols);
@@ -64,10 +89,17 @@ fn mixed_workload(n: usize) -> Node {
             0 => Node::rect(&id, x, y, 60.0, 24.0, Color::from_rgb8(0xf3, 0x9c, 0x12)).radius(4.0),
             1 => Node::ellipse(&id, x, y, 24.0, 24.0, Color::from_rgb8(0x2e, 0xcc, 0x71)),
             2 => Node::text(&id, x, y, 60.0, 12.0, "lorem ipsum"),
-            3 => Node::rect(&id, x, y, 60.0, 24.0, Color::WHITE).fill_paint(Paint::LinearGradient {
-                start: (0.0, 0.0), end: (60.0, 0.0),
-                stops: vec![(0.0, Color::from_rgb8(255, 90, 0)), (1.0, Color::from_rgb8(142, 45, 226))],
-            }),
+            3 => {
+                Node::rect(&id, x, y, 60.0, 24.0, Color::WHITE).fill_paint(Paint::LinearGradient {
+                    start: (0.0, 0.0),
+                    end: (60.0, 0.0),
+                    stops: vec![
+                        (0.0, Color::from_rgb8(255, 90, 0)),
+                        (1.0, Color::from_rgb8(142, 45, 226)),
+                    ],
+                    space: GradSpace::Srgb,
+                })
+            }
             _ => Node::instance(&id, "Chip", x, y, 60.0, 24.0),
         });
     }
@@ -77,7 +109,10 @@ fn mixed_workload(n: usize) -> Node {
 fn bench(name: &str, page: &Node, fonts: &FontManager, budget_ms: u128) {
     let vars = Variables::default();
     let assets = Assets::new();
-    let sink = VelloSink { assets: Some(&assets), fonts: Some(fonts) };
+    let sink = VelloSink {
+        assets: Some(&assets),
+        fonts: Some(fonts),
+    };
     // COLD: first frame, empty shaped-text cache for this content
     ShapedTextCache::global().clear();
     let t0 = Instant::now();
@@ -103,17 +138,32 @@ fn bench(name: &str, page: &Node, fonts: &FontManager, budget_ms: u128) {
     );
 }
 
-fn count(n: &Node) -> usize { 1 + n.children.iter().map(count).sum::<usize>() }
+fn count(n: &Node) -> usize {
+    1 + n.children.iter().map(count).sum::<usize>()
+}
 
 /// INTERACTION frame with an optional viewport (the app always has one).
-fn bench_interaction_vp(name: &str, mut page: Node, fonts: &FontManager, budget_ms: u128, vp: Option<vello::kurbo::Rect>) {
+fn bench_interaction_vp(
+    name: &str,
+    mut page: Node,
+    fonts: &FontManager,
+    budget_ms: u128,
+    vp: Option<vello::kurbo::Rect>,
+) {
     let vars = Variables::default();
     let assets = Assets::new();
-    let sink = VelloSink { assets: Some(&assets), fonts: Some(fonts) };
+    let sink = VelloSink {
+        assets: Some(&assets),
+        fonts: Some(fonts),
+    };
     let mut fc = FrameCache::new();
     fc.render_viewport(&page, &vars, &sink, vp); // prime
-    // move a node that's INSIDE the viewport (the realistic drag)
-    let idx = if vp.is_some() { 3 } else { page.children.len() / 2 };
+                                                 // move a node that's INSIDE the viewport (the realistic drag)
+    let idx = if vp.is_some() {
+        3
+    } else {
+        page.children.len() / 2
+    };
     let mut worst = std::time::Duration::ZERO;
     let mut total = std::time::Duration::ZERO;
     const FRAMES: u32 = 10;
@@ -123,7 +173,9 @@ fn bench_interaction_vp(name: &str, mut page: Node, fonts: &FontManager, budget_
         fc.render_viewport(&page, &vars, &sink, vp);
         let dt = t.elapsed();
         total += dt;
-        if dt > worst { worst = dt; }
+        if dt > worst {
+            worst = dt;
+        }
     }
     let avg = total / FRAMES;
     let st = fc.stats;
@@ -148,15 +200,30 @@ fn main() {
     }
     println!("--- INTERACTION: FrameCache, one node moving per frame ---");
     for (n, budget) in [(1_000, 17), (10_000, 33), (100_000, 100)] {
-        bench_interaction_vp(&format!("mixed/{n}"), mixed_workload(n), &fonts, budget, None);
+        bench_interaction_vp(
+            &format!("mixed/{n}"),
+            mixed_workload(n),
+            &fonts,
+            budget,
+            None,
+        );
         let (live, peak) = mem_mb();
         let (cache_bytes, evictions) = x_native::text::ShapedTextCache::global().memory();
-        println!("  mem: live={live:.1}MB peak={peak:.1}MB | text-cache {:.1}MB ({evictions} evictions)", cache_bytes as f64 / 1e6);
+        println!(
+            "  mem: live={live:.1}MB peak={peak:.1}MB | text-cache {:.1}MB ({evictions} evictions)",
+            cache_bytes as f64 / 1e6
+        );
     }
     println!("--- INTERACTION + VIEWPORT (app conditions: ~1500x1000 window) ---");
     for (n, budget) in [(10_000, 17), (100_000, 33)] {
         // the app's actual situation: only the viewport region visible
         let vp = vello::kurbo::Rect::new(0.0, 0.0, 1500.0, 1000.0);
-        bench_interaction_vp(&format!("mixed/{n}"), mixed_workload(n), &fonts, budget, Some(vp));
+        bench_interaction_vp(
+            &format!("mixed/{n}"),
+            mixed_workload(n),
+            &fonts,
+            budget,
+            Some(vp),
+        );
     }
 }

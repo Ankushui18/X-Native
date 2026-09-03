@@ -5,8 +5,10 @@
 //! strongest verification available without a live window/display: actual
 //! rendered pixels, not just "the code compiled" or "the draw-op count was
 //! right".
-use x_native::{build_scene, AutoLayout, Color, LayoutDirection, Node, Sizing, Variables, PI};
 use vello::{AaConfig, RenderParams, Renderer, RendererOptions};
+use x_native::{
+    build_scene, AutoLayout, Color, GradSpace, LayoutDirection, Node, Sizing, Variables, PI,
+};
 
 fn main() {
     pollster::block_on(run());
@@ -18,7 +20,8 @@ async fn run() {
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
-        ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
@@ -28,17 +31,18 @@ async fn run() {
         .await
         .expect("no wgpu adapter found (no Vulkan device available)");
     let info = adapter.get_info();
-    eprintln!("Using adapter: {} ({:?}, {:?})", info.name, info.device_type, info.backend);
+    eprintln!(
+        "Using adapter: {} ({:?}, {:?})",
+        info.name, info.device_type, info.backend
+    );
 
     let (device, queue) = adapter
-        .request_device(
-            &wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                ..Default::default()
-            },
-        )
+        .request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        })
         .await
         .expect("failed to create wgpu device");
 
@@ -61,8 +65,17 @@ async fn run() {
     let mut vars = Variables::default();
     vars.numbers.insert("gap-lg".into(), 28.0);
 
-    let mut button = Node::component("btn-def", "Button", 120.0, 60.0)
-        .child(Node::rect("btn-bg", 0.0, 0.0, 120.0, 60.0, Color::from_rgb8(0x33, 0x33, 0x33)).radius(10.0));
+    let mut button = Node::component("btn-def", "Button", 120.0, 60.0).child(
+        Node::rect(
+            "btn-bg",
+            0.0,
+            0.0,
+            120.0,
+            60.0,
+            Color::from_rgb8(0x33, 0x33, 0x33),
+        )
+        .radius(10.0),
+    );
     button.visible = false;
 
     let row = Node::frame("row", 0.0, 0.0)
@@ -75,15 +88,43 @@ async fn run() {
             ..Default::default()
         })
         .child(
-            Node::rect("card", 0.0, 0.0, 200.0, 120.0, Color::from_rgb8(0x0d, 0x99, 0xff))
-                .radius(18.0)
-                .rotate(PI / 8.0)
-                // v0.4: real drop shadow behind the rotated card
-                .effect(x_native::Effect::DropShadow { dx: 6.0, dy: 8.0, blur: 12.0, color: Color::BLACK }),
+            Node::rect(
+                "card",
+                0.0,
+                0.0,
+                200.0,
+                120.0,
+                Color::from_rgb8(0x0d, 0x99, 0xff),
+            )
+            .radius(18.0)
+            .rotate(PI / 8.0)
+            // v0.4: real drop shadow behind the rotated card
+            .effect(x_native::Effect::DropShadow {
+                dx: 6.0,
+                dy: 8.0,
+                blur: 12.0,
+                color: Color::BLACK,
+            }),
         )
-        .child(Node::ellipse("dot", 0.0, 0.0, 100.0, 100.0, Color::from_rgb8(0xf2, 0x48, 0x22)).opacity(0.75))
-        .child(Node::instance("btn-1", "Button", 0.0, 0.0, 120.0, 60.0).override_prop("btn-bg", "#2ecc71"))
-        .child(Node::instance("btn-2", "Button", 0.0, 0.0, 120.0, 60.0).override_prop("btn-bg", "#9b59b6"))
+        .child(
+            Node::ellipse(
+                "dot",
+                0.0,
+                0.0,
+                100.0,
+                100.0,
+                Color::from_rgb8(0xf2, 0x48, 0x22),
+            )
+            .opacity(0.75),
+        )
+        .child(
+            Node::instance("btn-1", "Button", 0.0, 0.0, 120.0, 60.0)
+                .override_prop("btn-bg", "#2ecc71"),
+        )
+        .child(
+            Node::instance("btn-2", "Button", 0.0, 0.0, 120.0, 60.0)
+                .override_prop("btn-bg", "#9b59b6"),
+        )
         .child(Node::instance("btn-3", "Button", 0.0, 0.0, 120.0, 60.0)); // no override -> component's own dark fill
 
     // v0.4 additions to the visual proof:
@@ -98,17 +139,33 @@ async fn run() {
                 (0.0, Color::from_rgb8(0xff, 0x5a, 0x00)),
                 (1.0, Color::from_rgb8(0x8e, 0x2d, 0xe2)),
             ],
+            space: GradSpace::Srgb,
         });
     let title = Node::text("headline", 460.0, 55.0, 320.0, 34.0, "X NATIVE 0.5");
 
     // v0.5: editable vector path (pen-tool data model) — a real star polygon
     let star = {
         use x_native::PathCmd::*;
-        let mut n = Node::vector("star", 60.0, 420.0, 120.0, 120.0, vec![
-            MoveTo(60.0, 0.0), LineTo(75.0, 42.0), LineTo(120.0, 42.0), LineTo(84.0, 69.0),
-            LineTo(97.0, 112.0), LineTo(60.0, 85.0), LineTo(23.0, 112.0), LineTo(36.0, 69.0),
-            LineTo(0.0, 42.0), LineTo(45.0, 42.0), Close,
-        ]);
+        let mut n = Node::vector(
+            "star",
+            60.0,
+            420.0,
+            120.0,
+            120.0,
+            vec![
+                MoveTo(60.0, 0.0),
+                LineTo(75.0, 42.0),
+                LineTo(120.0, 42.0),
+                LineTo(84.0, 69.0),
+                LineTo(97.0, 112.0),
+                LineTo(60.0, 85.0),
+                LineTo(23.0, 112.0),
+                LineTo(36.0, 69.0),
+                LineTo(0.0, 42.0),
+                LineTo(45.0, 42.0),
+                Close,
+            ],
+        );
         n.fill = x_native::Paint::Solid(Color::from_rgb8(0xff, 0xd7, 0x00));
         n
     };
@@ -117,10 +174,28 @@ async fn run() {
     // 200px box at t=0.5 renders as a purple 150px in-between, live proof
     // the interpolator output is renderable scene content.
     let anim_mid = {
-        let from = Node::frame("sa-from", 300.0, 160.0)
-            .child(Node::rect("sa-box", 0.0, 0.0, 100.0, 60.0, Color::from_rgb8(0xff, 0x00, 0x00)).radius(8.0));
-        let to = Node::frame("sa-to", 300.0, 160.0)
-            .child(Node::rect("sa-box", 120.0, 60.0, 160.0, 80.0, Color::from_rgb8(0x00, 0x00, 0xff)).radius(8.0));
+        let from = Node::frame("sa-from", 300.0, 160.0).child(
+            Node::rect(
+                "sa-box",
+                0.0,
+                0.0,
+                100.0,
+                60.0,
+                Color::from_rgb8(0xff, 0x00, 0x00),
+            )
+            .radius(8.0),
+        );
+        let to = Node::frame("sa-to", 300.0, 160.0).child(
+            Node::rect(
+                "sa-box",
+                120.0,
+                60.0,
+                160.0,
+                80.0,
+                Color::from_rgb8(0x00, 0x00, 0xff),
+            )
+            .radius(8.0),
+        );
         let mut mid = x_native::editor::smart_animate(&from, &to, 0.5);
         mid.transform.x = 280.0;
         mid.transform.y = 420.0;
@@ -162,7 +237,11 @@ async fn run() {
 
     let target_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("render target"),
-        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -200,7 +279,8 @@ async fn run() {
         mapped_at_creation: false,
     });
 
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut encoder =
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
             texture: &target_texture,
@@ -216,7 +296,11 @@ async fn run() {
                 rows_per_image: Some(height),
             },
         },
-        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
     );
     queue.submit(Some(encoder.finish()));
 
@@ -241,12 +325,15 @@ async fn run() {
     output_buffer.unmap();
 
     let img_data = pixels;
-    let file = std::fs::File::create("render_output.png").expect("failed to create render_output.png");
+    let file =
+        std::fs::File::create("render_output.png").expect("failed to create render_output.png");
     let w = std::io::BufWriter::new(file);
     let mut encoder = png::Encoder::new(w, width, height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().expect("failed to write PNG header");
-    writer.write_image_data(&img_data).expect("failed to write PNG data");
+    writer
+        .write_image_data(&img_data)
+        .expect("failed to write PNG data");
     eprintln!("Wrote render_output.png ({}x{})", width, height);
 }

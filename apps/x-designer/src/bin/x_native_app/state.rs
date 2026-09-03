@@ -2,21 +2,85 @@
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tool { Select, Hand, Scale, Frame, Rectangle, Ellipse, Line, Polygon, Star, Text, Pen }
+pub enum Tool {
+    Select,
+    Hand,
+    Scale,
+    Frame,
+    Rectangle,
+    Ellipse,
+    Arc,
+    Line,
+    Polygon,
+    Star,
+    Text,
+    Pen,
+    Slice,
+    Eyedropper,
+    Pencil,
+    Bucket,
+    Brush,
+}
 impl Tool {
     pub fn label(self) -> &'static str {
         match self {
-            Tool::Select => "V", Tool::Hand => "H", Tool::Scale => "K", Tool::Frame => "F", Tool::Rectangle => "R",
-            Tool::Ellipse => "O", Tool::Line => "L", Tool::Polygon => "P", Tool::Star => "S", Tool::Text => "T",
+            Tool::Select => "V",
+            Tool::Hand => "H",
+            Tool::Scale => "K",
+            Tool::Frame => "F",
+            Tool::Rectangle => "R",
+            Tool::Ellipse => "O",
+            Tool::Arc => "⇧O",
+            Tool::Line => "L",
+            Tool::Polygon => "P",
+            Tool::Star => "ST",
+            Tool::Text => "T",
             Tool::Pen => "PEN",
+            Tool::Slice => "S",
+            Tool::Eyedropper => "I",
+            Tool::Pencil => "⇧P",
+            Tool::Bucket => "⇧I",
+            Tool::Brush => "⇧B",
         }
     }
-    pub const ALL: [Tool; 11] = [Tool::Select, Tool::Hand, Tool::Scale, Tool::Frame, Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Polygon, Tool::Star, Tool::Text, Tool::Pen];
+    pub const ALL: [Tool; 17] = [
+        Tool::Select,
+        Tool::Hand,
+        Tool::Scale,
+        Tool::Frame,
+        Tool::Rectangle,
+        Tool::Ellipse,
+        Tool::Arc,
+        Tool::Line,
+        Tool::Polygon,
+        Tool::Star,
+        Tool::Text,
+        Tool::Pen,
+        Tool::Slice,
+        Tool::Eyedropper,
+        Tool::Pencil,
+        Tool::Bucket,
+        Tool::Brush,
+    ];
     pub fn name(self) -> &'static str {
         match self {
-            Tool::Select => "MOVE", Tool::Hand => "HAND", Tool::Scale => "SCALE", Tool::Frame => "FRAME",
-            Tool::Rectangle => "RECTANGLE", Tool::Ellipse => "ELLIPSE", Tool::Line => "LINE",
-            Tool::Polygon => "POLYGON", Tool::Star => "STAR", Tool::Text => "TEXT", Tool::Pen => "PEN",
+            Tool::Select => "MOVE",
+            Tool::Hand => "HAND",
+            Tool::Scale => "SCALE",
+            Tool::Frame => "FRAME",
+            Tool::Rectangle => "RECTANGLE",
+            Tool::Ellipse => "ELLIPSE",
+            Tool::Arc => "ARC",
+            Tool::Line => "LINE",
+            Tool::Polygon => "POLYGON",
+            Tool::Star => "STAR",
+            Tool::Text => "TEXT",
+            Tool::Pen => "PEN",
+            Tool::Slice => "SLICE",
+            Tool::Eyedropper => "EYEDROPPER",
+            Tool::Pencil => "PENCIL",
+            Tool::Bucket => "PAINT BUCKET",
+            Tool::Brush => "BRUSH",
         }
     }
 }
@@ -24,17 +88,70 @@ impl Tool {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Drag {
     None,
-    Move { start: Point, cmds: usize },
-    Create { start_world: Point },
-    Marquee { start_world: Point },
-    Resize { corner: u8, start_world: Point, orig: (f64, f64, f64, f64), cmds: usize }, // x,y,w,h
-    Rotate { center: Point, start_angle: f64, orig: f64, cmds: usize },
-    Pan { start: Point },
+    Move {
+        start: Point,
+        cmds: usize,
+    },
+    Create {
+        start_world: Point,
+    },
+    Marquee {
+        start_world: Point,
+        contained: bool,
+    },
+    Resize {
+        corner: u8,
+        start_world: Point,
+        orig: (f64, f64, f64, f64),
+        cmds: usize,
+    }, // x,y,w,h
+    /// Corner-radius drag. `corner` = which handle (0..3); `uniform` = all
+    /// four corners scale together (Figma's default) vs per-corner override.
+    Radius {
+        corner: u8,
+        uniform: bool,
+        start_world: Point,
+        orig: (f64, Option<[f64; 4]>),
+        cmds: usize,
+    },
+    Rotate {
+        center: Point,
+        start_angle: f64,
+        orig: f64,
+        cmds: usize,
+    },
+    Pan {
+        start: Point,
+    },
     /// Scale tool: vertical drag scales the selected subtree.
-    Scale { start_y: f64, applied: f64, cmds: usize },
+    Scale {
+        start_y: f64,
+        applied: f64,
+        cmds: usize,
+    },
+    /// Pencil freehand stroke in progress (points live on
+    /// `App::pencil_pts` — Drag stays Copy).
+    Pencil,
+    /// Brush stroke in progress (points + per-point widths live on
+    /// `App::brush_pts` / `App::brush_w` — Drag stays Copy).
+    Brush,
+    /// Click-drag inside an actively edited Text node: `anchor` is the byte
+    /// offset where the press landed; the caret follows the cursor and the
+    /// range between anchor and caret is selected.
+    TextSelect {
+        anchor: usize,
+    },
     /// Direct manipulation of a selected fill gradient. handle 0/1 are the
     /// geometry endpoints; handle 2+n is stop n.
-    Gradient { fill: usize, handle: usize, cmds: usize },
+    Gradient {
+        fill: usize,
+        handle: usize,
+        cmds: usize,
+    },
+    /// Vector-eraser drag: segments under the cursor accumulate in
+    /// `App::eraser_hits` (target node = `App::node_edit`); erased on
+    /// release as one undo step.
+    Erase,
 }
 
 /// Text-input focus: either inline canvas text editing or a numeric
@@ -42,7 +159,10 @@ pub enum Drag {
 /// Which top-level experience is showing (standard lifecycle):
 /// Dashboard (recent files) or the Editor for the open document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen { Dashboard, Editor }
+pub enum Screen {
+    Dashboard,
+    Editor,
+}
 
 /// One card on the dashboard: a persistent .x document on disk.
 pub struct DashFile {
@@ -56,38 +176,106 @@ pub struct DashFile {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Focus {
     None,
+    /// Text editing in a Prototype-panel logic chip.
+    /// field: 0 = SetVar "name = expr", 1 = Cond condition text,
+    /// 2 = KeyDown key, 3 = then-branch SetVar, 4 = else-branch SetVar.
+    Proto {
+        node_id: String,
+        index: usize,
+        field: u8,
+        buffer: String,
+    },
+    /// Editing an exposed variable's value in present mode.
+    PresentVar {
+        name: String,
+        buffer: String,
+    },
+    /// LIBS-tab search box.
+    LibSearch,
+    /// Code Connect: link a node to its source (bindings["code"]).
+    CodeRef {
+        node_id: String,
+        buffer: String,
+    },
     /// editing the text CONTENT of a Text node; original kept for Esc-cancel;
     /// caret = byte index into buffer; sel_anchor = other end of the
     /// selection range (Shift+arrows / Ctrl+A), None = no selection
-    TextNode { id: String, buffer: String, original: String, caret: usize, sel_anchor: Option<usize> },
+    TextNode {
+        id: String,
+        buffer: String,
+        original: String,
+        caret: usize,
+        sel_anchor: Option<usize>,
+    },
     /// editing X/Y/W/H (field 0..4) of the selected node
-    Field { id: String, field: u8, buffer: String },
-    /// typing in the layers-panel search box (minimap filter)
+    Field {
+        id: String,
+        field: u8,
+        buffer: String,
+    },
+    /// editing a component-property value on an instance (text / number /
+    /// instance-swap); buffer holds the typed value, Enter commits, Esc cancels
+    Prop {
+        instance_id: String,
+        prop_name: String,
+        buffer: String,
+    },
+    /// editing a variant's property DEFAULT in the variant grid; Enter commits
+    /// via set_prop_default, Esc cancels
+    VariantProp {
+        component: String,
+        prop_name: String,
+        buffer: String,
+    },
+    /// typing in the layers-panel search box (Sketch-style filter)
     LayerSearch,
-    LayerRename { id: String, buffer: String },
+    LayerRename {
+        id: String,
+        buffer: String,
+    },
     /// typing in the inspector font browser search box
     FontSearch,
     /// typing in the styles-section search box
     StyleSearch,
     /// renaming a style (management row); buffer holds the new name
-    StyleRename { from: String, buffer: String },
+    StyleRename {
+        from: String,
+        buffer: String,
+    },
     /// typing in the asset-browser search box
     AssetSearch,
     /// renaming an asset (display name only, id stays content-derived)
-    AssetRename { id: String, buffer: String },
+    AssetRename {
+        id: String,
+        buffer: String,
+    },
     /// renaming a page (double-click its row); Enter commits, Esc cancels
-    PageRename { idx: usize, buffer: String },
+    PageRename {
+        idx: usize,
+        buffer: String,
+    },
     /// dashboard: typing in the file search box
     DashSearch,
     /// dashboard: renaming a file card (display name in metadata)
-    DashRename { path: String, buffer: String },
+    DashRename {
+        path: String,
+        buffer: String,
+    },
 }
+
+/// Brush dynamics: full stroke widths in px; speed maps [0, 12] screen
+/// px/event onto [WMAX, WMIN] (faster = thinner), EMA-smoothed.
+pub const BRUSH_WMIN: f64 = 1.5;
+pub const BRUSH_WMAX: f64 = 9.0;
 
 pub struct App {
     pub editor: Editor,
     pub vars: Variables,
     pub tool: Tool,
     pub polygon_sides: usize,
+    /// arc tool defaults: start/end sweep in degrees
+    pub arc_start: f64,
+    pub arc_end: f64,
     pub star_points: usize,
     pub star_inner_ratio: f64,
     pub rect_radius: f64,
@@ -96,6 +284,21 @@ pub struct App {
     pub fill_layer_index: usize,
     pub stroke_layer_index: usize,
     pub effect_layer_index: usize,
+    /// advanced-stroke popover (caps/join/dash/miter) open over the inspector
+    pub stroke_advanced_open: bool,
+    /// macOS Retina scale factor (logical -> physical pixel ratio); 1.0 on
+    /// standard-DPI and non-mac platforms. All layout uses LOGICAL coords;
+    /// the render path scales the scene by this at draw time.
+    pub scale_factor: f64,
+    /// unsaved-changes close dialog is showing (Save / Don't Save / Cancel)
+    pub pending_close: bool,
+    /// set true once the user resolves the close dialog with Save/Don't Save;
+    /// the event loop exits on the next frame.
+    pub exit_requested: bool,
+    /// live prototype share dialog open (link + copy + permission toggle)
+    pub share_open: bool,
+    /// share permission: true = "Anyone with the link", false = "Only you"
+    pub share_public: bool,
     pub pan: (f64, f64),
     pub zoom: f64,
     pub cursor: Point,
@@ -106,11 +309,13 @@ pub struct App {
     /// alt was held at drag start -> duplicate then move (Figma Alt+drag)
     pub alt_dupe_done: bool,
     pub status: String,
+    /// raster export scale (@1x/@2x/@3x) for PNG/JPG
+    pub export_scale: f64,
     pub created_count: usize,
     pub win_w: f64,
     pub win_h: f64,
     /// flattened (id, depth, kind_label) rows for the layers panel
-    pub layer_rows: Vec<(String, usize, &'static str)>,
+    pub layer_rows: Vec<(String, String, usize, &'static str)>,
     pub focus: Focus,
     pub last_click: std::time::Instant,
     pub last_click_pos: Point,
@@ -120,6 +325,8 @@ pub struct App {
     /// Phase 8: presentation mode. When Some, canvas renders a playback
     /// frame instead of the editor; transitions smart-animate between pages.
     pub present: Option<Present>,
+    /// device frame (bezel) drawn around the prototype in present mode
+    pub present_device: DeviceFrame,
     /// smart guides found during the current move drag (world coords)
     pub guides: Vec<(bool, f64)>,
     /// Phase 5.2: component pending placement — next canvas click stamps it
@@ -138,6 +345,8 @@ pub struct App {
     pub outline_view: bool,
     /// right-sidebar tab: 0 = Design, 1 = Prototype (properties panel)
     pub inspector_tab: u8,
+    /// Inspect-tab code language: 0 = CSS, 1 = SwiftUI, 2 = Jetpack Compose.
+    pub inspect_lang: u8,
     /// "?" shortcuts overlay
     pub help_open: bool,
     /// spacebar held -> temporary hand tool (standard)
@@ -185,10 +394,22 @@ pub struct App {
     pub anchor_drag: Option<(usize, usize)>,
     /// bezier handle being dragged: (anchor idx, outgoing?, undo depth)
     pub handle_drag: Option<(usize, bool, usize)>,
+    /// vector-edit eraser (Shift+E, Figma Draw parity): while on, a drag
+    /// across path segments collects them and erases them on release.
+    pub vector_eraser: bool,
+    /// end-anchor indices of segments collected during the eraser drag
+    pub eraser_hits: Vec<usize>,
     /// named reusable styles (Figma paint/text/effect styles), persisted in .x
     pub styles: std::collections::HashMap<String, x_native::Style>,
     /// styles browser: filter query + selected style (management target)
     pub style_query: String,
+    /// LIBS-tab search filter (components/styles/variables across libraries).
+    pub lib_query: String,
+    /// World-space points of the pencil stroke being drawn.
+    pub pencil_pts: Vec<(f64, f64)>,
+    /// Brush stroke: world-space points + parallel full widths (px).
+    pub brush_pts: Vec<(f64, f64)>,
+    pub brush_w: Vec<f64>,
     pub style_sel: Option<String>,
     /// asset browser overlay (Shift+A): open flag, filter, selection
     pub asset_browser: bool,
@@ -250,26 +471,139 @@ pub struct App {
     pub dash_query: String,
     /// dashboard context-menu target: file path the menu acts on
     pub dash_ctx_path: Option<String>,
-    /// pages-list context-menu target: page index the menu acts on
-    pub page_ctx_idx: Option<usize>,
+}
+
+/// Device frame shown around a prototype in present mode (Figma's device
+/// frames). `None` presents bare; others draw a bezel around the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceFrame {
+    None,
+    Phone,
+    Tablet,
+    Desktop,
+}
+
+impl DeviceFrame {
+    pub fn next(self) -> Self {
+        match self {
+            DeviceFrame::None => DeviceFrame::Phone,
+            DeviceFrame::Phone => DeviceFrame::Tablet,
+            DeviceFrame::Tablet => DeviceFrame::Desktop,
+            DeviceFrame::Desktop => DeviceFrame::None,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            DeviceFrame::None => "None",
+            DeviceFrame::Phone => "Phone",
+            DeviceFrame::Tablet => "Tablet",
+            DeviceFrame::Desktop => "Desktop",
+        }
+    }
+    /// screen aspect ratio (w / h)
+    pub fn aspect(self) -> f64 {
+        match self {
+            DeviceFrame::Phone => 390.0 / 844.0,
+            DeviceFrame::Tablet => 4.0 / 3.0,
+            DeviceFrame::Desktop => 16.0 / 10.0,
+            DeviceFrame::None => 0.0,
+        }
+    }
+    /// bezel thickness (in screen px, pre-fit)
+    pub fn bezel(self) -> f64 {
+        match self {
+            DeviceFrame::Phone => 26.0,
+            DeviceFrame::Tablet => 40.0,
+            DeviceFrame::Desktop => 22.0,
+            DeviceFrame::None => 0.0,
+        }
+    }
+    pub fn corner(self) -> f64 {
+        match self {
+            DeviceFrame::Phone => 44.0,
+            DeviceFrame::Tablet => 28.0,
+            DeviceFrame::Desktop => 12.0,
+            DeviceFrame::None => 0.0,
+        }
+    }
+}
+
+/// One interaction row in the Prototype panel (geometry shared painter/click).
+pub struct ProtoRowUi {
+    pub index: usize,
+    pub trigger: Rect,
+    pub action: Rect,
+    pub dest: Rect,
+    pub pos: Rect,
+    pub anim: Rect,
+    pub remove: Rect,
+    /// Third-line chip (Cond else-branch / overlay+keydown key).
+    pub extra: Rect,
+}
+
+/// Full Prototype-panel geometry for the selected node.
+pub struct ProtoUi {
+    pub id: String,
+    pub start_toggle: Rect,
+    pub add: Rect,
+    pub rows: Vec<ProtoRowUi>,
 }
 
 pub struct Present {
     /// index of the page being shown
     pub current: usize,
-    /// active transition: (from_idx, to_idx, started, duration_ms)
-    pub transition: Option<(usize, usize, std::time::Instant, u32)>,
+    /// active transition: (from_idx, to_idx, started, duration_ms, anim)
+    pub transition: Option<(usize, usize, std::time::Instant, u32, Animation)>,
+    /// open overlays (page index + anchor position), topmost LAST
+    pub overlays: Vec<(usize, OverlayPosition)>,
+    /// navigation history for Back
+    pub back_stack: Vec<usize>,
+    /// last hovered node id (for hover/enter/leave triggers)
+    pub hover: Option<String>,
+    /// press start (node id + page-world point) for click/drag resolution
+    pub press: Option<(String, Point)>,
+    /// the active press has exceeded the drag threshold
+    pub dragging: bool,
+    /// armed AfterDelay events: (due, page_idx, action, ms, anim)
+    pub delayed: Vec<(std::time::Instant, usize, Action, u32, Animation)>,
+    /// scroll offsets per scrollable frame id (page px)
+    pub scrolls: std::collections::HashMap<String, (f64, f64)>,
+}
+
+impl Present {
+    pub fn new(current: usize) -> Self {
+        Self {
+            current,
+            transition: None,
+            overlays: vec![],
+            back_stack: vec![],
+            hover: None,
+            press: None,
+            dragging: false,
+            delayed: vec![],
+            scrolls: std::collections::HashMap::new(),
+        }
+    }
 }
 
 pub fn kind_label(n: &Node) -> &'static str {
     use x_native::NodeKind::*;
     match &n.kind {
-        Frame { .. } => "FRAME", Group => "GROUP", Rect { .. } => "RECT", Ellipse => "ELLIPSE",
-        Line => "LINE", Text { .. } => "TEXT", Image { .. } => "IMAGE", Vector { .. } => "VECTOR",
-        Component { .. } => "COMP", Instance { .. } => "INST",
+        Frame { .. } => "FRAME",
+        Group => "GROUP",
+        Section => "SECTION",
+        Rect { .. } => "RECT",
+        Ellipse => "ELLIPSE",
+        Arc { .. } => "ARC",
+        Line => "LINE",
+        Text { .. } => "TEXT",
+        Image { .. } => "IMAGE",
+        Vector { .. } => "VECTOR",
+        Component { .. } => "COMP",
+        Instance { .. } => "INST",
+        Slice => "SLICE",
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FontSource {

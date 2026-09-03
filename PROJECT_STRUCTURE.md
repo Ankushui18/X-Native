@@ -13,11 +13,12 @@ X-Native/
 │               ├── x_native_app/    # Windowed editor (main product)
 │               │   ├── app.rs       # Application state & rendering
 │               │   ├── chrome.rs    # UI drawing
+│               │   ├── icons.rs     # Icon library (Ink & Ember v2)
 │               │   ├── main.rs      # Entry point
 │               │   ├── run.rs       # Event loop
 │               │   ├── state.rs     # Editor state
 │               │   ├── helpers.rs   # Drawing utilities
-│               │   ├── theme.rs     # Color tokens
+│               │   ├── theme.rs     # Ink & Ember design tokens
 │               │   └── demo.rs      # Demo content
 │               ├── x_native.rs   # CLI automation tool
 │               ├── render_headless.rs # GPU test renderer
