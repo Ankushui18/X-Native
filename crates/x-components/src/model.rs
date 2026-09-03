@@ -14,8 +14,8 @@
 //! legacy `HashMap<String, String>` ("#hex" / "text:") remains as a
 //! serialization surface and is converted losslessly both ways.
 
-use x_core::{Node, NodeKind, Paint, Variables, Color, parse_hex_color, color_to_hex};
 use std::collections::HashMap;
+use x_core::{color_to_hex, parse_hex_color, Color, Node, NodeKind, Paint, Variables};
 
 /// A typed per-node override carried by an Instance.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,17 +41,26 @@ impl OverrideValue {
         }
     }
     pub fn decode(s: &str) -> Option<OverrideValue> {
-        if let Some(t) = s.strip_prefix("text:") { return Some(OverrideValue::Text(t.into())); }
-        if let Some(v) = s.strip_prefix("visible:") { return v.parse().ok().map(OverrideValue::Visible); }
-        if let Some(o) = s.strip_prefix("opacity:") { return o.parse().ok().map(OverrideValue::Opacity); }
-        if let Some(c) = s.strip_prefix("swap:") { return Some(OverrideValue::Swap(c.into())); }
+        if let Some(t) = s.strip_prefix("text:") {
+            return Some(OverrideValue::Text(t.into()));
+        }
+        if let Some(v) = s.strip_prefix("visible:") {
+            return v.parse().ok().map(OverrideValue::Visible);
+        }
+        if let Some(o) = s.strip_prefix("opacity:") {
+            return o.parse().ok().map(OverrideValue::Opacity);
+        }
+        if let Some(c) = s.strip_prefix("swap:") {
+            return Some(OverrideValue::Swap(c.into()));
+        }
         parse_hex_color(s).map(OverrideValue::Fill)
     }
 }
 
 /// Typed view over an instance's override map.
 pub fn typed_overrides(node: &Node) -> HashMap<String, OverrideValue> {
-    node.overrides.iter()
+    node.overrides
+        .iter()
         .filter_map(|(k, v)| OverrideValue::decode(v).map(|ov| (k.clone(), ov)))
         .collect()
 }
@@ -66,11 +75,23 @@ pub fn set_override(node: &mut Node, target: &str, value: OverrideValue) {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComponentProp {
     /// Text property: binds a property name to a text node id inside the master.
-    Text { name: String, target: String, default: String },
+    Text {
+        name: String,
+        target: String,
+        default: String,
+    },
     /// Boolean property: toggles visibility of a node inside the master.
-    Bool { name: String, target: String, default: bool },
+    Bool {
+        name: String,
+        target: String,
+        default: bool,
+    },
     /// Instance-swap property: swaps a nested instance's component.
-    Swap { name: String, target: String, default: String },
+    Swap {
+        name: String,
+        target: String,
+        default: String,
+    },
 }
 
 /// Component property definitions live per master, keyed by component name.
@@ -81,8 +102,16 @@ pub struct PropRegistry {
 
 impl PropRegistry {
     /// Apply a property assignment to an instance as typed overrides.
-    pub fn apply(&self, component: &str, instance: &mut Node, prop_name: &str, value: &str) -> bool {
-        let Some(props) = self.props.get(component) else { return false };
+    pub fn apply(
+        &self,
+        component: &str,
+        instance: &mut Node,
+        prop_name: &str,
+        value: &str,
+    ) -> bool {
+        let Some(props) = self.props.get(component) else {
+            return false;
+        };
         for p in props {
             match p {
                 ComponentProp::Text { name, target, .. } if name == prop_name => {
@@ -120,10 +149,14 @@ pub fn variants_of<'a>(root: &'a Node, set: &str) -> Vec<&'a str> {
     fn walk<'a>(n: &'a Node, set: &str, out: &mut Vec<&'a str>) {
         if let NodeKind::Component { name } = &n.kind {
             if let Some((s, _)) = variant_set(name) {
-                if s == set { out.push(name.as_str()); }
+                if s == set {
+                    out.push(name.as_str());
+                }
             }
         }
-        for c in &n.children { walk(c, set, out); }
+        for c in &n.children {
+            walk(c, set, out);
+        }
     }
     walk(root, set, &mut out);
     out.sort();
@@ -138,7 +171,10 @@ pub fn switch_variant(instance: &mut Node, to_variant: &str) -> bool {
             (Some((a, _)), Some((b, _))) => a == b,
             _ => false,
         };
-        if same_set { *component = to_variant.to_string(); return true; }
+        if same_set {
+            *component = to_variant.to_string();
+            return true;
+        }
     }
     false
 }
@@ -147,7 +183,11 @@ pub fn switch_variant(instance: &mut Node, to_variant: &str) -> bool {
 
 /// Find a component master by name anywhere in the tree.
 pub fn find_master<'a>(root: &'a Node, name: &str) -> Option<&'a Node> {
-    if let NodeKind::Component { name: n } = &root.kind { if n == name { return Some(root); } }
+    if let NodeKind::Component { name: n } = &root.kind {
+        if n == name {
+            return Some(root);
+        }
+    }
     root.children.iter().find_map(|c| find_master(c, name))
 }
 
@@ -155,7 +195,9 @@ pub fn find_master<'a>(root: &'a Node, name: &str) -> Option<&'a Node> {
 /// overrides applied, and return them re-based at the instance's position
 /// wrapped in a Group. Nested instances stay instances (standard behavior).
 pub fn detach_instance(root: &Node, instance: &Node, vars: &Variables) -> Option<Node> {
-    let NodeKind::Instance { component } = &instance.kind else { return None };
+    let NodeKind::Instance { component } = &instance.kind else {
+        return None;
+    };
     let master = find_master(root, component)?;
     let ovr = typed_overrides(instance);
     let mut group = Node::group(&format!("{}-detached", instance.id), instance.w, instance.h);
@@ -172,16 +214,29 @@ fn apply_overrides_deep(node: &mut Node, ovr: &HashMap<String, OverrideValue>, v
     if let Some(v) = ovr.get(&node.id) {
         match v {
             OverrideValue::Fill(c) => node.fill = Paint::Solid(*c),
-            OverrideValue::Text(t) => { if let NodeKind::Text { text } = &mut node.kind { *text = t.clone(); node.text_runs.clear(); } }
+            OverrideValue::Text(t) => {
+                if let NodeKind::Text { text } = &mut node.kind {
+                    *text = t.clone();
+                    node.text_runs.clear();
+                }
+            }
             OverrideValue::Visible(b) => node.visible = *b,
             OverrideValue::Opacity(o) => node.opacity = *o,
-            OverrideValue::Swap(c) => { if let NodeKind::Instance { component } = &mut node.kind { *component = c.clone(); } }
+            OverrideValue::Swap(c) => {
+                if let NodeKind::Instance { component } = &mut node.kind {
+                    *component = c.clone();
+                }
+            }
         }
     }
     let _ = vars;
     // nested instances keep their own override scope: do not descend into them
-    if matches!(node.kind, NodeKind::Instance { .. }) { return; }
-    for c in &mut node.children { apply_overrides_deep(c, ovr, vars); }
+    if matches!(node.kind, NodeKind::Instance { .. }) {
+        return;
+    }
+    for c in &mut node.children {
+        apply_overrides_deep(c, ovr, vars);
+    }
 }
 
 // -------------------------------------------------------- dependency graph
@@ -199,14 +254,23 @@ impl DependencyGraph {
             if let NodeKind::Component { name } = &n.kind {
                 let mut deps = vec![];
                 fn inner(c: &Node, deps: &mut Vec<String>) {
-                    if let NodeKind::Instance { component } = &c.kind { deps.push(component.clone()); }
-                    for ch in &c.children { inner(ch, deps); }
+                    if let NodeKind::Instance { component } = &c.kind {
+                        deps.push(component.clone());
+                    }
+                    for ch in &c.children {
+                        inner(ch, deps);
+                    }
                 }
-                for c in &n.children { inner(c, &mut deps); }
-                deps.sort(); deps.dedup();
+                for c in &n.children {
+                    inner(c, &mut deps);
+                }
+                deps.sort();
+                deps.dedup();
                 g.edges.insert(name.clone(), deps);
             }
-            for c in &n.children { masters(c, g); }
+            for c in &n.children {
+                masters(c, g);
+            }
         }
         masters(root, &mut g);
         g
@@ -226,9 +290,13 @@ impl DependencyGraph {
     }
 
     fn reaches(&self, from: &str, to: &str, seen: &mut Vec<String>) -> bool {
-        if seen.iter().any(|s| s == from) { return false; }
+        if seen.iter().any(|s| s == from) {
+            return false;
+        }
         seen.push(from.to_string());
-        let Some(deps) = self.edges.get(from) else { return false };
+        let Some(deps) = self.edges.get(from) else {
+            return false;
+        };
         deps.iter().any(|d| d == to || self.reaches(d, to, seen))
     }
 

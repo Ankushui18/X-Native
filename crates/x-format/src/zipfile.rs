@@ -25,15 +25,53 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// Sketch exporter. Checksums are written in both headers so packages also
 /// open in strict ZIP readers, not only in our tolerant importer.
 pub(crate) fn write_stored(files: &[(String, Vec<u8>)]) -> Vec<u8> {
-    let mut out = Vec::new(); let mut central = Vec::new();
+    let mut out = Vec::new();
+    let mut central = Vec::new();
     for (name, content) in files {
         let local_offset = out.len() as u32;
         let crc = crc32(content);
-        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes()); out.extend_from_slice(&20u16.to_le_bytes()); out.extend_from_slice(&0u16.to_le_bytes()); out.extend_from_slice(&0u16.to_le_bytes()); out.extend_from_slice(&[0;4]); out.extend_from_slice(&crc.to_le_bytes());
-        out.extend_from_slice(&(content.len() as u32).to_le_bytes()); out.extend_from_slice(&(content.len() as u32).to_le_bytes()); out.extend_from_slice(&(name.len() as u16).to_le_bytes()); out.extend_from_slice(&0u16.to_le_bytes()); out.extend_from_slice(name.as_bytes()); out.extend_from_slice(content);
-        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes()); central.extend_from_slice(&20u16.to_le_bytes()); central.extend_from_slice(&20u16.to_le_bytes()); central.extend_from_slice(&0u16.to_le_bytes()); central.extend_from_slice(&0u16.to_le_bytes()); central.extend_from_slice(&[0;4]); central.extend_from_slice(&crc.to_le_bytes()); central.extend_from_slice(&(content.len() as u32).to_le_bytes()); central.extend_from_slice(&(content.len() as u32).to_le_bytes()); central.extend_from_slice(&(name.len() as u16).to_le_bytes()); central.extend_from_slice(&0u16.to_le_bytes()); central.extend_from_slice(&0u16.to_le_bytes()); central.extend_from_slice(&0u16.to_le_bytes()); central.extend_from_slice(&0u16.to_le_bytes()); central.extend_from_slice(&0u32.to_le_bytes()); central.extend_from_slice(&local_offset.to_le_bytes()); central.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&20u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&crc.to_le_bytes());
+        out.extend_from_slice(&(content.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(content.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(content);
+        central.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        central.extend_from_slice(&20u16.to_le_bytes());
+        central.extend_from_slice(&20u16.to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&[0; 4]);
+        central.extend_from_slice(&crc.to_le_bytes());
+        central.extend_from_slice(&(content.len() as u32).to_le_bytes());
+        central.extend_from_slice(&(content.len() as u32).to_le_bytes());
+        central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&0u16.to_le_bytes());
+        central.extend_from_slice(&0u32.to_le_bytes());
+        central.extend_from_slice(&local_offset.to_le_bytes());
+        central.extend_from_slice(name.as_bytes());
     }
-    let cd_offset = out.len() as u32; let cd_size = central.len() as u32; out.extend_from_slice(&central); out.extend_from_slice(&0x0605_4b50u32.to_le_bytes()); out.extend_from_slice(&0u16.to_le_bytes()); out.extend_from_slice(&0u16.to_le_bytes()); out.extend_from_slice(&(files.len() as u16).to_le_bytes()); out.extend_from_slice(&(files.len() as u16).to_le_bytes()); out.extend_from_slice(&cd_size.to_le_bytes()); out.extend_from_slice(&cd_offset.to_le_bytes()); out.extend_from_slice(&0u16.to_le_bytes()); out
+    let cd_offset = out.len() as u32;
+    let cd_size = central.len() as u32;
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&cd_size.to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
 }
 
 pub(crate) struct ZipArchive<'a> {
@@ -46,18 +84,28 @@ fn rd_u16(b: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*b.get(at)?, *b.get(at + 1)?]))
 }
 fn rd_u32(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes([*b.get(at)?, *b.get(at + 1)?, *b.get(at + 2)?, *b.get(at + 3)?]))
+    Some(u32::from_le_bytes([
+        *b.get(at)?,
+        *b.get(at + 1)?,
+        *b.get(at + 2)?,
+        *b.get(at + 3)?,
+    ]))
 }
 
 impl<'a> ZipArchive<'a> {
     pub(crate) fn open(bytes: &'a [u8]) -> Result<Self, String> {
         // find EOCD (0x06054b50) scanning backwards — comment can pad the tail
         const EOCD: u32 = 0x0605_4b50;
-        if bytes.len() < 22 { return Err("zip too small".into()); }
+        if bytes.len() < 22 {
+            return Err("zip too small".into());
+        }
         let mut eocd_at = None;
         let lo = bytes.len().saturating_sub(22 + 65_535);
         for i in (lo..=bytes.len() - 22).rev() {
-            if rd_u32(bytes, i) == Some(EOCD) { eocd_at = Some(i); break; }
+            if rd_u32(bytes, i) == Some(EOCD) {
+                eocd_at = Some(i);
+                break;
+            }
         }
         let eocd = eocd_at.ok_or("no zip end-of-central-directory")?;
         let count = rd_u16(bytes, eocd + 10).ok_or("bad eocd")? as usize;
@@ -66,7 +114,9 @@ impl<'a> ZipArchive<'a> {
         let mut entries = HashMap::new();
         let mut at = cd_offset;
         for _ in 0..count {
-            if rd_u32(bytes, at) != Some(0x0201_4b50) { return Err("bad central directory entry".into()); }
+            if rd_u32(bytes, at) != Some(0x0201_4b50) {
+                return Err("bad central directory entry".into());
+            }
             let method = rd_u16(bytes, at + 10).ok_or("bad cd")?;
             let csize = rd_u32(bytes, at + 20).ok_or("bad cd")?;
             let usize_ = rd_u32(bytes, at + 24).ok_or("bad cd")?;
@@ -74,8 +124,13 @@ impl<'a> ZipArchive<'a> {
             let extra_len = rd_u16(bytes, at + 30).ok_or("bad cd")? as usize;
             let comment_len = rd_u16(bytes, at + 32).ok_or("bad cd")? as usize;
             let local_offset = rd_u32(bytes, at + 42).ok_or("bad cd")?;
-            let name = std::str::from_utf8(bytes.get(at + 46..at + 46 + name_len).ok_or("bad cd name")?)
-                .map_err(|_| "non-utf8 zip entry name")?.to_string();
+            let name = std::str::from_utf8(
+                bytes
+                    .get(at + 46..at + 46 + name_len)
+                    .ok_or("bad cd name")?,
+            )
+            .map_err(|_| "non-utf8 zip entry name")?
+            .to_string();
             entries.insert(name, (method, csize, usize_, local_offset));
             at += 46 + name_len + extra_len + comment_len;
         }
@@ -84,14 +139,21 @@ impl<'a> ZipArchive<'a> {
 
     /// Read + decompress one entry by exact name.
     pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
-        let (method, csize, usize_, local_offset) = *self.entries.get(name)
+        let (method, csize, usize_, local_offset) = *self
+            .entries
+            .get(name)
             .ok_or_else(|| format!("zip entry not found: {name}"))?;
         let lo = local_offset as usize;
-        if rd_u32(self.bytes, lo) != Some(0x0403_4b50) { return Err("bad local header".into()); }
+        if rd_u32(self.bytes, lo) != Some(0x0403_4b50) {
+            return Err("bad local header".into());
+        }
         let name_len = rd_u16(self.bytes, lo + 26).ok_or("bad local")? as usize;
         let extra_len = rd_u16(self.bytes, lo + 28).ok_or("bad local")? as usize;
         let data_at = lo + 30 + name_len + extra_len;
-        let data = self.bytes.get(data_at..data_at + csize as usize).ok_or("entry data out of range")?;
+        let data = self
+            .bytes
+            .get(data_at..data_at + csize as usize)
+            .ok_or("entry data out of range")?;
         match method {
             0 => Ok(data.to_vec()),
             8 => miniz_oxide::inflate::decompress_to_vec_with_limit(data, usize_ as usize + 1024)
@@ -102,10 +164,15 @@ impl<'a> ZipArchive<'a> {
 
     /// Read every entry whose name matches the predicate (sorted by name
     /// for deterministic iteration).
-    pub(crate) fn read_matching(&self, pred: impl Fn(&str) -> bool) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
+    pub(crate) fn read_matching(
+        &self,
+        pred: impl Fn(&str) -> bool,
+    ) -> Result<std::collections::BTreeMap<String, Vec<u8>>, String> {
         let mut out = std::collections::BTreeMap::new();
         for name in self.entries.keys() {
-            if pred(name) { out.insert(name.clone(), self.read(name)?); }
+            if pred(name) {
+                out.insert(name.clone(), self.read(name)?);
+            }
         }
         Ok(out)
     }
@@ -123,15 +190,15 @@ mod tests {
             let local_offset = out.len() as u32;
             out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
             out.extend_from_slice(&20u16.to_le_bytes()); // version
-            out.extend_from_slice(&0u16.to_le_bytes());  // flags
-            out.extend_from_slice(&0u16.to_le_bytes());  // method: stored
-            out.extend_from_slice(&0u16.to_le_bytes());  // time
-            out.extend_from_slice(&0u16.to_le_bytes());  // date
-            out.extend_from_slice(&0u32.to_le_bytes());  // crc (unchecked)
+            out.extend_from_slice(&0u16.to_le_bytes()); // flags
+            out.extend_from_slice(&0u16.to_le_bytes()); // method: stored
+            out.extend_from_slice(&0u16.to_le_bytes()); // time
+            out.extend_from_slice(&0u16.to_le_bytes()); // date
+            out.extend_from_slice(&0u32.to_le_bytes()); // crc (unchecked)
             out.extend_from_slice(&(content.len() as u32).to_le_bytes());
             out.extend_from_slice(&(content.len() as u32).to_le_bytes());
             out.extend_from_slice(&(name.len() as u16).to_le_bytes());
-            out.extend_from_slice(&0u16.to_le_bytes());  // extra len
+            out.extend_from_slice(&0u16.to_le_bytes()); // extra len
             out.extend_from_slice(name.as_bytes());
             out.extend_from_slice(content);
 

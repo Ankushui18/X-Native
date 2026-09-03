@@ -8,10 +8,10 @@
 //! Future homes as they grow: definition.rs, instance.rs, overrides.rs,
 //! variants.rs, properties.rs, registry.rs, slots.rs, libraries.rs.
 
-pub mod model;
+pub mod layout;
 #[cfg(test)]
 mod layout_regression;
-pub mod layout;
+pub mod model;
 
-pub use model::*;
 pub use layout::{resolve_instance_layout, sync_instance_sizes, MeasureFn};
+pub use model::*;

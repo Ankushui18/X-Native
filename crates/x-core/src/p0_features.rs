@@ -153,7 +153,7 @@ fn apply_single_property(
 // 5. Export Extensions
 // -----------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExportSettings {
     pub format: String,
     pub scale: f64,

@@ -11,13 +11,19 @@ use x_core::Document;
 
 /// PNG IHDR: bytes 16..24 are big-endian width/height (after the 8-byte
 /// signature and the 8-byte IHDR chunk header).
-fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     const SIG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
-    if bytes.len() < 24 || bytes[..8] != SIG { return None; }
-    if &bytes[12..16] != b"IHDR" { return None; }
+    if bytes.len() < 24 || bytes[..8] != SIG {
+        return None;
+    }
+    if &bytes[12..16] != b"IHDR" {
+        return None;
+    }
     let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
     let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
-    if w == 0 || h == 0 || w > 32768 || h > 32768 { return None; }
+    if w == 0 || h == 0 || w > 32768 || h > 32768 {
+        return None;
+    }
     Some((w, h))
 }
 
@@ -27,9 +33,16 @@ pub fn import_png(name: &str, bytes: &[u8]) -> Result<Document, String> {
     let (w, h) = png_dimensions(bytes).ok_or("not a valid PNG (bad signature or IHDR)")?;
     let doc = ImportDoc {
         source: "png",
-        pages: vec![ImportNode::new(ImportKind::Frame).id(format!("png-{name}"))
-            .child(ImportNode::new(ImportKind::Image { asset: name.to_string() })
-                .id(name).at(40.0, 40.0).size(w as f64, h as f64))],
+        pages: vec![ImportNode::new(ImportKind::Frame)
+            .id(format!("png-{name}"))
+            .child(
+                ImportNode::new(ImportKind::Image {
+                    asset: name.to_string(),
+                })
+                .id(name)
+                .at(40.0, 40.0)
+                .size(w as f64, h as f64),
+            )],
         assets: vec![(name.to_string(), bytes.to_vec())],
         diagnostics: vec![],
     };

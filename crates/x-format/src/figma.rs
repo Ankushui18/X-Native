@@ -33,7 +33,7 @@ use crate::import_ir::{ImportDoc, ImportKind, ImportNode};
 use crate::json::{self, V};
 use crate::svg_import::parse_path_d;
 use std::collections::HashMap;
-use x_core::{Color, Document, Paint};
+use x_core::{Color, Document, GradSpace, Paint};
 
 /// JSON string escaping that covers the FULL control range: JSON forbids
 /// raw U+0000–U+001F inside strings, so a text node containing a tab (or
@@ -56,19 +56,44 @@ fn esc_json(s: &str) -> String {
     }
     out
 }
-fn path_d(path: &[x_core::PathCmd]) -> String { path.iter().map(|c| match c { x_core::PathCmd::MoveTo(x,y) => format!("M {x} {y}"), x_core::PathCmd::LineTo(x,y) => format!("L {x} {y}"), x_core::PathCmd::CurveTo(x1,y1,x2,y2,x,y) => format!("C {x1} {y1} {x2} {y2} {x} {y}"), x_core::PathCmd::Close => "Z".into() }).collect::<Vec<_>>().join(" ") }
-fn figma_color_json(c: Color) -> String { format!("{{\"r\":{},\"g\":{},\"b\":{},\"a\":{}}}", c.components[0] as f64, c.components[1] as f64, c.components[2] as f64, c.components[3] as f64) }
+fn path_d(path: &[x_core::PathCmd]) -> String {
+    path.iter()
+        .map(|c| match c {
+            x_core::PathCmd::MoveTo(x, y) => format!("M {x} {y}"),
+            x_core::PathCmd::LineTo(x, y) => format!("L {x} {y}"),
+            x_core::PathCmd::CurveTo(x1, y1, x2, y2, x, y) => {
+                format!("C {x1} {y1} {x2} {y2} {x} {y}")
+            }
+            x_core::PathCmd::Close => "Z".into(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+fn figma_color_json(c: Color) -> String {
+    format!(
+        "{{\"r\":{},\"g\":{},\"b\":{},\"a\":{}}}",
+        c.components[0] as f64,
+        c.components[1] as f64,
+        c.components[2] as f64,
+        c.components[3] as f64
+    )
+}
 fn figma_paint_json(p: &Paint, w: f64, h: f64) -> String {
     match p {
         Paint::Solid(c) => format!("{{\"type\":\"SOLID\",\"visible\":true,\"color\":{}}}", figma_color_json(*c)),
         Paint::Variable(_) => "{\"type\":\"SOLID\",\"visible\":true,\"color\":{\"r\":0,\"g\":0,\"b\":0,\"a\":1}}".into(),
-        Paint::LinearGradient { start, end, stops } => format!("{{\"type\":\"GRADIENT_LINEAR\",\"visible\":true,\"gradientHandlePositions\":[{{\"x\":{},\"y\":{}}},{{\"x\":{},\"y\":{}}}],\"gradientStops\":[{}]}}", start.0 / w.max(1.0), start.1 / h.max(1.0), end.0 / w.max(1.0), end.1 / h.max(1.0), stops.iter().map(|(t,c)| format!("{{\"position\":{t},\"color\":{}}}", figma_color_json(*c))).collect::<Vec<_>>().join(",")),
-        Paint::RadialGradient { center, radius, stops } => format!("{{\"type\":\"GRADIENT_RADIAL\",\"visible\":true,\"gradientHandlePositions\":[{{\"x\":{},\"y\":{}}},{{\"x\":{},\"y\":{}}}],\"gradientStops\":[{}]}}", center.0 / w.max(1.0), center.1 / h.max(1.0), (center.0 + radius) / w.max(1.0), center.1 / h.max(1.0), stops.iter().map(|(t,c)| format!("{{\"position\":{t},\"color\":{}}}", figma_color_json(*c))).collect::<Vec<_>>().join(",")),
+        // the Figma REST schema has no pattern paint — honest gray solid
+        // fallback (documented lossy, same policy as Variable)
+        Paint::Pattern { .. } => "{\"type\":\"SOLID\",\"visible\":true,\"color\":{\"r\":0.6,\"g\":0.6,\"b\":0.6,\"a\":1}}".into(),
+        Paint::LinearGradient { start, end, stops, .. } => format!("{{\"type\":\"GRADIENT_LINEAR\",\"visible\":true,\"gradientHandlePositions\":[{{\"x\":{},\"y\":{}}},{{\"x\":{},\"y\":{}}}],\"gradientStops\":[{}]}}", start.0 / w.max(1.0), start.1 / h.max(1.0), end.0 / w.max(1.0), end.1 / h.max(1.0), stops.iter().map(|(t,c)| format!("{{\"position\":{t},\"color\":{}}}", figma_color_json(*c))).collect::<Vec<_>>().join(",")),
+        Paint::RadialGradient { center, radius, stops, .. } => format!("{{\"type\":\"GRADIENT_RADIAL\",\"visible\":true,\"gradientHandlePositions\":[{{\"x\":{},\"y\":{}}},{{\"x\":{},\"y\":{}}}],\"gradientStops\":[{}]}}", center.0 / w.max(1.0), center.1 / h.max(1.0), (center.0 + radius) / w.max(1.0), center.1 / h.max(1.0), stops.iter().map(|(t,c)| format!("{{\"position\":{t},\"color\":{}}}", figma_color_json(*c))).collect::<Vec<_>>().join(",")),
     }
 }
 
 fn figma_effect_json(e: x_core::EffectLayer) -> Option<String> {
-    if !e.visible || e.opacity <= 0.0 { return None; }
+    if !e.visible || e.opacity <= 0.0 {
+        return None;
+    }
     use x_core::Effect::*;
     Some(match e.effect {
         DropShadow { dx, dy, blur, color } => format!("{{\"type\":\"DROP_SHADOW\",\"visible\":true,\"radius\":{blur},\"color\":{},\"offset\":{{\"x\":{dx},\"y\":{dy}}}}}", figma_color_json(color)),
@@ -79,73 +104,215 @@ fn figma_effect_json(e: x_core::EffectLayer) -> Option<String> {
 }
 
 fn figma_layout_json(l: &x_core::AutoLayout) -> String {
-    let mode = match l.direction { x_core::LayoutDirection::Horizontal => "HORIZONTAL", x_core::LayoutDirection::Vertical => "VERTICAL" };
+    let mode = match l.direction {
+        x_core::LayoutDirection::Horizontal => "HORIZONTAL",
+        x_core::LayoutDirection::Vertical => "VERTICAL",
+    };
     let axis_mode = |hug: bool| if hug { "AUTO" } else { "FIXED" };
-    let (main_mode, cross_mode) = (axis_mode(l.sizing == x_core::Sizing::Hug), axis_mode(l.cross() == x_core::Sizing::Hug));
-    let counter_align = match l.align { x_core::CrossAlign::Start => "MIN", x_core::CrossAlign::Center => "CENTER", x_core::CrossAlign::End => "MAX" };
-    let primary_align = if l.space_between { "SPACE_BETWEEN" } else { "MIN" };
-    let wrap = if l.wrap == x_core::AutoLayoutWrap::Wrap { "WRAP" } else { "NO_WRAP" };
+    let (main_mode, cross_mode) = (
+        axis_mode(l.sizing == x_core::Sizing::Hug),
+        axis_mode(l.cross() == x_core::Sizing::Hug),
+    );
+    let counter_align = match l.align {
+        x_core::CrossAlign::Start => "MIN",
+        x_core::CrossAlign::Center => "CENTER",
+        x_core::CrossAlign::End => "MAX",
+        x_core::CrossAlign::Baseline => "CENTER",
+    };
+    let primary_align = match l.distribute {
+        x_core::Distribute::Between => "SPACE_BETWEEN",
+        x_core::Distribute::Around => "SPACE_AROUND",
+        x_core::Distribute::Evenly => "SPACE_EVENLY",
+        x_core::Distribute::Packed => "MIN",
+    };
+    let wrap = if l.wrap == x_core::AutoLayoutWrap::Wrap {
+        "WRAP"
+    } else {
+        "NO_WRAP"
+    };
     let [pl, pr, pt, pb] = l.padding;
     format!(",\"layoutMode\":\"{mode}\",\"itemSpacing\":{},\"paddingLeft\":{pl},\"paddingRight\":{pr},\"paddingTop\":{pt},\"paddingBottom\":{pb},\"primaryAxisSizingMode\":\"{main_mode}\",\"counterAxisSizingMode\":\"{cross_mode}\",\"primaryAxisAlignItems\":\"{primary_align}\",\"counterAxisAlignItems\":\"{counter_align}\",\"layoutWrap\":\"{wrap}\"", l.gap)
 }
 
 fn export_node(n: &x_core::Node, parent: (f64, f64)) -> String {
     use x_core::NodeKind;
-    let ax = parent.0 + n.transform.x; let ay = parent.1 + n.transform.y;
+    let ax = parent.0 + n.transform.x;
+    let ay = parent.1 + n.transform.y;
     let (ty, mut extra) = match &n.kind {
-        NodeKind::Frame { layout } => ("FRAME", format!("{}{}", layout.as_ref().map(figma_layout_json).unwrap_or_default(), figma_constraints_json(n))), NodeKind::Group => ("GROUP", figma_constraints_json(n)),
-        NodeKind::Component { name } => ("COMPONENT", format!(",\"description\":\"{}\"", esc_json(name))),
-        NodeKind::Instance { component } => ("INSTANCE", format!(",\"componentId\":\"{}\"", esc_json(component))),
-        NodeKind::Rect { radius } => ("RECTANGLE", format!(",\"cornerRadius\":{radius}")), NodeKind::Ellipse => ("ELLIPSE", String::new()),
-        NodeKind::Line => ("LINE", String::new()), NodeKind::Text { text } => {
-            let font = n.bindings.get("font").cloned().unwrap_or_else(|| "Inter".into());
-            let lh = n.bindings.get("lh").and_then(|v| v.parse::<f64>().ok()).unwrap_or(1.2);
-            let ls = n.bindings.get("ls").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        NodeKind::Frame { layout } => (
+            "FRAME",
+            format!(
+                "{}{}",
+                layout.as_ref().map(figma_layout_json).unwrap_or_default(),
+                figma_constraints_json(n)
+            ),
+        ),
+        NodeKind::Group => ("GROUP", figma_constraints_json(n)),
+        NodeKind::Section => ("SECTION", figma_constraints_json(n)),
+        NodeKind::Component { name } => (
+            "COMPONENT",
+            format!(",\"description\":\"{}\"", esc_json(name)),
+        ),
+        NodeKind::Instance { component } => (
+            "INSTANCE",
+            format!(",\"componentId\":\"{}\"", esc_json(component)),
+        ),
+        NodeKind::Rect { radius } => ("RECTANGLE", format!(",\"cornerRadius\":{radius}")),
+        NodeKind::Ellipse => ("ELLIPSE", String::new()),
+        NodeKind::Arc { start, end } => (
+            "VECTOR",
+            format!(
+                ",\"fillGeometry\":[{{\"path\":\"{}\",\"windingRule\":\"NONZERO\"}}]",
+                esc_json(&path_d(&x_core::booleans::arc_path_cmds(
+                    n.w, n.h, *start, *end
+                )))
+            ),
+        ),
+        NodeKind::Line => ("LINE", String::new()),
+        NodeKind::Text { text } => {
+            let font = n
+                .bindings
+                .get("font")
+                .cloned()
+                .unwrap_or_else(|| "Inter".into());
+            let lh = n
+                .bindings
+                .get("lh")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(1.2);
+            let ls = n
+                .bindings
+                .get("ls")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0);
             // rich runs: Figma's mixed-style text encoding — one style id
             // per character + the style table. A char covered by multiple
             // runs takes the LAST run (same rule as the renderer).
-            let rich = if n.text_runs.is_empty() { String::new() } else {
+            let rich = if n.text_runs.is_empty() {
+                String::new()
+            } else {
                 let total = text.chars().count();
-                let ids: Vec<usize> = (0..total).map(|ci| {
-                    n.text_runs.iter().rposition(|r| ci >= r.start && ci < r.start.saturating_add(r.len))
-                        .map(|i| i + 1).unwrap_or(0)
-                }).collect();
-                let table: Vec<String> = n.text_runs.iter().enumerate().map(|(i, r)| {
-                    let mut st = String::new();
-                    if let Some(f) = &r.font { st.push_str(&format!("\"fontFamily\":\"{}\"", esc_json(f))); }
-                    if let Some(sz) = r.size {
-                        if !st.is_empty() { st.push(','); }
-                        st.push_str(&format!("\"fontSize\":{sz}"));
-                    }
-                    if let Some(c) = r.color {
-                        if !st.is_empty() { st.push(','); }
-                        st.push_str(&format!("\"fills\":[{{\"type\":\"SOLID\",\"color\":{}}}]", figma_color_json(c)));
-                    }
-                    if st.is_empty() { st = "\"fontSize\":{}".replace("{}", &format!("{}", n.h)); }
-                    format!("\"{}\":{{{st}}}", i + 1)
-                }).collect();
-                format!(",\"characterStyleOverrides\":[{}],\"styleOverrideTable\":{{{}}}",
-                    ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(","),
-                    table.join(","))
+                let ids: Vec<usize> = (0..total)
+                    .map(|ci| {
+                        n.text_runs
+                            .iter()
+                            .rposition(|r| ci >= r.start && ci < r.start.saturating_add(r.len))
+                            .map(|i| i + 1)
+                            .unwrap_or(0)
+                    })
+                    .collect();
+                let table: Vec<String> = n
+                    .text_runs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        let mut st = String::new();
+                        if let Some(f) = &r.font {
+                            st.push_str(&format!("\"fontFamily\":\"{}\"", esc_json(f)));
+                        }
+                        if let Some(sz) = r.size {
+                            if !st.is_empty() {
+                                st.push(',');
+                            }
+                            st.push_str(&format!("\"fontSize\":{sz}"));
+                        }
+                        if let Some(c) = r.color {
+                            if !st.is_empty() {
+                                st.push(',');
+                            }
+                            st.push_str(&format!(
+                                "\"fills\":[{{\"type\":\"SOLID\",\"color\":{}}}]",
+                                figma_color_json(c)
+                            ));
+                        }
+                        if let Some(w) = r.weight {
+                            if !st.is_empty() {
+                                st.push(',');
+                            }
+                            st.push_str(&format!("\"fontWeight\":{w}"));
+                        }
+                        if r.italic == Some(true) {
+                            if !st.is_empty() {
+                                st.push(',');
+                            }
+                            st.push_str("\"fontStyle\":\"ITALIC\"");
+                        }
+                        if let Some(ls) = r.ls {
+                            if !st.is_empty() {
+                                st.push(',');
+                            }
+                            st.push_str(&format!("\"letterSpacing\":{ls}"));
+                        }
+                        if st.is_empty() {
+                            st = "\"fontSize\":{}".replace("{}", &format!("{}", n.h));
+                        }
+                        format!("\"{}\":{{{st}}}", i + 1)
+                    })
+                    .collect();
+                format!(
+                    ",\"characterStyleOverrides\":[{}],\"styleOverrideTable\":{{{}}}",
+                    ids.iter()
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    table.join(",")
+                )
             };
             ("TEXT", format!(",\"characters\":\"{}\",\"style\":{{\"fontFamily\":\"{}\",\"fontSize\":{},\"lineHeightPx\":{},\"letterSpacing\":{}}}{}", esc_json(text), esc_json(&font), n.h, n.h * lh, ls, rich))
         }
-        NodeKind::Vector { path } => ("VECTOR", format!(",\"fillGeometry\":[{{\"path\":\"{}\",\"windingRule\":\"NONZERO\"}}]", esc_json(&path_d(path)))),
+        NodeKind::Vector { path } => (
+            "VECTOR",
+            format!(
+                ",\"fillGeometry\":[{{\"path\":\"{}\",\"windingRule\":\"NONZERO\"}}]",
+                esc_json(&path_d(path))
+            ),
+        ),
         NodeKind::Image { .. } => ("RECTANGLE", String::new()),
+        NodeKind::Slice => ("SLICE", String::new()),
     };
     // resize constraints export for every node kind (absent when default)
     extra.push_str(&figma_constraints_json(n));
-    let fills = n.active_fills().iter().map(|l| figma_paint_json(&l.paint, n.w, n.h)).collect::<Vec<_>>().join(",");
+    let fills = n
+        .active_fills()
+        .iter()
+        .map(|l| figma_paint_json(&l.paint, n.w, n.h))
+        .collect::<Vec<_>>()
+        .join(",");
     let strokes = n.active_strokes();
-    let stroke_json = if strokes.is_empty() { String::new() } else {
-        let paints = strokes.iter().map(|s| figma_paint_json(&s.stroke.paint, n.w, n.h)).collect::<Vec<_>>().join(",");
+    let stroke_json = if strokes.is_empty() {
+        String::new()
+    } else {
+        let paints = strokes
+            .iter()
+            .map(|s| figma_paint_json(&s.stroke.paint, n.w, n.h))
+            .collect::<Vec<_>>()
+            .join(",");
         // Figma has one strokeWeight per node regardless of stack depth —
         // use the first (topmost) stroke's width, same lossy convention
         // real Figma exports use.
-        format!(",\"strokes\":[{paints}],\"strokeWeight\":{}", strokes[0].stroke.width)
+        format!(
+            ",\"strokes\":[{paints}],\"strokeWeight\":{}",
+            strokes[0].stroke.width
+        )
     };
-    let effects = n.active_effects().into_iter().filter_map(figma_effect_json).collect::<Vec<_>>().join(",");
-    let children = if n.children.is_empty() { String::new() } else { format!(",\"children\":[{}]", n.children.iter().map(|c| export_node(c, (ax, ay))).collect::<Vec<_>>().join(",")) };
+    let effects = n
+        .active_effects()
+        .into_iter()
+        .filter_map(figma_effect_json)
+        .collect::<Vec<_>>()
+        .join(",");
+    let children = if n.children.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ",\"children\":[{}]",
+            n.children
+                .iter()
+                .map(|c| export_node(c, (ax, ay)))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
     format!("{{\"id\":\"{}\",\"name\":\"{}\",\"type\":\"{ty}\",\"visible\":{},\"opacity\":{},\"rotation\":{},\"absoluteBoundingBox\":{{\"x\":{ax},\"y\":{ay},\"width\":{},\"height\":{}}},\"fills\":[{fills}]{stroke_json},\"effects\":[{effects}]{extra}{children}}}", esc_json(&n.id), esc_json(&n.id), n.visible, n.opacity, -n.transform.rotation, n.w, n.h)
 }
 
@@ -153,24 +320,56 @@ fn export_node(n: &x_core::Node, parent: (f64, f64)) -> String {
 /// documented interchange representation; it is deliberately not labelled
 /// as the proprietary binary `.fig` format.
 pub fn export_figma_json(doc: &Document) -> String {
-    let pages = doc.pages.iter().enumerate().map(|(i,p)| { let name = if p.id.is_empty() { format!("Page {}", i + 1) } else { p.id.clone() }; format!("{{\"id\":\"{}\",\"name\":\"{}\",\"type\":\"CANVAS\",\"children\":[{}]}}", esc_json(&p.id), esc_json(&name), p.children.iter().map(|c| export_node(c, (0.0, 0.0))).collect::<Vec<_>>().join(",")) }).collect::<Vec<_>>().join(",");
+    let pages = doc
+        .pages
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let name = if p.id.is_empty() {
+                format!("Page {}", i + 1)
+            } else {
+                p.id.clone()
+            };
+            format!(
+                "{{\"id\":\"{}\",\"name\":\"{}\",\"type\":\"CANVAS\",\"children\":[{}]}}",
+                esc_json(&p.id),
+                esc_json(&name),
+                p.children
+                    .iter()
+                    .map(|c| export_node(c, (0.0, 0.0)))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     format!("{{\"name\":\"X Designer export\",\"components\":{{}},\"document\":{{\"id\":\"0:0\",\"type\":\"DOCUMENT\",\"children\":[{pages}]}}}}")
 }
 
-fn s<'a>(v: &'a V, key: &str) -> Option<&'a str> { v.get(key).and_then(|x| x.str()) }
-fn n_or(v: &V, key: &str, d: f64) -> f64 { v.get(key).and_then(|x| x.num()).unwrap_or(d) }
-
-/// Figma colors: {r,g,b,a} floats 0..=1.
-fn figma_color(v: &V) -> Color {
-    Color::new([n_or(v, "r", 0.0) as f32, n_or(v, "g", 0.0) as f32, n_or(v, "b", 0.0) as f32, n_or(v, "a", 1.0) as f32])
+fn s<'a>(v: &'a V, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(|x| x.str())
 }
 
-/// First visible fill -> Paint. Gradient handles are normalized to the
-/// bounding box; scale to pixels (the same lesson the Sketch importer
-/// learned live in session 33).
+fn figma_color(v: &V) -> Color {
+    Color::from_rgba8(
+        (n_or(v, "r", 0.0) * 255.0) as u8,
+        (n_or(v, "g", 0.0) * 255.0) as u8,
+        (n_or(v, "b", 0.0) * 255.0) as u8,
+        (n_or(v, "a", 1.0) * 255.0) as u8,
+    )
+}
+fn n_or(v: &V, key: &str, d: f64) -> f64 {
+    v.get(key).and_then(|x| x.num()).unwrap_or(d)
+}
+fn n_or_opt(v: &V, key: &str) -> Option<f64> {
+    v.get(key).and_then(|x| x.num())
+}
+
 fn first_fill(node: &V, w: f64, h: f64) -> Option<Paint> {
     let fills = node.get("fills")?.arr()?;
-    let f = fills.iter().find(|f| f.get("visible").and_then(V::boolean).unwrap_or(true))?;
+    let f = fills
+        .iter()
+        .find(|f| f.get("visible").and_then(V::boolean).unwrap_or(true))?;
     figma_fill_paint(f, w, h)
 }
 
@@ -186,23 +385,44 @@ fn figma_fill_paint(f: &V, w: f64, h: f64) -> Option<Paint> {
             Some(Paint::Solid(c))
         }
         Some(t @ ("GRADIENT_LINEAR" | "GRADIENT_RADIAL")) => {
-            let stops: Vec<(f32, Color)> = f.get("gradientStops")?.arr()?.iter()
-                .filter_map(|st| Some((n_or(st, "position", 0.0) as f32, st.get("color").map(figma_color)?)))
+            let stops: Vec<(f32, Color)> = f
+                .get("gradientStops")?
+                .arr()?
+                .iter()
+                .filter_map(|st| {
+                    Some((
+                        n_or(st, "position", 0.0) as f32,
+                        st.get("color").map(figma_color)?,
+                    ))
+                })
                 .collect();
-            if stops.is_empty() { return None; }
+            if stops.is_empty() {
+                return None;
+            }
             let handles = f.get("gradientHandlePositions").and_then(V::arr);
             let hp = |i: usize| -> (f64, f64) {
-                handles.and_then(|h| h.get(i))
+                handles
+                    .and_then(|h| h.get(i))
                     .map(|p| (n_or(p, "x", 0.0) * w, n_or(p, "y", 0.0) * h))
                     .unwrap_or((0.0, 0.0))
             };
             if t == "GRADIENT_LINEAR" {
-                Some(Paint::LinearGradient { start: hp(0), end: hp(1), stops })
+                Some(Paint::LinearGradient {
+                    start: hp(0),
+                    end: hp(1),
+                    stops,
+                    space: GradSpace::Srgb,
+                })
             } else {
                 let c = hp(0);
                 let e = hp(1);
                 let r = ((e.0 - c.0).powi(2) + (e.1 - c.1).powi(2)).sqrt().max(1.0);
-                Some(Paint::RadialGradient { center: c, radius: r, stops })
+                Some(Paint::RadialGradient {
+                    center: c,
+                    radius: r,
+                    stops,
+                    space: GradSpace::Srgb,
+                })
             }
         }
         _ => None, // IMAGE fills etc. — handled as placeholder by caller
@@ -212,7 +432,12 @@ fn figma_fill_paint(f: &V, w: f64, h: f64) -> Option<Paint> {
 /// absoluteBoundingBox: {x, y, width, height} in canvas coords.
 fn bbox(v: &V) -> (f64, f64, f64, f64) {
     match v.get("absoluteBoundingBox") {
-        Some(b) => (n_or(b, "x", 0.0), n_or(b, "y", 0.0), n_or(b, "width", 0.0), n_or(b, "height", 0.0)),
+        Some(b) => (
+            n_or(b, "x", 0.0),
+            n_or(b, "y", 0.0),
+            n_or(b, "width", 0.0),
+            n_or(b, "height", 0.0),
+        ),
         None => (0.0, 0.0, 0.0, 0.0),
     }
 }
@@ -221,7 +446,9 @@ fn collect_component_names(v: &V, out: &mut HashMap<String, String>) {
     // file-level "components" map: id -> {name}
     if let Some(V::Obj(m)) = v.get("components") {
         for (id, c) in m {
-            if let Some(name) = s(c, "name") { out.insert(id.clone(), name.to_string()); }
+            if let Some(name) = s(c, "name") {
+                out.insert(id.clone(), name.to_string());
+            }
         }
     }
 }
@@ -229,7 +456,9 @@ fn collect_component_names(v: &V, out: &mut HashMap<String, String>) {
 /// Layer effects (shadows/blurs): DROP_SHADOW, INNER_SHADOW, LAYER_BLUR,
 /// BACKGROUND_BLUR — Figma's full effect set maps 1:1 onto our `Effect`.
 fn figma_effects(node: &V) -> Vec<x_core::Effect> {
-    let Some(arr) = node.get("effects").and_then(V::arr) else { return vec![] };
+    let Some(arr) = node.get("effects").and_then(V::arr) else {
+        return vec![];
+    };
     arr.iter()
         .filter(|e| e.get("visible").and_then(V::boolean).unwrap_or(true))
         .filter_map(|e| {
@@ -237,10 +466,23 @@ fn figma_effects(node: &V) -> Vec<x_core::Effect> {
             let off = e.get("offset");
             let dx = off.map(|o| n_or(o, "x", 0.0)).unwrap_or(0.0);
             let dy = off.map(|o| n_or(o, "y", 0.0)).unwrap_or(0.0);
-            let color = e.get("color").map(figma_color).unwrap_or(Color::from_rgba8(0, 0, 0, 255));
+            let color = e
+                .get("color")
+                .map(figma_color)
+                .unwrap_or(Color::from_rgba8(0, 0, 0, 255));
             match s(e, "type") {
-                Some("DROP_SHADOW") => Some(x_core::Effect::DropShadow { dx, dy, blur: radius, color }),
-                Some("INNER_SHADOW") => Some(x_core::Effect::InnerShadow { dx, dy, blur: radius, color }),
+                Some("DROP_SHADOW") => Some(x_core::Effect::DropShadow {
+                    dx,
+                    dy,
+                    blur: radius,
+                    color,
+                }),
+                Some("INNER_SHADOW") => Some(x_core::Effect::InnerShadow {
+                    dx,
+                    dy,
+                    blur: radius,
+                    color,
+                }),
                 Some("LAYER_BLUR") => Some(x_core::Effect::LayerBlur { radius }),
                 Some("BACKGROUND_BLUR") => Some(x_core::Effect::BackgroundBlur { radius }),
                 _ => None,
@@ -260,23 +502,49 @@ fn figma_auto_layout(node: &V) -> Option<x_core::AutoLayout> {
         _ => return None, // "NONE" or unrecognized: no auto-layout
     };
     let padding = [
-        n_or(node, "paddingLeft", 0.0), n_or(node, "paddingRight", 0.0),
-        n_or(node, "paddingTop", 0.0), n_or(node, "paddingBottom", 0.0),
+        n_or(node, "paddingLeft", 0.0),
+        n_or(node, "paddingRight", 0.0),
+        n_or(node, "paddingTop", 0.0),
+        n_or(node, "paddingBottom", 0.0),
     ];
     let hug_main = s(node, "primaryAxisSizingMode") == Some("AUTO");
     let hug_cross = s(node, "counterAxisSizingMode") == Some("AUTO");
-    let sizing = if hug_main { x_core::Sizing::Hug } else { x_core::Sizing::Fixed };
-    let cross_sizing = Some(if hug_cross { x_core::Sizing::Hug } else { x_core::Sizing::Fixed });
+    let sizing = if hug_main {
+        x_core::Sizing::Hug
+    } else {
+        x_core::Sizing::Fixed
+    };
+    let cross_sizing = Some(if hug_cross {
+        x_core::Sizing::Hug
+    } else {
+        x_core::Sizing::Fixed
+    });
     let align = match s(node, "counterAxisAlignItems") {
         Some("CENTER") => x_core::CrossAlign::Center,
         Some("MAX") => x_core::CrossAlign::End,
         _ => x_core::CrossAlign::Start,
     };
-    let space_between = s(node, "primaryAxisAlignItems") == Some("SPACE_BETWEEN");
-    let wrap = if s(node, "layoutWrap") == Some("WRAP") { x_core::AutoLayoutWrap::Wrap } else { x_core::AutoLayoutWrap::NoWrap };
+    let distribute = match s(node, "primaryAxisAlignItems") {
+        Some("SPACE_BETWEEN") => x_core::Distribute::Between,
+        Some("SPACE_AROUND") => x_core::Distribute::Around,
+        Some("SPACE_EVENLY") => x_core::Distribute::Evenly,
+        _ => x_core::Distribute::Packed,
+    };
+    let wrap = if s(node, "layoutWrap") == Some("WRAP") {
+        x_core::AutoLayoutWrap::Wrap
+    } else {
+        x_core::AutoLayoutWrap::NoWrap
+    };
     Some(x_core::AutoLayout {
-        direction, gap: n_or(node, "itemSpacing", 0.0), padding, sizing, cross_sizing,
-        align, space_between, wrap, ..Default::default()
+        direction,
+        gap: n_or(node, "itemSpacing", 0.0),
+        padding,
+        sizing,
+        cross_sizing,
+        align,
+        distribute,
+        wrap,
+        ..Default::default()
     })
 }
 
@@ -285,8 +553,12 @@ fn figma_auto_layout(node: &V) -> Option<x_core::AutoLayout> {
 /// (LEFT/RIGHT/TOP/BOTTOM/LEFT_RIGHT/TOP_BOTTOM) for lenient input.
 pub(crate) fn figma_pins(node: &V) -> (x_core::HPin, x_core::VPin) {
     let c = node.get("constraints");
-    let h = c.and_then(|c| s(c, "horizontal")).or_else(|| s(node, "horizontalConstraint"));
-    let v = c.and_then(|c| s(c, "vertical")).or_else(|| s(node, "verticalConstraint"));
+    let h = c
+        .and_then(|c| s(c, "horizontal"))
+        .or_else(|| s(node, "horizontalConstraint"));
+    let v = c
+        .and_then(|c| s(c, "vertical"))
+        .or_else(|| s(node, "verticalConstraint"));
     let hp = match h {
         Some("CENTER") => x_core::HPin::CenterH,
         Some("MAX") | Some("RIGHT") => x_core::HPin::Right,
@@ -306,9 +578,23 @@ pub(crate) fn figma_pins(node: &V) -> (x_core::HPin, x_core::VPin) {
 
 /// Our pins -> Figma `constraints` (canonical REST spellings).
 pub(crate) fn figma_constraints_json(n: &x_core::Node) -> String {
-    if n.pin == (x_core::HPin::Left, x_core::VPin::Top) { return String::new(); }
-    let h = match n.pin.0 { x_core::HPin::Left => "MIN", x_core::HPin::Right => "MAX", x_core::HPin::CenterH => "CENTER", x_core::HPin::StretchH => "STRETCH", x_core::HPin::ScaleH => "SCALE" };
-    let v = match n.pin.1 { x_core::VPin::Top => "MIN", x_core::VPin::Bottom => "MAX", x_core::VPin::CenterV => "CENTER", x_core::VPin::StretchV => "STRETCH", x_core::VPin::ScaleV => "SCALE" };
+    if n.pin == (x_core::HPin::Left, x_core::VPin::Top) {
+        return String::new();
+    }
+    let h = match n.pin.0 {
+        x_core::HPin::Left => "MIN",
+        x_core::HPin::Right => "MAX",
+        x_core::HPin::CenterH => "CENTER",
+        x_core::HPin::StretchH => "STRETCH",
+        x_core::HPin::ScaleH => "SCALE",
+    };
+    let v = match n.pin.1 {
+        x_core::VPin::Top => "MIN",
+        x_core::VPin::Bottom => "MAX",
+        x_core::VPin::CenterV => "CENTER",
+        x_core::VPin::StretchV => "STRETCH",
+        x_core::VPin::ScaleV => "SCALE",
+    };
     format!(",\"constraints\":{{\"horizontal\":\"{h}\",\"vertical\":\"{v}\"}}")
 }
 
@@ -324,7 +610,9 @@ struct FigmaCtx<'a> {
 
 /// First enabled IMAGE fill's `imageRef`, if the node has one.
 fn image_ref(node: &V) -> Option<&str> {
-    node.get("fills").and_then(V::arr)?.iter()
+    node.get("fills")
+        .and_then(V::arr)?
+        .iter()
         .filter(|f| f.get("visible").and_then(V::boolean).unwrap_or(true))
         .filter(|f| s(f, "type") == Some("IMAGE"))
         .find_map(|f| s(f, "imageRef"))
@@ -353,11 +641,17 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
         "INSTANCE" => {
             let cid = s(node, "componentId").unwrap_or("");
             ImportKind::Instance {
-                component: ctx.components.get(cid).cloned().unwrap_or_else(|| cid.to_string()),
+                component: ctx
+                    .components
+                    .get(cid)
+                    .cloned()
+                    .unwrap_or_else(|| cid.to_string()),
                 overrides: vec![], // REST JSON bakes overrides into children
             }
         }
-        "RECTANGLE" => ImportKind::Rect { radius: n_or(node, "cornerRadius", 0.0) },
+        "RECTANGLE" => ImportKind::Rect {
+            radius: n_or(node, "cornerRadius", 0.0),
+        },
         "ELLIPSE" => ImportKind::Ellipse,
         "LINE" => ImportKind::Line,
         "TEXT" => {
@@ -369,10 +663,14 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
                 if let Some(px) = Some(n_or(st, "lineHeightPx", 0.0)).filter(|v| *v > 0.0) {
                     Some(px / size.unwrap_or(px))
                 } else {
-                    Some(n_or(st, "lineHeightPercentFontSize", 0.0)).filter(|v| *v > 0.0).map(|p| p / 100.0)
+                    Some(n_or(st, "lineHeightPercentFontSize", 0.0))
+                        .filter(|v| *v > 0.0)
+                        .map(|p| p / 100.0)
                 }
             });
-            let ls = st.map(|st| n_or(st, "letterSpacing", 0.0)).filter(|v| *v != 0.0);
+            let ls = st
+                .map(|st| n_or(st, "letterSpacing", 0.0))
+                .filter(|v| *v != 0.0);
             let content = s(node, "characters").unwrap_or("").to_string();
             // characterStyleOverrides: one styleId PER CHARACTER (0 = base
             // style); styleOverrideTable maps id -> {fontFamily, fontSize,
@@ -383,40 +681,92 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
                 let table = node.get("styleOverrideTable");
                 let total = content.chars().count();
                 let per_char: Vec<usize> = (0..total)
-                    .map(|ci| ids.get(ci).and_then(V::num).map(|v| v as usize).unwrap_or(0))
+                    .map(|ci| {
+                        ids.get(ci)
+                            .and_then(V::num)
+                            .map(|v| v as usize)
+                            .unwrap_or(0)
+                    })
                     .collect();
                 let mut i = 0;
                 while i < total {
                     let id = per_char[i];
                     let mut j = i + 1;
-                    while j < total && per_char[j] == id { j += 1; }
+                    while j < total && per_char[j] == id {
+                        j += 1;
+                    }
                     if id != 0 {
                         let entry = table.and_then(|t| t.get(&id.to_string()));
                         let color = entry
-                            .and_then(|e| e.get("fills")).and_then(V::arr).and_then(|f| f.first())
+                            .and_then(|e| e.get("fills"))
+                            .and_then(V::arr)
+                            .and_then(|f| f.first())
                             .and_then(|f| figma_fill_paint(f, 0.0, 0.0))
-                            .and_then(|p| if let Paint::Solid(c) = p { Some(c) } else { None });
+                            .and_then(|p| {
+                                if let Paint::Solid(c) = p {
+                                    Some(c)
+                                } else {
+                                    None
+                                }
+                            });
                         let size = entry.map(|e| n_or(e, "fontSize", 0.0)).filter(|v| *v > 0.0);
                         let font = entry.and_then(|e| s(e, "fontFamily")).map(str::to_string);
-                        if color.is_some() || size.is_some() || font.is_some() {
-                            runs.push(x_core::TextRun { start: i, len: j - i, color, size, font });
+                        let weight = entry
+                            .and_then(|e| n_or_opt(e, "fontWeight"))
+                            .map(|w| w as u16);
+                        let italic = entry
+                            .and_then(|e| s(e, "fontStyle"))
+                            .map(|fs| fs == "ITALIC");
+                        let ls = entry
+                            .and_then(|e| n_or_opt(e, "letterSpacing"))
+                            .filter(|v| *v != 0.0);
+                        if color.is_some()
+                            || size.is_some()
+                            || font.is_some()
+                            || weight.is_some()
+                            || italic == Some(true)
+                            || ls.is_some()
+                        {
+                            runs.push(x_core::TextRun {
+                                start: i,
+                                len: j - i,
+                                color,
+                                size,
+                                font,
+                                weight,
+                                italic,
+                                ls,
+                            });
                         }
                     }
                     i = j;
                 }
             }
-            ImportKind::Text { content, size, font, line_height: lh, letter_spacing: ls, runs }
+            ImportKind::Text {
+                content,
+                size,
+                font,
+                line_height: lh,
+                letter_spacing: ls,
+                runs,
+            }
         }
         "VECTOR" | "STAR" | "REGULAR_POLYGON" | "BOOLEAN_OPERATION" => {
             // fillGeometry: [{path: "M...Z", windingRule}] — SVG path data
             // in node-local coords; reuse the SVG importer's d-parser (one
             // parser, shared semantics).
-            let cmds = node.get("fillGeometry").and_then(V::arr)
+            let cmds = node
+                .get("fillGeometry")
+                .and_then(V::arr)
                 .and_then(|g| g.first())
                 .and_then(|g0| s(g0, "path"))
                 .map(parse_path_d)
                 .unwrap_or_default();
-            if cmds.is_empty() { ImportKind::Rect { radius: 0.0 } } else { ImportKind::Path { cmds } }
+            if cmds.is_empty() {
+                ImportKind::Rect { radius: 0.0 }
+            } else {
+                ImportKind::Path { cmds }
+            }
         }
         "SLICE" => return None,
         _ => return None, // unknown type: skip, never guess
@@ -427,7 +777,9 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
     if let Some(r) = image_ref(node) {
         if let Some(bytes) = ctx.images.get(r) {
             let name = format!("figma-{r}");
-            if !ctx.assets.iter().any(|(n, _)| *n == name) { ctx.assets.push((name.clone(), bytes.clone())); }
+            if !ctx.assets.iter().any(|(n, _)| *n == name) {
+                ctx.assets.push((name.clone(), bytes.clone()));
+            }
             kind = ImportKind::Image { asset: name };
         } else {
             ctx.diags.push(format!("figma: image fill '{r}' dropped — no bytes supplied (use import_figma_json_with_images)"));
@@ -435,9 +787,14 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
     }
 
     let mut ir = ImportNode::new(kind).at(x, y).size(w, h);
-    if let Some(id) = s(node, "id") { ir = ir.id(id); }
+    if let Some(id) = s(node, "id") {
+        ir = ir.id(id);
+    }
     // explicit constraints only (None keeps the Left/Top default)
-    if node.get("constraints").is_some() || s(node, "horizontalConstraint").is_some() || s(node, "verticalConstraint").is_some() {
+    if node.get("constraints").is_some()
+        || s(node, "horizontalConstraint").is_some()
+        || s(node, "verticalConstraint").is_some()
+    {
         let (hp, vp) = figma_pins(node);
         ir = ir.pin(hp, vp);
     }
@@ -448,7 +805,8 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
     ir.layout = figma_auto_layout(node);
     if let Some(strokes) = node.get("strokes").and_then(V::arr) {
         // strokes share the fill paint vocabulary (solid + gradients)
-        let mut paints = strokes.iter()
+        let mut paints = strokes
+            .iter()
             .filter(|f| f.get("visible").and_then(V::boolean).unwrap_or(true))
             .filter_map(|st| figma_fill_paint(st, w, h));
         let weight = n_or(node, "strokeWeight", 1.0);
@@ -462,7 +820,9 @@ fn convert(node: &V, parent_abs: (f64, f64), ctx: &mut FigmaCtx) -> Option<Impor
     ir.effects = figma_effects(node);
     if let Some(children) = node.get("children").and_then(V::arr) {
         for c in children {
-            if let Some(cn) = convert(c, (ax, ay), ctx) { ir.children.push(cn); }
+            if let Some(cn) = convert(c, (ax, ay), ctx) {
+                ir.children.push(cn);
+            }
         }
     }
     Some(ir)
@@ -479,23 +839,46 @@ pub fn import_figma_json(text: &str) -> Result<Document, String> {
 /// from `GET /v1/images/:key`, which needs a token). Nodes whose first
 /// enabled fill is an IMAGE become embedded `Image` nodes; refs without
 /// bytes are dropped with a diagnostic in the report.
-pub fn import_figma_json_with_images(text: &str, images: &HashMap<String, Vec<u8>>) -> Result<(Document, crate::ImportReport), String> {
+pub fn import_figma_json_with_images(
+    text: &str,
+    images: &HashMap<String, Vec<u8>>,
+) -> Result<(Document, crate::ImportReport), String> {
     import_figma_json_with_report_impl(text, images)
 }
 
-fn import_figma_json_with_report_impl(text: &str, images: &HashMap<String, Vec<u8>>) -> Result<(Document, crate::ImportReport), String> {
+fn import_figma_json_with_report_impl(
+    text: &str,
+    images: &HashMap<String, Vec<u8>>,
+) -> Result<(Document, crate::ImportReport), String> {
     let v = json::parse(text)?;
-    let document = v.get("document").ok_or("not a Figma REST JSON file (no \"document\")")?;
+    let document = v
+        .get("document")
+        .ok_or("not a Figma REST JSON file (no \"document\")")?;
     let mut components = HashMap::new();
     collect_component_names(&v, &mut components);
-    let mut ctx = FigmaCtx { components: &components, images, assets: vec![], diags: vec![] };
+    let mut ctx = FigmaCtx {
+        components: &components,
+        images,
+        assets: vec![],
+        diags: vec![],
+    };
 
-    let mut doc = ImportDoc { source: "figma", ..Default::default() };
-    let pages = document.get("children").and_then(V::arr).ok_or("document has no pages")?;
+    let mut doc = ImportDoc {
+        source: "figma",
+        ..Default::default()
+    };
+    let pages = document
+        .get("children")
+        .and_then(V::arr)
+        .ok_or("document has no pages")?;
     for page in pages {
-        if s(page, "type") != Some("CANVAS") { continue; }
+        if s(page, "type") != Some("CANVAS") {
+            continue;
+        }
         let mut page_ir = ImportNode::new(ImportKind::Frame);
-        if let Some(id) = s(page, "id") { page_ir = page_ir.id(id); }
+        if let Some(id) = s(page, "id") {
+            page_ir = page_ir.id(id);
+        }
         if let Some(children) = page.get("children").and_then(V::arr) {
             // page-level children are positioned at absolute canvas coords;
             // shift the envelope so content starts near the origin
@@ -503,11 +886,15 @@ fn import_figma_json_with_report_impl(text: &str, images: &HashMap<String, Vec<u
             let mut kids = vec![];
             for c in children {
                 if let Some(cn) = convert(c, (0.0, 0.0), &mut ctx) {
-                    minx = minx.min(cn.x); miny = miny.min(cn.y);
+                    minx = minx.min(cn.x);
+                    miny = miny.min(cn.y);
                     kids.push(cn);
                 }
             }
-            if minx == f64::MAX { minx = 0.0; miny = 0.0; }
+            if minx == f64::MAX {
+                minx = 0.0;
+                miny = 0.0;
+            }
             for mut k in kids {
                 k.x -= minx - 40.0;
                 k.y -= miny - 40.0;
@@ -516,7 +903,9 @@ fn import_figma_json_with_report_impl(text: &str, images: &HashMap<String, Vec<u
         }
         doc.pages.push(page_ir);
     }
-    if doc.pages.is_empty() { return Err("figma file contains no canvases".into()); }
+    if doc.pages.is_empty() {
+        return Err("figma file contains no canvases".into());
+    }
     doc.assets = ctx.assets;
     doc.diagnostics = ctx.diags;
     Ok(crate::import_ir::lower_with_report(doc))
@@ -525,7 +914,7 @@ fn import_figma_json_with_report_impl(text: &str, images: &HashMap<String, Vec<u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x_core::{NodeKind, Sizing, HPin, VPin};
+    use x_core::{HPin, NodeKind, Sizing, VPin};
 
     const FIXTURE: &str = r##"{
       "name": "Test file",
@@ -605,9 +994,24 @@ mod tests {
 
     #[test]
     fn exported_figma_json_reimports_editable_nodes() {
-        let mut doc = Document::new(); doc.pages.push(x_core::Node::frame("Page", 400.0, 300.0).child(x_core::Node::rect("Card", 10.0, 20.0, 120.0, 80.0, Color::from_rgb8(20, 40, 200)).radius(12.0)));
-        let json = export_figma_json(&doc); let loaded = import_figma_json(&json).expect("own Figma JSON should import");
-        assert_eq!(loaded.pages.len(), 1); assert_eq!(loaded.pages[0].children.len(), 1);
+        let mut doc = Document::new();
+        doc.pages.push(
+            x_core::Node::frame("Page", 400.0, 300.0).child(
+                x_core::Node::rect(
+                    "Card",
+                    10.0,
+                    20.0,
+                    120.0,
+                    80.0,
+                    Color::from_rgb8(20, 40, 200),
+                )
+                .radius(12.0),
+            ),
+        );
+        let json = export_figma_json(&doc);
+        let loaded = import_figma_json(&json).expect("own Figma JSON should import");
+        assert_eq!(loaded.pages.len(), 1);
+        assert_eq!(loaded.pages[0].children.len(), 1);
     }
 
     #[test]
@@ -616,10 +1020,21 @@ mod tests {
         // to be emitted verbatim — invalid JSON that no parser accepts
         // (JSON forbids raw U+0000–U+001F inside strings).
         let mut doc = Document::new();
-        doc.pages.push(x_core::Node::frame("Page", 400.0, 300.0)
-            .child(x_core::Node::text("Tab", 0.0, 0.0, 100.0, 20.0, "a\tb\u{1}c\"d\\e")));
+        doc.pages.push(
+            x_core::Node::frame("Page", 400.0, 300.0).child(x_core::Node::text(
+                "Tab",
+                0.0,
+                0.0,
+                100.0,
+                20.0,
+                "a\tb\u{1}c\"d\\e",
+            )),
+        );
         let json = export_figma_json(&doc);
-        assert!(crate::json::parse(&json).is_ok(), "exported JSON must be parseable: {json}");
+        assert!(
+            crate::json::parse(&json).is_ok(),
+            "exported JSON must be parseable: {json}"
+        );
         // and the content survives the round trip
         let back = import_figma_json(&json).expect("own Figma JSON should import");
         assert!(matches!(&back.pages[0].children[0].kind,
@@ -647,12 +1062,26 @@ mod tests {
         }"##;
         let doc = import_figma_json(json).expect("figma import");
         let card = &doc.pages[0].children[0];
-        let NodeKind::Frame { layout: Some(l) } = &card.kind else { panic!("layout frame") };
-        assert_eq!(l.padding, [10.0, 4.0, 6.0, 2.0], "exact per-side padding, no averaging");
+        let NodeKind::Frame { layout: Some(l) } = &card.kind else {
+            panic!("layout frame")
+        };
+        assert_eq!(
+            l.padding,
+            [10.0, 4.0, 6.0, 2.0],
+            "exact per-side padding, no averaging"
+        );
         assert_eq!(l.sizing, Sizing::Fixed, "primary FIXED -> main Fixed");
-        assert_eq!(l.cross_sizing, Some(Sizing::Hug), "counter AUTO -> independent cross hug");
+        assert_eq!(
+            l.cross_sizing,
+            Some(Sizing::Hug),
+            "counter AUTO -> independent cross hug"
+        );
         let r = &card.children[0];
-        assert_eq!(r.pin, (HPin::StretchH, VPin::CenterV), "constraints map to resize pins");
+        assert_eq!(
+            r.pin,
+            (HPin::StretchH, VPin::CenterV),
+            "constraints map to resize pins"
+        );
         // and back out: export writes them
         let out = export_node(card, (0.0, 0.0));
         assert!(out.contains("\"paddingLeft\":10"));
@@ -660,7 +1089,9 @@ mod tests {
         assert!(out.contains("\"paddingTop\":6"));
         assert!(out.contains("\"paddingBottom\":2"));
         assert!(out.contains("\"counterAxisSizingMode\":\"AUTO\""));
-        assert!(out.contains("\"constraints\":{\"horizontal\":\"STRETCH\",\"vertical\":\"CENTER\"}"));
+        assert!(
+            out.contains("\"constraints\":{\"horizontal\":\"STRETCH\",\"vertical\":\"CENTER\"}")
+        );
     }
 
     #[test]
@@ -693,11 +1124,18 @@ mod tests {
         }"##;
         let doc = import_figma_json(json).expect("should import");
         let n = &doc.pages[0].children[0];
-        assert!(matches!(&n.kind, NodeKind::Text { text } if text == "Bold rest"), "content: {:?}", n.kind);
+        assert!(
+            matches!(&n.kind, NodeKind::Text { text } if text == "Bold rest"),
+            "content: {:?}",
+            n.kind
+        );
         assert_eq!(n.text_runs.len(), 1, "one styled group: {:?}", n.text_runs);
         let r = &n.text_runs[0];
         assert_eq!((r.start, r.len), (0, 4), "'Bold' chars 0..4");
-        assert!(matches!(r.color, Some(c) if c.to_rgba8().r == 255), "override fill color");
+        assert!(
+            matches!(r.color, Some(c) if c.to_rgba8().r == 255),
+            "override fill color"
+        );
         assert_eq!(r.size, Some(24.0));
         assert_eq!(r.font.as_deref(), Some("Inter-Bold"));
     }
@@ -707,17 +1145,58 @@ mod tests {
         let mut doc = Document::new();
         doc.pages.push(x_core::Node::frame("p1", 400.0, 300.0));
         let mut t = x_core::Node::text("t1", 10.0, 10.0, 200.0, 16.0, "Bold rest");
-        t.text_runs = vec![x_core::TextRun { start: 0, len: 4, color: Some(Color::from_rgb8(255, 0, 0)), size: None, font: None }];
+        t.text_runs = vec![x_core::TextRun {
+            start: 0,
+            len: 4,
+            color: Some(Color::from_rgb8(255, 0, 0)),
+            size: None,
+            font: None,
+            weight: None,
+            italic: None,
+            ls: None,
+        }];
         doc.pages[0].children.push(t);
         let json = export_figma_json(&doc);
-        assert!(json.contains("\"characterStyleOverrides\":[1,1,1,1,0,0,0,0,0]"), "per-char ids: {json}");
-        assert!(json.contains("\"styleOverrideTable\":{\"1\":"), "style table");
+        assert!(
+            json.contains("\"characterStyleOverrides\":[1,1,1,1,0,0,0,0,0]"),
+            "per-char ids: {json}"
+        );
+        assert!(
+            json.contains("\"styleOverrideTable\":{\"1\":"),
+            "style table"
+        );
         // round-trip: the exported JSON imports back with the same run
         let back = import_figma_json(&json).expect("reimport");
         let n = &back.pages[0].children[0];
         assert_eq!(n.text_runs.len(), 1);
         assert_eq!((n.text_runs[0].start, n.text_runs[0].len), (0, 4));
         assert!(matches!(n.text_runs[0].color, Some(c) if c.to_rgba8().r == 255));
+    }
+
+    #[test]
+    fn pattern_fills_export_as_solid_fallback() {
+        // the Figma REST schema has no pattern paint — export degrades to
+        // a visible gray solid instead of dropping the fill
+        let mut doc = Document::new();
+        doc.pages.push(x_core::Node::frame("p1", 400.0, 300.0));
+        doc.pages[0].children.push(
+            x_core::Node::rect("r", 10.0, 10.0, 100.0, 50.0, Color::WHITE).fill_paint(
+                Paint::Pattern {
+                    asset: "asset://cafe".into(),
+                    fit: x_core::ImageFit::Tile,
+                },
+            ),
+        );
+        let json = export_figma_json(&doc);
+        assert!(
+            json.contains("\"type\":\"SOLID\""),
+            "solid fallback: {json}"
+        );
+        assert!(json.contains("0.6"), "neutral gray marker");
+        assert!(
+            !json.contains("asset://"),
+            "no asset leakage into Figma JSON"
+        );
     }
 
     #[test]
@@ -736,12 +1215,23 @@ mod tests {
         let (doc, report) = import_figma_json_with_images(json, &images).expect("should import");
         match &doc.pages[0].children[0].kind {
             NodeKind::Image { asset, .. } => {
-                assert!(asset.starts_with("asset://"), "content-addressed id: {asset}");
-                assert_eq!(doc.assets.get(asset).map(|r| r.bytes.clone()), Some(png.to_vec()), "bytes registered");
+                assert!(
+                    asset.starts_with("asset://"),
+                    "content-addressed id: {asset}"
+                );
+                assert_eq!(
+                    doc.assets.get(asset).map(|r| r.bytes.clone()),
+                    Some(png.to_vec()),
+                    "bytes registered"
+                );
             }
             other => panic!("expected Image, got {other:?}"),
         }
-        assert!(!report.diagnostics.iter().any(|d| d.contains("image fill")), "no drop diagnostic: {:?}", report.diagnostics);
+        assert!(
+            !report.diagnostics.iter().any(|d| d.contains("image fill")),
+            "no drop diagnostic: {:?}",
+            report.diagnostics
+        );
     }
 
     #[test]
@@ -755,8 +1245,18 @@ mod tests {
         }"##;
         let empty = std::collections::HashMap::new();
         let (doc, report) = import_figma_json_with_images(json, &empty).expect("should import");
-        assert!(!matches!(doc.pages[0].children[0].kind, NodeKind::Image { .. }), "no Image node without bytes");
-        assert!(report.diagnostics.iter().any(|d| d.contains("image fill 'S1:2' dropped")), "diagnostic: {:?}", report.diagnostics);
+        assert!(
+            !matches!(doc.pages[0].children[0].kind, NodeKind::Image { .. }),
+            "no Image node without bytes"
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("image fill 'S1:2' dropped")),
+            "diagnostic: {:?}",
+            report.diagnostics
+        );
     }
 
     #[test]
@@ -773,7 +1273,11 @@ mod tests {
         assert!(matches!(&t.kind, NodeKind::Text { text } if text == "Headline"));
         assert_eq!(t.h, 18.0, "h becomes the font size");
         assert_eq!(t.bindings.get("font").map(String::as_str), Some("Roboto"));
-        assert_eq!(t.bindings.get("lh").map(String::as_str), Some("1.5"), "27/18");
+        assert_eq!(
+            t.bindings.get("lh").map(String::as_str),
+            Some("1.5"),
+            "27/18"
+        );
         assert_eq!(t.bindings.get("ls").map(String::as_str), Some("0.5"));
     }
 
@@ -812,8 +1316,14 @@ mod tests {
         let doc = import_figma_json(json).expect("should import");
         let n = &doc.pages[0].children[0];
         match &n.stroke.paint {
-            Paint::LinearGradient { start, end, stops } => {
-                assert_eq!((*start, *end), ((0.0, 0.0), (100.0, 0.0)), "handles scaled to node pixels");
+            Paint::LinearGradient {
+                start, end, stops, ..
+            } => {
+                assert_eq!(
+                    (*start, *end),
+                    ((0.0, 0.0), (100.0, 0.0)),
+                    "handles scaled to node pixels"
+                );
                 assert_eq!(stops.len(), 2);
             }
             other => panic!("gradient stroke lost: {other:?}"),
@@ -821,7 +1331,62 @@ mod tests {
         assert_eq!(n.stroke.width, 3.0);
         let back = import_figma_json(&export_figma_json(&doc)).expect("reimport");
         let n2 = &back.pages[0].children[0];
-        assert!(matches!(&n2.stroke.paint, Paint::LinearGradient { .. }), "gradient stroke round-trips");
+        assert!(
+            matches!(&n2.stroke.paint, Paint::LinearGradient { .. }),
+            "gradient stroke round-trips"
+        );
         assert_eq!(n2.stroke.width, 3.0);
+    }
+
+    #[test]
+    fn rich_text_style_fields_roundtrip_through_figma_json() {
+        let red = Color::from_rgb8(0xff, 0x00, 0x00);
+        let mut t = x_core::Node::text("t", 0.0, 0.0, 200.0, 24.0, "hello world");
+        t.text_runs = vec![
+            x_core::TextRun {
+                start: 0,
+                len: 5,
+                color: Some(red),
+                size: None,
+                font: None,
+                weight: Some(700),
+                italic: None,
+                ls: None,
+            },
+            x_core::TextRun {
+                start: 6,
+                len: 5,
+                color: None,
+                size: Some(30.0),
+                font: None,
+                weight: None,
+                italic: Some(true),
+                ls: None,
+            },
+        ];
+        let mut doc = Document::new();
+        doc.pages
+            .push(x_core::Node::frame("Page", 400.0, 300.0).child(t));
+        let json = export_figma_json(&doc);
+        assert!(json.contains("styleOverrideTable"), "table exported");
+        assert!(
+            json.contains("characterStyleOverrides"),
+            "overrides exported"
+        );
+        assert!(json.contains("\"fontWeight\":700"), "weight exported");
+        assert!(json.contains("\"fontStyle\":\"ITALIC\""), "italic exported");
+        let loaded = import_figma_json(&json).expect("import");
+        let t_node = loaded.pages[0]
+            .children
+            .iter()
+            .find(|c| c.id == "t")
+            .expect("text node");
+        let runs = &t_node.text_runs;
+        assert_eq!(runs.len(), 2, "two styled groups: {runs:?}");
+        assert_eq!((runs[0].start, runs[0].len), (0, 5));
+        assert_eq!(runs[0].color, Some(red));
+        assert_eq!(runs[0].weight, Some(700));
+        assert_eq!(runs[1].size, Some(30.0));
+        assert_eq!(runs[1].italic, Some(true));
     }
 }

@@ -2,12 +2,15 @@
 //! deliberately — versioning first, review-accept updates, no silent
 //! changes, no object copying).
 
-use x_native::fileio::{library_hash, load_x, load_xlib, save_x, save_xlib, verify_dependency, verify_document_libraries, IntegrityStatus};
-use x_native::{
-    accept_update, bind_style, diff_library, resolve_library_style, resolve_library_styles,
-    Color, Document, Library, LibraryChange, LibraryDependency, LibraryRef, Node, Paint, Style,
-};
 use std::collections::HashMap;
+use x_native::fileio::{
+    library_hash, load_x, load_xlib, save_x, save_xlib, verify_dependency,
+    verify_document_libraries, IntegrityStatus,
+};
+use x_native::{
+    accept_update, bind_style, diff_library, resolve_library_style, resolve_library_styles, Color,
+    Document, Library, LibraryChange, LibraryDependency, LibraryRef, Node, Paint, Style,
+};
 
 fn brand(version: u32, primary: Color) -> Library {
     let mut l = Library {
@@ -16,10 +19,17 @@ fn brand(version: u32, primary: Color) -> Library {
         version,
         ..Default::default()
     };
-    l.styles.insert("Primary/500".into(), Style::Paint { fill: Paint::Solid(primary) });
+    l.styles.insert(
+        "Primary/500".into(),
+        Style::Paint {
+            fill: Paint::Solid(primary),
+        },
+    );
     l.variables.numbers.insert("radius".into(), 8.0);
-    l.components.push(Node::component("m-btn", "Button", 100.0, 40.0)
-        .child(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, primary)));
+    l.components.push(
+        Node::component("m-btn", "Button", 100.0, 40.0)
+            .child(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, primary)),
+    );
     l
 }
 
@@ -33,8 +43,15 @@ fn full_lifecycle_link_pin_update_review_accept_persist() {
 
     // 2. a document links it: pinned dep + snapshot + library:// binding
     let mut doc = Document::new();
-    doc.pages.push(Node::frame("p1", 400.0, 300.0)
-        .child(Node::rect("hero", 20.0, 20.0, 100.0, 60.0, Color::BLACK)));
+    doc.pages
+        .push(Node::frame("p1", 400.0, 300.0).child(Node::rect(
+            "hero",
+            20.0,
+            20.0,
+            100.0,
+            60.0,
+            Color::BLACK,
+        )));
     doc.library_deps.push(LibraryDependency {
         library_id: "brand-system".into(),
         resolved_version: 1,
@@ -43,9 +60,14 @@ fn full_lifecycle_link_pin_update_review_accept_persist() {
     });
     doc.library_snapshots.insert("brand-system".into(), loaded);
     let r = LibraryRef::style("brand-system", "Primary/500");
-    let def = resolve_library_style(&doc.library_snapshots, &r).unwrap().clone();
+    let def = resolve_library_style(&doc.library_snapshots, &r)
+        .unwrap()
+        .clone();
     bind_style(&mut doc.pages[0].children[0], &r.uri(), &def);
-    assert_eq!(doc.pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)));
+    assert_eq!(
+        doc.pages[0].children[0].fill,
+        Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF))
+    );
 
     // 3. persistence: .x carries dep + snapshot; reload works WITHOUT the
     //    .xlib file existing anywhere (self-contained document)
@@ -55,23 +77,35 @@ fn full_lifecycle_link_pin_update_review_accept_persist() {
     let mut re = load_x(&text).expect("reload");
     assert_eq!(re.library_deps.len(), 1);
     assert_eq!(re.library_deps[0].resolved_version, 1);
-    assert!(re.library_snapshots.contains_key("brand-system"), "snapshot restored");
+    assert!(
+        re.library_snapshots.contains_key("brand-system"),
+        "snapshot restored"
+    );
     assert_eq!(save_x(&re), text, "byte-stable with libraries present");
     // resolving from the restored snapshot still lands v1's color
     let n = resolve_library_styles(&mut re.pages[0], &re.library_snapshots);
     assert_eq!(n, 1);
-    assert_eq!(re.pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)));
+    assert_eq!(
+        re.pages[0].children[0].fill,
+        Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF))
+    );
 
     // 4. v2 appears on disk. NOTHING changes until review+accept.
     let v2 = brand(2, Color::from_rgb8(0x66, 0x33, 0xFF));
     resolve_library_styles(&mut re.pages[0], &re.library_snapshots);
-    assert_eq!(re.pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
-        "pinned v1 protects the document from v2's existence");
+    assert_eq!(
+        re.pages[0].children[0].fill,
+        Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
+        "pinned v1 protects the document from v2's existence"
+    );
 
     // 5. review: diff between pinned snapshot and v2
     let pinned = re.library_snapshots.get("brand-system").unwrap();
     let changes = diff_library(pinned, &v2);
-    assert_eq!(changes, vec![LibraryChange::StyleModified("Primary/500".into())]);
+    assert_eq!(
+        changes,
+        vec![LibraryChange::StyleModified("Primary/500".into())]
+    );
 
     // 6. accept: repin + update consumers
     let mut dep = re.library_deps[0].clone();
@@ -81,7 +115,10 @@ fn full_lifecycle_link_pin_update_review_accept_persist() {
     assert_eq!(accepted.len(), 1);
     assert_eq!(dep.resolved_version, 2);
     assert_eq!(updated, 1);
-    assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)));
+    assert_eq!(
+        pages[0].children[0].fill,
+        Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF))
+    );
 
     // 7. the updated pin persists
     let mut doc2 = Document::new();
@@ -99,17 +136,30 @@ fn library_refs_are_not_copies() {
     // the library uri; only the snapshot holds the definition
     let v1 = brand(1, Color::from_rgb8(0x33, 0x66, 0xFF));
     let mut doc = Document::new();
-    doc.pages.push(Node::frame("p", 100.0, 100.0)
-        .child(Node::rect("a", 0.0, 0.0, 10.0, 10.0, Color::BLACK)));
+    doc.pages
+        .push(Node::frame("p", 100.0, 100.0).child(Node::rect(
+            "a",
+            0.0,
+            0.0,
+            10.0,
+            10.0,
+            Color::BLACK,
+        )));
     doc.library_snapshots.insert(v1.library_id.clone(), v1);
     let r = LibraryRef::style("brand-system", "Primary/500");
-    let def = resolve_library_style(&doc.library_snapshots, &r).unwrap().clone();
+    let def = resolve_library_style(&doc.library_snapshots, &r)
+        .unwrap()
+        .clone();
     bind_style(&mut doc.pages[0].children[0], &r.uri(), &def);
     assert!(doc.styles.is_empty(), "no local copy of the library style");
     assert_eq!(
-        doc.pages[0].children[0].bindings.get("style:paint").map(String::as_str),
+        doc.pages[0].children[0]
+            .bindings
+            .get("style:paint")
+            .map(String::as_str),
         Some("library://brand-system/style/Primary/500"),
-        "binding stores the stable library uri");
+        "binding stores the stable library uri"
+    );
 }
 
 #[test]
@@ -123,10 +173,18 @@ fn integrity_verification_catches_corruption() {
         source_path: "brand.xlib".into(),
     };
     // intact snapshot verifies
-    assert_eq!(verify_dependency(&dep, Some(&v1)), IntegrityStatus::Verified);
+    assert_eq!(
+        verify_dependency(&dep, Some(&v1)),
+        IntegrityStatus::Verified
+    );
     // any mutation is caught (a hand-edited style value)
     let mut tampered = v1.clone();
-    tampered.styles.insert("Primary/500".into(), Style::Paint { fill: Paint::Solid(Color::BLACK) });
+    tampered.styles.insert(
+        "Primary/500".into(),
+        Style::Paint {
+            fill: Paint::Solid(Color::BLACK),
+        },
+    );
     match verify_dependency(&dep, Some(&tampered)) {
         IntegrityStatus::Corrupt { expected, actual } => {
             assert_eq!(expected, hash);
@@ -135,9 +193,18 @@ fn integrity_verification_catches_corruption() {
         other => panic!("expected Corrupt, got {other:?}"),
     }
     // missing snapshot + legacy (no hash) statuses
-    assert_eq!(verify_dependency(&dep, None), IntegrityStatus::MissingSnapshot);
-    let legacy = LibraryDependency { snapshot_hash: String::new(), ..dep.clone() };
-    assert_eq!(verify_dependency(&legacy, Some(&v1)), IntegrityStatus::LegacyUnhashed);
+    assert_eq!(
+        verify_dependency(&dep, None),
+        IntegrityStatus::MissingSnapshot
+    );
+    let legacy = LibraryDependency {
+        snapshot_hash: String::new(),
+        ..dep.clone()
+    };
+    assert_eq!(
+        verify_dependency(&legacy, Some(&v1)),
+        IntegrityStatus::LegacyUnhashed
+    );
 }
 
 #[test]
@@ -156,15 +223,23 @@ fn integrity_survives_x_roundtrip_and_detects_hand_edits() {
     // clean reload verifies
     let re = load_x(&text).unwrap();
     let statuses = verify_document_libraries(&re);
-    assert_eq!(statuses, vec![("brand-system".to_string(), IntegrityStatus::Verified)]);
+    assert_eq!(
+        statuses,
+        vec![("brand-system".to_string(), IntegrityStatus::Verified)]
+    );
     // hand-edit the embedded snapshot color inside the raw .x text —
     // the id is re-derived fine, but the HASH catches the change
     let tampered_text = text.replace("#3366ff", "#000000");
-    assert_ne!(tampered_text, text, "fixture assumes the color appears in .x");
+    assert_ne!(
+        tampered_text, text,
+        "fixture assumes the color appears in .x"
+    );
     let tampered = load_x(&tampered_text).unwrap();
     let statuses = verify_document_libraries(&tampered);
-    assert!(matches!(statuses[0].1, IntegrityStatus::Corrupt { .. }),
-        "hand-edited snapshot flagged: {statuses:?}");
+    assert!(
+        matches!(statuses[0].1, IntegrityStatus::Corrupt { .. }),
+        "hand-edited snapshot flagged: {statuses:?}"
+    );
     // partial write: truncate the snapshot object -> parse drops it ->
     // MissingSnapshot (never a silent wrong render)
     let cut = &text[..text.find("\"styles\"").unwrap() + 10];
@@ -172,14 +247,18 @@ fn integrity_survives_x_roundtrip_and_detects_hand_edits() {
     if let Ok(Ok(d)) = std::panic::catch_unwind(|| load_x(cut)) {
         let st = verify_document_libraries(&d);
         for (_, s) in st {
-            assert_ne!(s, IntegrityStatus::Verified, "truncated file must not verify");
+            assert_ne!(
+                s,
+                IntegrityStatus::Verified,
+                "truncated file must not verify"
+            );
         }
     }
 }
 
 #[test]
 fn accept_update_propagates_component_masters() {
-    use x_native::{refresh_library_masters, accept_update};
+    use x_native::{accept_update, refresh_library_masters};
     let v1 = brand(1, Color::from_rgb8(0x33, 0x66, 0xFF));
     let mut snapshots = HashMap::new();
     snapshots.insert("brand-system".to_string(), v1.clone());
@@ -194,16 +273,24 @@ fn accept_update_propagates_component_masters() {
     let mut v2 = brand(2, Color::from_rgb8(0x66, 0x33, 0xFF));
     v2.components[0].children[0].fill = Paint::Solid(Color::from_rgb8(0x11, 0x22, 0x33));
     let mut dep = LibraryDependency {
-        library_id: "brand-system".into(), resolved_version: 1,
-        snapshot_hash: String::new(), source_path: "b.xlib".into(),
+        library_id: "brand-system".into(),
+        resolved_version: 1,
+        snapshot_hash: String::new(),
+        source_path: "b.xlib".into(),
     };
     let (_, updated) = accept_update(&mut dep, &mut snapshots, &mut pages, v2);
     assert!(updated >= 1, "master refresh counted");
     let m = x_native::editor::find(&pages[0], "libmaster-brand-system-Button").unwrap();
-    assert_eq!(m.children[0].fill, Paint::Solid(Color::from_rgb8(0x11, 0x22, 0x33)),
-        "registry master now carries v2's definition — instances re-render");
+    assert_eq!(
+        m.children[0].fill,
+        Paint::Solid(Color::from_rgb8(0x11, 0x22, 0x33)),
+        "registry master now carries v2's definition — instances re-render"
+    );
     // refresh is idempotent
-    assert_eq!(refresh_library_masters(&mut pages[0], "brand-system", &snapshots), 1);
+    assert_eq!(
+        refresh_library_masters(&mut pages[0], "brand-system", &snapshots),
+        1
+    );
 }
 
 #[test]
@@ -212,8 +299,8 @@ fn freeze_on_corrupt_keeps_values_and_blocks_resolution() {
     let v1 = brand(1, Color::from_rgb8(0x33, 0x66, 0xFF));
     let mut snapshots = HashMap::new();
     snapshots.insert("brand-system".to_string(), v1.clone());
-    let mut page = Node::frame("p", 100.0, 100.0)
-        .child(Node::rect("a", 0.0, 0.0, 10.0, 10.0, Color::BLACK));
+    let mut page =
+        Node::frame("p", 100.0, 100.0).child(Node::rect("a", 0.0, 0.0, 10.0, 10.0, Color::BLACK));
     let r = LibraryRef::style("brand-system", "Primary/500");
     let def = resolve_library_style(&snapshots, &r).unwrap().clone();
     bind_style(&mut page.children[0], &r.uri(), &def);
@@ -223,8 +310,11 @@ fn freeze_on_corrupt_keeps_values_and_blocks_resolution() {
     // resolution now SKIPS the binding: last-applied value stays put
     let n = resolve_library_styles(&mut page, &snapshots);
     assert_eq!(n, 0);
-    assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
-        "frozen: value kept, corrupt data never applied");
+    assert_eq!(
+        page.children[0].fill,
+        Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
+        "frozen: value kept, corrupt data never applied"
+    );
     // verified libraries survive the freeze pass
     let mut snaps2 = HashMap::new();
     snaps2.insert("ok-lib".to_string(), brand(1, Color::BLACK));

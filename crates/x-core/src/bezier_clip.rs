@@ -33,20 +33,34 @@ pub struct Seg {
     pub p: [Pt; 4],
 }
 
-fn lerp(a: Pt, b: Pt, t: f64) -> Pt { (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t) }
+fn lerp(a: Pt, b: Pt, t: f64) -> Pt {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+}
 
 impl Seg {
     pub fn line(a: Pt, b: Pt) -> Self {
-        Self { p: [a, lerp(a, b, 1.0 / 3.0), lerp(a, b, 2.0 / 3.0), b] }
+        Self {
+            p: [a, lerp(a, b, 1.0 / 3.0), lerp(a, b, 2.0 / 3.0), b],
+        }
     }
-    pub fn cubic(p0: Pt, p1: Pt, p2: Pt, p3: Pt) -> Self { Self { p: [p0, p1, p2, p3] } }
+    pub fn cubic(p0: Pt, p1: Pt, p2: Pt, p3: Pt) -> Self {
+        Self {
+            p: [p0, p1, p2, p3],
+        }
+    }
 
     pub fn eval(&self, t: f64) -> Pt {
         let mt = 1.0 - t;
         let [p0, p1, p2, p3] = self.p;
         (
-            mt * mt * mt * p0.0 + 3.0 * mt * mt * t * p1.0 + 3.0 * mt * t * t * p2.0 + t * t * t * p3.0,
-            mt * mt * mt * p0.1 + 3.0 * mt * mt * t * p1.1 + 3.0 * mt * t * t * p2.1 + t * t * t * p3.1,
+            mt * mt * mt * p0.0
+                + 3.0 * mt * mt * t * p1.0
+                + 3.0 * mt * t * t * p2.0
+                + t * t * t * p3.0,
+            mt * mt * mt * p0.1
+                + 3.0 * mt * mt * t * p1.1
+                + 3.0 * mt * t * t * p2.1
+                + t * t * t * p3.1,
         )
     }
 
@@ -62,7 +76,11 @@ impl Seg {
         (Seg { p: [p0, a, d, f] }, Seg { p: [f, e, c, p3] })
     }
 
-    pub fn reversed(&self) -> Seg { Seg { p: [self.p[3], self.p[2], self.p[1], self.p[0]] } }
+    pub fn reversed(&self) -> Seg {
+        Seg {
+            p: [self.p[3], self.p[2], self.p[1], self.p[0]],
+        }
+    }
 
     fn bbox(&self) -> (f64, f64, f64, f64) {
         let xs = [self.p[0].0, self.p[1].0, self.p[2].0, self.p[3].0];
@@ -90,8 +108,10 @@ impl Seg {
     pub fn is_line(&self) -> bool {
         let l = Seg::line(self.p[0], self.p[3]);
         let e = 1e-6;
-        (self.p[1].0 - l.p[1].0).abs() < e && (self.p[1].1 - l.p[1].1).abs() < e
-            && (self.p[2].0 - l.p[2].0).abs() < e && (self.p[2].1 - l.p[2].1).abs() < e
+        (self.p[1].0 - l.p[1].0).abs() < e
+            && (self.p[1].1 - l.p[1].1).abs() < e
+            && (self.p[2].0 - l.p[2].0).abs() < e
+            && (self.p[2].1 - l.p[2].1).abs() < e
     }
 }
 
@@ -107,7 +127,9 @@ pub fn path_to_segs(cmds: &[PathCmd], offset: Pt) -> Option<Vec<Seg>> {
         match *c {
             PathCmd::MoveTo(x, y) => {
                 contours += 1;
-                if contours > 1 { return None; } // multi-contour: fall back
+                if contours > 1 {
+                    return None;
+                } // multi-contour: fall back
                 cur = (x + offset.0, y + offset.1);
                 start = Some(cur);
             }
@@ -118,7 +140,12 @@ pub fn path_to_segs(cmds: &[PathCmd], offset: Pt) -> Option<Vec<Seg>> {
             }
             PathCmd::CurveTo(x1, y1, x2, y2, x, y) => {
                 let to = (x + offset.0, y + offset.1);
-                segs.push(Seg::cubic(cur, (x1 + offset.0, y1 + offset.1), (x2 + offset.0, y2 + offset.1), to));
+                segs.push(Seg::cubic(
+                    cur,
+                    (x1 + offset.0, y1 + offset.1),
+                    (x2 + offset.0, y2 + offset.1),
+                    to,
+                ));
                 cur = to;
             }
             PathCmd::Close => {
@@ -144,7 +171,9 @@ pub fn path_to_segs(cmds: &[PathCmd], offset: Pt) -> Option<Vec<Seg>> {
 pub fn segs_to_path(contours: &[Vec<Seg>], origin: Pt) -> Vec<PathCmd> {
     let mut out = vec![];
     for segs in contours {
-        if segs.is_empty() { continue; }
+        if segs.is_empty() {
+            continue;
+        }
         let s0 = segs[0].p[0];
         out.push(PathCmd::MoveTo(s0.0 - origin.0, s0.1 - origin.1));
         for s in segs {
@@ -152,9 +181,12 @@ pub fn segs_to_path(contours: &[Vec<Seg>], origin: Pt) -> Vec<PathCmd> {
                 out.push(PathCmd::LineTo(s.p[3].0 - origin.0, s.p[3].1 - origin.1));
             } else {
                 out.push(PathCmd::CurveTo(
-                    s.p[1].0 - origin.0, s.p[1].1 - origin.1,
-                    s.p[2].0 - origin.0, s.p[2].1 - origin.1,
-                    s.p[3].0 - origin.0, s.p[3].1 - origin.1,
+                    s.p[1].0 - origin.0,
+                    s.p[1].1 - origin.1,
+                    s.p[2].0 - origin.0,
+                    s.p[2].1 - origin.1,
+                    s.p[3].0 - origin.0,
+                    s.p[3].1 - origin.1,
                 ));
             }
         }
@@ -168,20 +200,35 @@ pub fn segs_to_path(contours: &[Vec<Seg>], origin: Pt) -> Vec<PathCmd> {
 /// recursive subdivision intersection: (t_on_a, t_on_b, point)
 fn seg_intersections(a: &Seg, b: &Seg, out: &mut Vec<(f64, f64, Pt)>) {
     #[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
-    fn rec(a: &Seg, ta0: f64, ta1: f64, b: &Seg, tb0: f64, tb1: f64, out: &mut Vec<(f64, f64, Pt)>, depth: u32) {
+    fn rec(
+        a: &Seg,
+        ta0: f64,
+        ta1: f64,
+        b: &Seg,
+        tb0: f64,
+        tb1: f64,
+        out: &mut Vec<(f64, f64, Pt)>,
+        depth: u32,
+    ) {
         let (ax0, ay0, ax1, ay1) = a.bbox();
         let (bx0, by0, bx1, by1) = b.bbox();
-        if ax1 < bx0 - 1e-9 || bx1 < ax0 - 1e-9 || ay1 < by0 - 1e-9 || by1 < ay0 - 1e-9 { return; }
+        if ax1 < bx0 - 1e-9 || bx1 < ax0 - 1e-9 || ay1 < by0 - 1e-9 || by1 < ay0 - 1e-9 {
+            return;
+        }
         const TOL: f64 = 1e-6;
         if depth > 40 || (a.flatness() < TOL && b.flatness() < TOL) {
             // chord-chord intersection
             let (p1, p2) = (a.p[0], a.p[3]);
             let (p3, p4) = (b.p[0], b.p[3]);
             let d = (p2.0 - p1.0) * (p4.1 - p3.1) - (p2.1 - p1.1) * (p4.0 - p3.0);
-            if d.abs() < 1e-12 { return; }
+            if d.abs() < 1e-12 {
+                return;
+            }
             let s = ((p3.0 - p1.0) * (p4.1 - p3.1) - (p3.1 - p1.1) * (p4.0 - p3.0)) / d;
             let u = ((p3.0 - p1.0) * (p2.1 - p1.1) - (p3.1 - p1.1) * (p2.0 - p1.0)) / d;
-            if !(-1e-9..=1.0 + 1e-9).contains(&s) || !(-1e-9..=1.0 + 1e-9).contains(&u) { return; }
+            if !(-1e-9..=1.0 + 1e-9).contains(&s) || !(-1e-9..=1.0 + 1e-9).contains(&u) {
+                return;
+            }
             let ta = ta0 + (ta1 - ta0) * s.clamp(0.0, 1.0);
             let tb = tb0 + (tb1 - tb0) * u.clamp(0.0, 1.0);
             out.push((ta, tb, (p1.0 + (p2.0 - p1.0) * s, p1.1 + (p2.1 - p1.1) * s)));
@@ -205,7 +252,9 @@ fn seg_intersections(a: &Seg, b: &Seg, out: &mut Vec<(f64, f64, Pt)>) {
 fn flatten_chain(segs: &[Seg]) -> Vec<Pt> {
     let mut pts = vec![];
     for s in segs {
-        for i in 0..12 { pts.push(s.eval(i as f64 / 12.0)); }
+        for i in 0..12 {
+            pts.push(s.eval(i as f64 / 12.0));
+        }
     }
     pts
 }
@@ -218,7 +267,9 @@ fn point_in(poly: &[Pt], x: f64, y: f64) -> bool {
         let (x2, y2) = poly[(i + 1) % n];
         if (y1 > y) != (y2 > y) {
             let xi = x1 + (y - y1) / (y2 - y1) * (x2 - x1);
-            if x < xi { inside = !inside; }
+            if x < xi {
+                inside = !inside;
+            }
         }
     }
     inside
@@ -250,15 +301,20 @@ pub use crate::clip::ClipOp;
 pub fn clip_bezier(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<Vec<Seg>>> {
     for attempt in 0..4 {
         let eps = 1e-4 * (attempt as f64) * (1.0 + attempt as f64);
-        let moved: Vec<Seg> = clipper.iter().map(|s| Seg {
-            p: [
-                (s.p[0].0 + eps, s.p[0].1 + eps * 1.37),
-                (s.p[1].0 + eps, s.p[1].1 + eps * 1.37),
-                (s.p[2].0 + eps, s.p[2].1 + eps * 1.37),
-                (s.p[3].0 + eps, s.p[3].1 + eps * 1.37),
-            ],
-        }).collect();
-        if let Some(r) = clip_bezier_once(subject, &moved, op) { return Some(r); }
+        let moved: Vec<Seg> = clipper
+            .iter()
+            .map(|s| Seg {
+                p: [
+                    (s.p[0].0 + eps, s.p[0].1 + eps * 1.37),
+                    (s.p[1].0 + eps, s.p[1].1 + eps * 1.37),
+                    (s.p[2].0 + eps, s.p[2].1 + eps * 1.37),
+                    (s.p[3].0 + eps, s.p[3].1 + eps * 1.37),
+                ],
+            })
+            .collect();
+        if let Some(r) = clip_bezier_once(subject, &moved, op) {
+            return Some(r);
+        }
     }
     None
 }
@@ -267,24 +323,44 @@ pub fn clip_bezier(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<V
 fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<Vec<Seg>>> {
     // ---- 1. all intersections between the two chains
     #[derive(Clone)]
-    struct Hit { seg_a: usize, ta: f64, seg_b: usize, tb: f64 }
+    struct Hit {
+        seg_a: usize,
+        ta: f64,
+        seg_b: usize,
+        tb: f64,
+    }
     let mut hits: Vec<Hit> = vec![];
     for (i, sa) in subject.iter().enumerate() {
         for (j, sb) in clipper.iter().enumerate() {
             let mut pts = vec![];
             seg_intersections(sa, sb, &mut pts);
             for (ta, tb, _) in pts {
-                hits.push(Hit { seg_a: i, ta, seg_b: j, tb });
+                hits.push(Hit {
+                    seg_a: i,
+                    ta,
+                    seg_b: j,
+                    tb,
+                });
             }
         }
     }
     // dedup subdivision duplicates (same param neighborhood)
-    hits.sort_by(|a, b| (a.seg_a, a.seg_b).cmp(&(b.seg_a, b.seg_b))
-        .then(a.ta.partial_cmp(&b.ta).unwrap()));
-    hits.dedup_by(|a, b| a.seg_a == b.seg_a && a.seg_b == b.seg_b
-        && (a.ta - b.ta).abs() < 1e-4 && (a.tb - b.tb).abs() < 1e-4);
+    hits.sort_by(|a, b| {
+        (a.seg_a, a.seg_b)
+            .cmp(&(b.seg_a, b.seg_b))
+            .then(a.ta.partial_cmp(&b.ta).unwrap())
+    });
+    hits.dedup_by(|a, b| {
+        a.seg_a == b.seg_a
+            && a.seg_b == b.seg_b
+            && (a.ta - b.ta).abs() < 1e-4
+            && (a.tb - b.tb).abs() < 1e-4
+    });
     // endpoint-grazing = degenerate for this backend
-    if hits.iter().any(|h| h.ta < 1e-6 || h.ta > 1.0 - 1e-6 || h.tb < 1e-6 || h.tb > 1.0 - 1e-6) {
+    if hits
+        .iter()
+        .any(|h| h.ta < 1e-6 || h.ta > 1.0 - 1e-6 || h.tb < 1e-6 || h.tb > 1.0 - 1e-6)
+    {
         return None;
     }
 
@@ -299,20 +375,46 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
         let rev = |segs: &[Seg]| -> Vec<Seg> { segs.iter().rev().map(|s| s.reversed()).collect() };
         return Some(match op {
             ClipOp::Intersect => {
-                if s_in_c { vec![subject.to_vec()] } else if c_in_s { vec![clipper.to_vec()] } else { vec![] }
+                if s_in_c {
+                    vec![subject.to_vec()]
+                } else if c_in_s {
+                    vec![clipper.to_vec()]
+                } else {
+                    vec![]
+                }
             }
             ClipOp::Union => {
-                if s_in_c { vec![clipper.to_vec()] } else if c_in_s { vec![subject.to_vec()] } else { vec![subject.to_vec(), clipper.to_vec()] }
+                if s_in_c {
+                    vec![clipper.to_vec()]
+                } else if c_in_s {
+                    vec![subject.to_vec()]
+                } else {
+                    vec![subject.to_vec(), clipper.to_vec()]
+                }
             }
             ClipOp::AminusB => {
-                if s_in_c { vec![] } else if c_in_s { vec![subject.to_vec(), rev(clipper)] } else { vec![subject.to_vec()] }
+                if s_in_c {
+                    vec![]
+                } else if c_in_s {
+                    vec![subject.to_vec(), rev(clipper)]
+                } else {
+                    vec![subject.to_vec()]
+                }
             }
             ClipOp::BminusA => {
-                if c_in_s { vec![] } else if s_in_c { vec![clipper.to_vec(), rev(subject)] } else { vec![clipper.to_vec()] }
+                if c_in_s {
+                    vec![]
+                } else if s_in_c {
+                    vec![clipper.to_vec(), rev(subject)]
+                } else {
+                    vec![clipper.to_vec()]
+                }
             }
         });
     }
-    if !hits.len().is_multiple_of(2) { return None; } // grazing contact
+    if !hits.len().is_multiple_of(2) {
+        return None;
+    } // grazing contact
 
     // ---- 2. split segments at intersection params; build vertex rings
     let mut arena: Vec<Vtx> = vec![];
@@ -320,7 +422,9 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
         let head = arena.len();
         for (i, seg) in segs.iter().enumerate() {
             // this segment's intersections, sorted by t
-            let mut cuts: Vec<(f64, usize)> = hits.iter().enumerate()
+            let mut cuts: Vec<(f64, usize)> = hits
+                .iter()
+                .enumerate()
                 .filter(|(_, h)| if which_a { h.seg_a == i } else { h.seg_b == i })
                 .map(|(id, h)| (if which_a { h.ta } else { h.tb }, id))
                 .collect();
@@ -342,7 +446,8 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
                 let v = Vtx {
                     pt: piece.p[0],
                     out: *piece,
-                    next: 0, prev: 0,
+                    next: 0,
+                    prev: 0,
                     intersect: k > 0 || false,
                     xid: usize::MAX,
                     neighbor: usize::MAX,
@@ -375,10 +480,16 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
     let mut b_of: Vec<usize> = vec![usize::MAX; hits.len()];
     for (k, v) in arena.iter().enumerate() {
         if v.intersect {
-            if k < b_head { a_of[v.xid] = k; } else { b_of[v.xid] = k; }
+            if k < b_head {
+                a_of[v.xid] = k;
+            } else {
+                b_of[v.xid] = k;
+            }
         }
     }
-    if a_of.iter().chain(b_of.iter()).any(|&k| k == usize::MAX) { return None; }
+    if a_of.iter().chain(b_of.iter()).any(|&k| k == usize::MAX) {
+        return None;
+    }
     for id in 0..hits.len() {
         arena[a_of[id]].neighbor = b_of[id];
         arena[b_of[id]].neighbor = a_of[id];
@@ -388,12 +499,19 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
     let mark = |head: usize, other: &[Pt], invert: bool, arena: &mut Vec<Vtx>| {
         let p = arena[head].pt;
         let mut status = !point_in(other, p.0, p.1);
-        if invert { status = !status; }
+        if invert {
+            status = !status;
+        }
         let mut k = head;
         loop {
-            if arena[k].intersect { arena[k].entry = status; status = !status; }
+            if arena[k].intersect {
+                arena[k].entry = status;
+                status = !status;
+            }
             k = arena[k].next;
-            if k == head { break; }
+            if k == head {
+                break;
+            }
         }
     };
     let (inv_s, inv_c) = match op {
@@ -421,8 +539,12 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
                     contour.push(arena[cur].out);
                     cur = arena[cur].next;
                     steps += 1;
-                    if steps > budget { return None; }
-                    if arena[cur].intersect { break; }
+                    if steps > budget {
+                        return None;
+                    }
+                    if arena[cur].intersect {
+                        break;
+                    }
                 }
             } else {
                 loop {
@@ -430,19 +552,29 @@ fn clip_bezier_once(subject: &[Seg], clipper: &[Seg], op: ClipOp) -> Option<Vec<
                     contour.push(arena[pv].out.reversed());
                     cur = pv;
                     steps += 1;
-                    if steps > budget { return None; }
-                    if arena[cur].intersect { break; }
+                    if steps > budget {
+                        return None;
+                    }
+                    if arena[cur].intersect {
+                        break;
+                    }
                 }
             }
             arena[cur].processed = true;
             let nb = arena[cur].neighbor;
             arena[nb].processed = true;
             cur = nb;
-            if cur == start || arena[cur].neighbor == start { break; }
+            if cur == start || arena[cur].neighbor == start {
+                break;
+            }
         }
-        if contour.len() >= 2 { out.push(contour); }
+        if contour.len() >= 2 {
+            out.push(contour);
+        }
     }
-    if out.is_empty() { return None; }
+    if out.is_empty() {
+        return None;
+    }
     Some(out)
 }
 
@@ -465,10 +597,30 @@ mod tests {
         const K: f64 = 0.5522847498;
         let k = K * r;
         vec![
-            Seg::cubic((cx + r, cy), (cx + r, cy + k), (cx + k, cy + r), (cx, cy + r)),
-            Seg::cubic((cx, cy + r), (cx - k, cy + r), (cx - r, cy + k), (cx - r, cy)),
-            Seg::cubic((cx - r, cy), (cx - r, cy - k), (cx - k, cy - r), (cx, cy - r)),
-            Seg::cubic((cx, cy - r), (cx + k, cy - r), (cx + r, cy - k), (cx + r, cy)),
+            Seg::cubic(
+                (cx + r, cy),
+                (cx + r, cy + k),
+                (cx + k, cy + r),
+                (cx, cy + r),
+            ),
+            Seg::cubic(
+                (cx, cy + r),
+                (cx - k, cy + r),
+                (cx - r, cy + k),
+                (cx - r, cy),
+            ),
+            Seg::cubic(
+                (cx - r, cy),
+                (cx - r, cy - k),
+                (cx - k, cy - r),
+                (cx, cy - r),
+            ),
+            Seg::cubic(
+                (cx, cy - r),
+                (cx + k, cy - r),
+                (cx + r, cy - k),
+                (cx + r, cy),
+            ),
         ]
     }
 
@@ -487,7 +639,9 @@ mod tests {
         for segs in contours {
             let mut pts = vec![];
             for s in segs {
-                for i in 0..64 { pts.push(s.eval(i as f64 / 64.0)); }
+                for i in 0..64 {
+                    pts.push(s.eval(i as f64 / 64.0));
+                }
             }
             let n = pts.len();
             let mut a = 0.0;
@@ -513,7 +667,10 @@ mod tests {
         assert!(curve_count(&u) >= 2, "output keeps REAL curve segments");
         let want = 10000.0 + PI * 2500.0 / 2.0; // square + left half disc
         let got = area(&u);
-        assert!((got - want).abs() / want < 0.002, "area {got} vs {want} (0.2% — beats flattening)");
+        assert!(
+            (got - want).abs() / want < 0.002,
+            "area {got} vs {want} (0.2% — beats flattening)"
+        );
     }
 
     #[test]
@@ -525,8 +682,14 @@ mod tests {
         let (r, d) = (50.0f64, 60.0f64);
         let want = 2.0 * r * r * (d / (2.0 * r)).acos() - d / 2.0 * (4.0 * r * r - d * d).sqrt();
         let got = area(&i);
-        assert!((got - want).abs() / want < 0.005, "lens {got} vs analytic {want}");
-        assert!(curve_count(&i) >= 2, "lens boundary is curved, not polygonal");
+        assert!(
+            (got - want).abs() / want < 0.005,
+            "lens {got} vs analytic {want}"
+        );
+        assert!(
+            curve_count(&i) >= 2,
+            "lens boundary is curved, not polygonal"
+        );
     }
 
     #[test]
@@ -536,15 +699,33 @@ mod tests {
         // be genuine curves and the area must track analytically.
         let mut acc = circle(0.0, 0.0, 100.0);
         let mut expected = PI * 100.0 * 100.0;
-        for (i, (x, y)) in [(80.0, -20.0), (-120.0, -20.0), (-20.0, 80.0), (-20.0, -120.0)].iter().enumerate() {
+        for (i, (x, y)) in [
+            (80.0, -20.0),
+            (-120.0, -20.0),
+            (-20.0, 80.0),
+            (-20.0, -120.0),
+        ]
+        .iter()
+        .enumerate()
+        {
             let bite = square(*x, *y, 40.0);
             // each bite: half sticks out of the circle; overlap area is
             // NOT analytic-trivial, so track relative sanity instead
-            let r = clip_bezier(&acc, &bite, ClipOp::AminusB).unwrap_or_else(|| panic!("op {i} degenerate"));
-            let a_before = area(&[acc.clone()].into_iter().flat_map(|c| vec![c]).collect::<Vec<_>>());
+            let r = clip_bezier(&acc, &bite, ClipOp::AminusB)
+                .unwrap_or_else(|| panic!("op {i} degenerate"));
+            let a_before = area(
+                &[acc.clone()]
+                    .into_iter()
+                    .flat_map(|c| vec![c])
+                    .collect::<Vec<_>>(),
+            );
             let a_after = area(&r);
             assert!(a_after < a_before, "op {i}: area decreased");
-            assert!(curve_count(&r) >= 3, "op {i}: circle arcs survive as curves ({} curved segs)", curve_count(&r));
+            assert!(
+                curve_count(&r) >= 3,
+                "op {i}: circle arcs survive as curves ({} curved segs)",
+                curve_count(&r)
+            );
             assert_eq!(r.len(), 1, "op {i}: single contour");
             acc = r.into_iter().next().unwrap();
             expected = a_after;
@@ -574,14 +755,22 @@ mod tests {
         let small = circle(0.0, 0.0, 30.0);
         let donut = clip_bezier(&big, &small, ClipOp::AminusB).expect("donut");
         assert_eq!(donut.len(), 2, "outer + hole");
-        assert_eq!(curve_count(&donut), 8, "ALL segments still cubic — zero flattening");
+        assert_eq!(
+            curve_count(&donut),
+            8,
+            "ALL segments still cubic — zero flattening"
+        );
         let want = PI * (100.0 * 100.0 - 30.0 * 30.0);
         assert!((area(&donut).abs() - PI * 100.0 * 100.0 - PI * 30.0 * 30.0).abs() > 0.0); // sanity only
-        // signed sum: outer minus reversed hole
+                                                                                           // signed sum: outer minus reversed hole
         let mut signed = 0.0;
         for segs in &donut {
             let mut pts = vec![];
-            for s in segs { for i in 0..64 { pts.push(s.eval(i as f64 / 64.0)); } }
+            for s in segs {
+                for i in 0..64 {
+                    pts.push(s.eval(i as f64 / 64.0));
+                }
+            }
             let n = pts.len();
             let mut a = 0.0;
             for i in 0..n {
@@ -591,14 +780,22 @@ mod tests {
             }
             signed += a / 2.0;
         }
-        assert!((signed.abs() - want).abs() / want < 0.001, "donut area {} vs {}", signed.abs(), want);
+        assert!(
+            (signed.abs() - want).abs() / want < 0.001,
+            "donut area {} vs {}",
+            signed.abs(),
+            want
+        );
     }
 
     #[test]
     fn path_roundtrip_preserves_curve_commands() {
         let c = circle(50.0, 50.0, 50.0);
         let cmds = segs_to_path(std::slice::from_ref(&c), (0.0, 0.0));
-        let curves = cmds.iter().filter(|c| matches!(c, PathCmd::CurveTo(..))).count();
+        let curves = cmds
+            .iter()
+            .filter(|c| matches!(c, PathCmd::CurveTo(..)))
+            .count();
         assert_eq!(curves, 4, "4 kappa cubics back out");
         let back = path_to_segs(&cmds, (0.0, 0.0)).expect("re-parse");
         assert_eq!(back.len(), c.len());

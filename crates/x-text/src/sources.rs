@@ -73,66 +73,113 @@ impl SystemFonts {
     /// Find the face best matching (family, style). Style matching is
     /// case-insensitive with "Regular" preferred when style is empty.
     pub fn find(&self, family: &str, style: &str) -> Option<&FaceInfo> {
-        let faces = self.families.iter()
+        let faces = self
+            .families
+            .iter()
             .find(|(f, _)| f.eq_ignore_ascii_case(family))
             .map(|(_, v)| v)?;
         if style.is_empty() {
             // "regular" is spelled many ways (Regular, Book, Roman...);
             // prefer any face that is neither bold nor italic/oblique.
-            return faces.iter()
+            return faces
+                .iter()
                 .find(|f| {
                     let s = f.style.to_ascii_lowercase();
                     !s.contains("bold") && !s.contains("italic") && !s.contains("oblique")
                 })
                 .or(faces.first());
         }
-        faces.iter().find(|f| f.style.eq_ignore_ascii_case(style))
-            .or_else(|| faces.iter().find(|f| f.style.to_ascii_lowercase().contains(&style.to_ascii_lowercase())))
+        faces
+            .iter()
+            .find(|f| f.style.eq_ignore_ascii_case(style))
+            .or_else(|| {
+                faces.iter().find(|f| {
+                    f.style
+                        .to_ascii_lowercase()
+                        .contains(&style.to_ascii_lowercase())
+                })
+            })
             .or(faces.first())
     }
 
     /// Load a family/style into the manager under "Family Style".
     /// Returns the font index (cached if already loaded).
-    pub fn load_into(&self, fm: &mut FontManager, family: &str, style: &str) -> Result<usize, String> {
-        let face = self.find(family, style).ok_or_else(|| format!("family '{family}' not found"))?;
+    pub fn load_into(
+        &self,
+        fm: &mut FontManager,
+        family: &str,
+        style: &str,
+    ) -> Result<usize, String> {
+        let face = self
+            .find(family, style)
+            .ok_or_else(|| format!("family '{family}' not found"))?;
         let key = format!("{} {}", face.family, face.style);
-        if let Some(i) = fm.font_index(&key) { return Ok(i); }
+        if let Some(i) = fm.font_index(&key) {
+            return Ok(i);
+        }
         let data = std::fs::read(&face.path).map_err(|e| e.to_string())?;
         fm.load_face_bytes(&key, data, face.index)
     }
 }
 
 fn scan_dir(dir: &Path, db: &mut SystemFonts, depth: u32) {
-    if depth > 4 { return; }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    if depth > 4 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
             scan_dir(&p, db, depth + 1);
             continue;
         }
-        let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
-        if !matches!(ext.as_str(), "ttf" | "otf" | "ttc" | "otc") { continue; }
-        let Ok(data) = std::fs::read(&p) else { continue };
+        let ext = p
+            .extension()
+            .and_then(|x| x.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !matches!(ext.as_str(), "ttf" | "otf" | "ttc" | "otc") {
+            continue;
+        }
+        let Ok(data) = std::fs::read(&p) else {
+            continue;
+        };
         let n_faces = ttf_parser::fonts_in_collection(&data).unwrap_or(1);
         for idx in 0..n_faces {
-            let Ok(face) = ttf_parser::Face::parse(&data, idx) else { continue };
+            let Ok(face) = ttf_parser::Face::parse(&data, idx) else {
+                continue;
+            };
             let family = name_record(&face, ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
                 .or_else(|| name_record(&face, ttf_parser::name_id::FAMILY))
-                .unwrap_or_else(|| p.file_stem().unwrap_or_default().to_string_lossy().into_owned());
+                .unwrap_or_else(|| {
+                    p.file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned()
+                });
             let style = name_record(&face, ttf_parser::name_id::TYPOGRAPHIC_SUBFAMILY)
                 .or_else(|| name_record(&face, ttf_parser::name_id::SUBFAMILY))
                 .unwrap_or_else(|| "Regular".into());
             let variable = face.is_variable();
-            db.families.entry(family.clone()).or_default().push(FaceInfo {
-                family, style, path: p.clone(), index: idx, variable,
-            });
+            db.families
+                .entry(family.clone())
+                .or_default()
+                .push(FaceInfo {
+                    family,
+                    style,
+                    path: p.clone(),
+                    index: idx,
+                    variable,
+                });
         }
     }
 }
 
 fn name_record(face: &ttf_parser::Face, id: u16) -> Option<String> {
-    face.names().into_iter()
+    face.names()
+        .into_iter()
         .filter(|n| n.name_id == id)
         .find_map(|n| n.to_string())
 }
@@ -152,15 +199,21 @@ pub struct GfFamily {
 
 impl GfFamily {
     pub fn weights(&self) -> Vec<u32> {
-        let mut w: Vec<u32> = self.cuts.iter()
+        let mut w: Vec<u32> = self
+            .cuts
+            .iter()
             .filter(|c| !c.ends_with('i'))
             .filter_map(|c| c.parse().ok())
             .collect();
         w.sort_unstable();
         w
     }
-    pub fn has_italic(&self) -> bool { self.cuts.iter().any(|c| c.ends_with('i')) }
-    pub fn is_variable(&self) -> bool { !self.axes.is_empty() }
+    pub fn has_italic(&self) -> bool {
+        self.cuts.iter().any(|c| c.ends_with('i'))
+    }
+    pub fn is_variable(&self) -> bool {
+        !self.axes.is_empty()
+    }
 }
 
 /// Google Fonts client with disk cache + full catalog.
@@ -174,18 +227,30 @@ impl GoogleFonts {
         let cache_dir = std::env::var("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                std::env::var("HOME").map(|h| PathBuf::from(h).join(".cache")).unwrap_or_else(|_| "./".into())
+                std::env::var("HOME")
+                    .map(|h| PathBuf::from(h).join(".cache"))
+                    .unwrap_or_else(|_| "./".into())
             })
             .join("x-native/google-fonts");
-        Self { cache_dir, catalog: std::cell::RefCell::new(None) }
+        Self {
+            cache_dir,
+            catalog: std::cell::RefCell::new(None),
+        }
     }
 
-    pub fn with_cache(dir: &Path) -> Self { Self { cache_dir: dir.into(), catalog: std::cell::RefCell::new(None) } }
+    pub fn with_cache(dir: &Path) -> Self {
+        Self {
+            cache_dir: dir.into(),
+            catalog: std::cell::RefCell::new(None),
+        }
+    }
 
     /// The FULL catalog (~2000 families) from the public metadata
     /// endpoint. Cached on disk for offline reuse and in memory per run.
     pub fn catalog(&self) -> Result<Vec<GfFamily>, String> {
-        if let Some(c) = self.catalog.borrow().as_ref() { return Ok(c.clone()); }
+        if let Some(c) = self.catalog.borrow().as_ref() {
+            return Ok(c.clone());
+        }
         let meta_path = self.cache_dir.join("catalog.json");
         let text = if meta_path.exists() {
             std::fs::read_to_string(&meta_path).map_err(|e| e.to_string())?
@@ -202,13 +267,18 @@ impl GoogleFonts {
 
     /// Case-insensitive family lookup in the catalog.
     pub fn family(&self, name: &str) -> Option<GfFamily> {
-        self.catalog().ok()?.into_iter().find(|f| f.family.eq_ignore_ascii_case(name))
+        self.catalog()
+            .ok()?
+            .into_iter()
+            .find(|f| f.family.eq_ignore_ascii_case(name))
     }
 
     /// Search the catalog by substring (for the font browser UI).
     pub fn search(&self, query: &str) -> Vec<GfFamily> {
         let q = query.to_ascii_lowercase();
-        self.catalog().unwrap_or_default().into_iter()
+        self.catalog()
+            .unwrap_or_default()
+            .into_iter()
             .filter(|f| f.family.to_ascii_lowercase().contains(&q))
             .take(50)
             .collect()
@@ -218,8 +288,15 @@ impl GoogleFonts {
         self.cache_path_style(family, weight, false)
     }
     fn cache_path_style(&self, family: &str, weight: u32, italic: bool) -> PathBuf {
-        let slug: String = family.chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        let slug: String = family
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
             .collect();
         let it = if italic { "i" } else { "" };
         self.cache_dir.join(format!("{slug}-{weight}{it}.ttf"))
@@ -237,7 +314,9 @@ impl GoogleFonts {
     /// Full style fetch: weight + italic.
     pub fn fetch_style(&self, family: &str, weight: u32, italic: bool) -> Result<PathBuf, String> {
         let path = self.cache_path_style(family, weight, italic);
-        if path.exists() { return Ok(path); }
+        if path.exists() {
+            return Ok(path);
+        }
         std::fs::create_dir_all(&self.cache_dir).map_err(|e| e.to_string())?;
 
         // css2 API: request the specific cut; UA chosen to get TTF urls
@@ -248,8 +327,9 @@ impl GoogleFonts {
             format!("https://fonts.googleapis.com/css2?family={fam_q}:wght@{weight}")
         };
         let css = curl_text(&css_url)?;
-        let url = extract_ttf_url(&css)
-            .ok_or_else(|| format!("no TTF url in css2 response for '{family}' (family may not exist)"))?;
+        let url = extract_ttf_url(&css).ok_or_else(|| {
+            format!("no TTF url in css2 response for '{family}' (family may not exist)")
+        })?;
         curl_binary(&url, &path)?;
         // sanity: must parse as a font, or the cache would poison later loads
         let data = std::fs::read(&path).map_err(|e| e.to_string())?;
@@ -261,13 +341,26 @@ impl GoogleFonts {
     }
 
     /// Fetch + load into the manager under "Family wght" (e.g "Roboto 700").
-    pub fn load_into(&self, fm: &mut FontManager, family: &str, weight: u32) -> Result<usize, String> {
+    pub fn load_into(
+        &self,
+        fm: &mut FontManager,
+        family: &str,
+        weight: u32,
+    ) -> Result<usize, String> {
         self.load_style_into(fm, family, weight, false)
     }
 
-    pub fn load_style_into(&self, fm: &mut FontManager, family: &str, weight: u32, italic: bool) -> Result<usize, String> {
+    pub fn load_style_into(
+        &self,
+        fm: &mut FontManager,
+        family: &str,
+        weight: u32,
+        italic: bool,
+    ) -> Result<usize, String> {
         let key = format!("{family} {weight}{}", if italic { " Italic" } else { "" });
-        if let Some(i) = fm.font_index(&key) { return Ok(i); }
+        if let Some(i) = fm.font_index(&key) {
+            return Ok(i);
+        }
         let path = self.fetch_style(family, weight, italic)?;
         let data = std::fs::read(&path).map_err(|e| e.to_string())?;
         fm.load_face_bytes(&key, data, 0)
@@ -279,29 +372,43 @@ impl GoogleFonts {
         for cut in &fam.cuts {
             let italic = cut.ends_with('i');
             let w: u32 = cut.trim_end_matches('i').parse().unwrap_or(400);
-            if let Ok(i) = self.load_style_into(fm, &fam.family, w, italic) { out.push(i); }
+            if let Ok(i) = self.load_style_into(fm, &fam.family, w, italic) {
+                out.push(i);
+            }
         }
         out
     }
 }
 
 impl Default for GoogleFonts {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Parse fonts.google.com/metadata/fonts into families. Tolerant,
 /// zero-dependency extraction (the file is ~2.7MB of stable JSON).
 pub fn parse_gf_catalog(text: &str) -> Result<Vec<GfFamily>, String> {
-    let list_at = text.find("\"familyMetadataList\"").ok_or("no familyMetadataList")?;
+    let list_at = text
+        .find("\"familyMetadataList\"")
+        .ok_or("no familyMetadataList")?;
     let body = &text[list_at..];
     let mut out = vec![];
     let mut i = 0;
     while let Some(fam_at) = body[i..].find("\"family\":") {
         let start = i + fam_at;
-        let Some(fam) = grab_json_str(&body[start..], "\"family\":") else { break };
-        let seg_end = body[start..].find("\"family\":").map(|_| {
-            body[start + 10..].find("\"family\":").map(|n| start + 10 + n).unwrap_or(body.len())
-        }).unwrap_or(body.len());
+        let Some(fam) = grab_json_str(&body[start..], "\"family\":") else {
+            break;
+        };
+        let seg_end = body[start..]
+            .find("\"family\":")
+            .map(|_| {
+                body[start + 10..]
+                    .find("\"family\":")
+                    .map(|n| start + 10 + n)
+                    .unwrap_or(body.len())
+            })
+            .unwrap_or(body.len());
         let seg = &body[start..seg_end.min(body.len())];
         let category = grab_json_str(seg, "\"category\":").unwrap_or_default();
         // fonts: {"400": {...}, "700i": {...}}  (whitespace-tolerant)
@@ -310,24 +417,30 @@ pub fn parse_gf_catalog(text: &str) -> Result<Vec<GfFamily>, String> {
             let after = &seg[fp0 + 8..];
             let brace = after.find('{').unwrap_or(usize::MAX);
             if brace != usize::MAX {
-            let fseg = &after[brace..];
-            if let Some(close) = find_balanced(fseg) {
-                let inner = &fseg[1..close];
-                let mut j = 0;
-                while let Some(q) = inner[j..].find('"') {
-                    let ks = j + q + 1;
-                    let Some(qe) = inner[ks..].find('"') else { break };
-                    let key = &inner[ks..ks + qe];
-                    if key.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                        cuts.push(key.to_string());
+                let fseg = &after[brace..];
+                if let Some(close) = find_balanced(fseg) {
+                    let inner = &fseg[1..close];
+                    let mut j = 0;
+                    while let Some(q) = inner[j..].find('"') {
+                        let ks = j + q + 1;
+                        let Some(qe) = inner[ks..].find('"') else {
+                            break;
+                        };
+                        let key = &inner[ks..ks + qe];
+                        if key.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                            cuts.push(key.to_string());
+                        }
+                        // skip past this key's value object
+                        let Some(vo) = inner[ks + qe..].find('{') else {
+                            break;
+                        };
+                        let vstart = ks + qe + vo;
+                        let Some(vlen) = find_balanced(&inner[vstart..]) else {
+                            break;
+                        };
+                        j = vstart + vlen + 1;
                     }
-                    // skip past this key's value object
-                    let Some(vo) = inner[ks + qe..].find('{') else { break };
-                    let vstart = ks + qe + vo;
-                    let Some(vlen) = find_balanced(&inner[vstart..]) else { break };
-                    j = vstart + vlen + 1;
                 }
-            }
             }
         }
         // axes: [{"tag":"wght","min":100.0,...}]
@@ -336,7 +449,11 @@ pub fn parse_gf_catalog(text: &str) -> Result<Vec<GfFamily>, String> {
             let after = &seg[ap0 + 7..];
             let bracket = after.find('[').unwrap_or(usize::MAX);
             if bracket == usize::MAX { /* none */ }
-            let aseg = if bracket == usize::MAX { "" } else { &after[bracket..] };
+            let aseg = if bracket == usize::MAX {
+                ""
+            } else {
+                &after[bracket..]
+            };
             if let Some(close) = aseg.find(']') {
                 let inner = &aseg[..close];
                 let mut k = 0;
@@ -352,11 +469,18 @@ pub fn parse_gf_catalog(text: &str) -> Result<Vec<GfFamily>, String> {
             }
         }
         if !fam.is_empty() && !cuts.is_empty() {
-            out.push(GfFamily { family: fam, category, cuts, axes });
+            out.push(GfFamily {
+                family: fam,
+                category,
+                cuts,
+                axes,
+            });
         }
         i = start + 10;
     }
-    if out.is_empty() { return Err("catalog parse produced no families".into()); }
+    if out.is_empty() {
+        return Err("catalog parse produced no families".into());
+    }
     Ok(out)
 }
 
@@ -370,23 +494,38 @@ fn grab_json_str(seg: &str, key: &str) -> Option<String> {
 fn grab_json_num(seg: &str, key: &str) -> Option<f32> {
     let at = seg.find(key)? + key.len();
     let rest = &seg[at..];
-    let end = rest.find(|c: char| c == ',' && true || c == '}' || c == ']').unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| c == ',' && true || c == '}' || c == ']')
+        .unwrap_or(rest.len());
     rest[..end].trim().parse().ok()
 }
 /// byte length of a balanced {...} starting at index 0 (which must be '{')
 fn find_balanced(s: &str) -> Option<usize> {
     let b = s.as_bytes();
-    if b.first() != Some(&b'{') { return None; }
+    if b.first() != Some(&b'{') {
+        return None;
+    }
     let (mut depth, mut in_str, mut esc) = (0i32, false, false);
     for (i, &c) in b.iter().enumerate() {
         if in_str {
-            if esc { esc = false; } else if c == b'\\' { esc = true; } else if c == b'"' { in_str = false; }
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
             continue;
         }
         match c {
             b'"' => in_str = true,
             b'{' => depth += 1,
-            b'}' => { depth -= 1; if depth == 0 { return Some(i); } }
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
             _ => {}
         }
     }
@@ -404,17 +543,24 @@ pub fn extract_ttf_url(css: &str) -> Option<String> {
 fn curl_text(url: &str) -> Result<String, String> {
     let out = std::process::Command::new("curl")
         .args(["-sf", "--max-time", "20", "-A", "Mozilla/4.0", url])
-        .output().map_err(|e| format!("curl spawn: {e}"))?;
-    if !out.status.success() { return Err(format!("fetch failed: {url}")); }
+        .output()
+        .map_err(|e| format!("curl spawn: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("fetch failed: {url}"));
+    }
     String::from_utf8(out.stdout).map_err(|e| e.to_string())
 }
 
 fn curl_binary(url: &str, dest: &Path) -> Result<(), String> {
     let out = std::process::Command::new("curl")
         .args(["-sf", "--max-time", "60", "-A", "Mozilla/4.0", "-o"])
-        .arg(dest).arg(url)
-        .status().map_err(|e| format!("curl spawn: {e}"))?;
-    if !out.success() { return Err(format!("download failed: {url}")); }
+        .arg(dest)
+        .arg(url)
+        .status()
+        .map_err(|e| format!("curl spawn: {e}"))?;
+    if !out.success() {
+        return Err(format!("download failed: {url}"));
+    }
     Ok(())
 }
 
@@ -427,12 +573,26 @@ mod tests {
         let db = SystemFonts::enumerate();
         assert!(!db.families.is_empty(), "system fonts expected");
         // real name-table families, not file stems
-        assert!(db.families.contains_key("DejaVu Sans"), "families: {:?}", db.family_names().iter().take(10).collect::<Vec<_>>());
+        assert!(
+            db.families.contains_key("DejaVu Sans"),
+            "families: {:?}",
+            db.family_names().iter().take(10).collect::<Vec<_>>()
+        );
         // styles grouped under the family
         let dv = &db.families["DejaVu Sans"];
         let styles: Vec<&str> = dv.iter().map(|f| f.style.as_str()).collect();
-        assert!(styles.iter().any(|s| s.eq_ignore_ascii_case("Book") || s.eq_ignore_ascii_case("Regular")), "{styles:?}");
-        assert!(styles.iter().any(|s| s.to_ascii_lowercase().contains("bold")), "{styles:?}");
+        assert!(
+            styles
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case("Book") || s.eq_ignore_ascii_case("Regular")),
+            "{styles:?}"
+        );
+        assert!(
+            styles
+                .iter()
+                .any(|s| s.to_ascii_lowercase().contains("bold")),
+            "{styles:?}"
+        );
         // ttc collections enumerate multiple faces from one file
         if let Some(cjk) = db.families.iter().find(|(f, _)| f.contains("CJK")) {
             assert!(cjk.1[0].path.extension().unwrap() == "ttc");
@@ -442,9 +602,13 @@ mod tests {
     #[test]
     fn find_matches_family_and_style_loosely() {
         let db = SystemFonts::enumerate();
-        let f = db.find("dejavu sans", "bold").expect("case-insensitive family+style");
+        let f = db
+            .find("dejavu sans", "bold")
+            .expect("case-insensitive family+style");
         assert!(f.style.to_ascii_lowercase().contains("bold"));
-        let f = db.find("DejaVu Sans", "").expect("empty style -> regular-ish");
+        let f = db
+            .find("DejaVu Sans", "")
+            .expect("empty style -> regular-ish");
         assert!(!f.style.to_ascii_lowercase().contains("bold"));
         assert!(db.find("No Such Family", "").is_none());
     }
@@ -454,7 +618,9 @@ mod tests {
         let db = SystemFonts::enumerate();
         let mut fm = FontManager::new();
         let a = db.load_into(&mut fm, "DejaVu Sans", "Bold").expect("load");
-        let b = db.load_into(&mut fm, "DejaVu Sans", "Bold").expect("cached");
+        let b = db
+            .load_into(&mut fm, "DejaVu Sans", "Bold")
+            .expect("cached");
         assert_eq!(a, b, "second load must reuse the same index");
         // the loaded face really is the bold cut: heavier advance stems
         assert!(fm.fonts[a].glyph_id('A').unwrap() != 0);
@@ -464,12 +630,17 @@ mod tests {
     fn ttc_index_loads_distinct_faces() {
         let db = SystemFonts::enumerate();
         // CJK collection has JP/KR/SC/TC faces at different indices
-        let cjk: Vec<&FaceInfo> = db.families.iter()
+        let cjk: Vec<&FaceInfo> = db
+            .families
+            .iter()
             .filter(|(f, _)| f.contains("CJK"))
             .flat_map(|(_, v)| v.iter())
             .collect();
         if cjk.len() >= 2 {
-            assert!(cjk.iter().any(|f| f.index > 0), "collection must yield indexed faces");
+            assert!(
+                cjk.iter().any(|f| f.index > 0),
+                "collection must yield indexed faces"
+            );
         }
     }
 
@@ -481,13 +652,23 @@ mod tests {
             eprintln!("(offline — skipping catalog test)");
             return;
         };
-        assert!(cat.len() > 1500, "expected the full catalog, got {}", cat.len());
+        assert!(
+            cat.len() > 1500,
+            "expected the full catalog, got {}",
+            cat.len()
+        );
         // Roboto: all 9 weights + italics, variable axes present
         let roboto = gf.family("roboto").expect("Roboto in catalog");
-        assert_eq!(roboto.weights(), vec![100, 200, 300, 400, 500, 600, 700, 800, 900]);
+        assert_eq!(
+            roboto.weights(),
+            vec![100, 200, 300, 400, 500, 600, 700, 800, 900]
+        );
         assert!(roboto.has_italic());
         assert!(roboto.is_variable());
-        assert!(roboto.axes.iter().any(|(t, min, max, _)| t == "wght" && *min == 100.0 && *max == 900.0));
+        assert!(roboto
+            .axes
+            .iter()
+            .any(|(t, min, max, _)| t == "wght" && *min == 100.0 && *max == 900.0));
         assert_eq!(roboto.category, "Sans Serif");
         // search works
         let hits = gf.search("lobs");
@@ -513,14 +694,18 @@ mod tests {
         assert!(fm.fonts[idx].glyph_id('R').unwrap() != 0);
     }
 
-
-
     #[test]
     fn google_css_url_extraction() {
         let css = "@font-face {\n  font-family: 'Roboto';\n  src: url(https://fonts.gstatic.com/s/roboto/v51/abc.ttf) format('truetype');\n}";
-        assert_eq!(extract_ttf_url(css).as_deref(), Some("https://fonts.gstatic.com/s/roboto/v51/abc.ttf"));
+        assert_eq!(
+            extract_ttf_url(css).as_deref(),
+            Some("https://fonts.gstatic.com/s/roboto/v51/abc.ttf")
+        );
         assert!(extract_ttf_url("nothing here").is_none());
-        assert!(extract_ttf_url("src: url(data:font/woff;base64,xx)").is_none(), "non-https rejected");
+        assert!(
+            extract_ttf_url("src: url(data:font/woff;base64,xx)").is_none(),
+            "non-https rejected"
+        );
     }
 
     #[test]

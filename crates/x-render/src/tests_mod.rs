@@ -1,15 +1,14 @@
+#[allow(unused_imports)]
+use crate::*;
 use std::collections::HashMap;
 use vello::peniko::Color;
 use x_core::*;
-#[allow(unused_imports)]
-use crate::*;
 
 // -------------------------------------------------------------------- tests
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn feature_model_has_expected_nodes() {
@@ -24,7 +23,13 @@ mod tests {
     #[test]
     fn auto_layout_positions_children() {
         let mut d = Node::frame("r", 100.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: [5.0; 4], sizing: Sizing::Fixed, ..Default::default() })
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                gap: 10.0,
+                padding: [5.0; 4],
+                sizing: Sizing::Fixed,
+                ..Default::default()
+            })
             .child(Node::rect("a", 0.0, 0.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
         apply_auto_layout(&mut d, &Variables::default());
@@ -37,14 +42,26 @@ mod tests {
         let d = Node::frame("r", 1000.0, 1000.0)
             .child(Node::rect("on", 10.0, 10.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("off", 900.0, 900.0, 20.0, 20.0, Color::WHITE));
-        let (_, s) = build_scene(&d, Some(Viewport { x: 0.0, y: 0.0, w: 100.0, h: 100.0 }), &Variables::default());
+        let (_, s) = build_scene(
+            &d,
+            Some(Viewport {
+                x: 0.0,
+                y: 0.0,
+                w: 100.0,
+                h: 100.0,
+            }),
+            &Variables::default(),
+        );
         assert_eq!(s.paths, 1);
         assert_eq!(s.culled, 1)
     }
 
     #[test]
     fn rotation_and_radius_render() {
-        let d = Node::rect("a", 0.0, 0.0, 40.0, 20.0, Color::WHITE).radius(8.0).rotate(1.0).opacity(0.5);
+        let d = Node::rect("a", 0.0, 0.0, 40.0, 20.0, Color::WHITE)
+            .radius(8.0)
+            .rotate(1.0)
+            .opacity(0.5);
         let (scene, s) = build_scene(&d, None, &Variables::default());
         assert_eq!(s.paths, 1);
         assert_eq!(scene.encoding().n_paths, 1)
@@ -62,7 +79,13 @@ mod tests {
         let mut vars = Variables::default();
         vars.numbers.insert("gap".into(), 40.0);
         let mut d = Node::frame("r", 400.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: [0.0; 4], gap_var: Some("gap".into()), ..Default::default() })
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                gap: 10.0,
+                padding: [0.0; 4],
+                gap_var: Some("gap".into()),
+                ..Default::default()
+            })
             .child(Node::rect("a", 0.0, 0.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 20.0, 20.0, Color::WHITE));
         apply_auto_layout(&mut d, &vars);
@@ -72,7 +95,13 @@ mod tests {
     #[test]
     fn number_variable_missing_falls_back_to_literal() {
         let mut d = Node::frame("r", 400.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 10.0, padding: [0.0; 4], gap_var: Some("missing".into()), ..Default::default() })
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                gap: 10.0,
+                padding: [0.0; 4],
+                gap_var: Some("missing".into()),
+                ..Default::default()
+            })
             .child(Node::rect("a", 0.0, 0.0, 20.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 20.0, 20.0, Color::WHITE));
         apply_auto_layout(&mut d, &Variables::default());
@@ -81,8 +110,14 @@ mod tests {
 
     #[test]
     fn instance_resolves_component_children_and_renders_them() {
-        let mut master = Node::component("def", "Button", 100.0, 40.0)
-            .child(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::BLACK));
+        let mut master = Node::component("def", "Button", 100.0, 40.0).child(Node::rect(
+            "bg",
+            0.0,
+            0.0,
+            100.0,
+            40.0,
+            Color::BLACK,
+        ));
         master.visible = false;
         let d = Node::frame("r", 500.0, 500.0)
             .child(master)
@@ -99,6 +134,116 @@ mod tests {
         let c = effective_fill(&bg, &ovr, &Variables::default());
         let rgba = c.to_rgba8();
         assert_eq!((rgba.r, rgba.g, rgba.b), (255, 0, 0));
+    }
+
+    #[test]
+    fn slot_content_replaces_anchor_in_rendered_instance() {
+        // Card master with a Slot anchored on the "body" frame
+        let mut master = Node::component("def", "Card", 200.0, 100.0)
+            .child(Node::rect("bg", 0.0, 0.0, 200.0, 100.0, Color::BLACK))
+            .child(Node::frame("body", 184.0, 60.0));
+        master.props.push(x_core::ComponentProp::Slot {
+            name: "Content".into(),
+            target: "body".into(),
+            default: None,
+        });
+        master.visible = false;
+
+        // instance with slot content: a distinctive red badge
+        let mut inst = Node::instance("i1", "Card", 0.0, 0.0, 200.0, 100.0);
+        x_core::set_slot_content(
+            &mut inst,
+            "Content",
+            Node::rect(
+                "badge",
+                0.0,
+                0.0,
+                60.0,
+                20.0,
+                Color::from_rgb8(0xff, 0x00, 0x00),
+            ),
+        );
+        let d = Node::frame("r", 500.0, 500.0).child(master).child(inst);
+
+        let tree = build_render_tree(&d, &Variables::default());
+        // two painted paths: master bg + slot badge (anchor frame paints nothing)
+        let fills: Vec<String> = tree
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                RenderCommand::FillPath { brush, .. } => Some(format!("{brush:?}")),
+                _ => None,
+            })
+            .collect();
+        let keys: Vec<String> = tree
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                RenderCommand::FillPath { key, .. } => Some(key.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(keys.len(), 2, "bg + badge only: {keys:?}");
+        // peniko colors debug as normalized f32 components: red = [1, 0, 0]
+        assert!(
+            fills.iter().any(|f| f.contains("1.0, 0.0, 0.0")),
+            "badge rendered: {fills:?}"
+        );
+
+        // without content, the anchor placeholder renders instead (a frame
+        // with no fill produces no extra rect — count stays 1)
+        let mut master2 = Node::component("def2", "Card", 200.0, 100.0)
+            .child(Node::rect("bg", 0.0, 0.0, 200.0, 100.0, Color::BLACK))
+            .child(Node::frame("body", 184.0, 60.0));
+        master2.props.push(x_core::ComponentProp::Slot {
+            name: "Content".into(),
+            target: "body".into(),
+            default: None,
+        });
+        master2.visible = false;
+        let plain = Node::frame("r2", 500.0, 500.0)
+            .child(master2)
+            .child(Node::instance("i2", "Card", 0.0, 0.0, 200.0, 100.0));
+        let tree2 = build_render_tree(&plain, &Variables::default());
+        assert_eq!(
+            tree2.commands.len(),
+            1,
+            "only master bg: {:?}",
+            tree2.commands
+        );
+    }
+
+    #[test]
+    fn slot_default_component_resolves_through_registry() {
+        // Badge master + Card master whose slot defaults to "Badge"
+        let mut badge = Node::component("def", "Badge", 40.0, 12.0).child(Node::rect(
+            "dot",
+            0.0,
+            0.0,
+            40.0,
+            12.0,
+            Color::from_rgb8(0x00, 0xff, 0x00),
+        ));
+        badge.visible = false;
+        let mut card =
+            Node::component("def2", "Card", 100.0, 40.0).child(Node::frame("body", 100.0, 40.0));
+        card.props.push(x_core::ComponentProp::Slot {
+            name: "Content".into(),
+            target: "body".into(),
+            default: Some("Badge".into()),
+        });
+        card.visible = false;
+        let d = Node::frame("r", 500.0, 500.0)
+            .child(badge)
+            .child(card)
+            .child(Node::instance("i1", "Card", 0.0, 0.0, 100.0, 40.0));
+        let tree = build_render_tree(&d, &Variables::default());
+        // the Badge default resolved through the registry and painted green
+        let has_green = tree
+            .commands
+            .iter()
+            .any(|c| format!("{c:?}").contains("0.0, 1.0, 0.0"));
+        assert!(has_green, "Badge (green dot) filled the slot default");
     }
 
     #[test]
@@ -133,8 +278,17 @@ mod tests {
 
     #[test]
     fn gradient_paint_encodes() {
-        let d = Node::rect("g", 0.0, 0.0, 100.0, 100.0, Color::WHITE)
-            .fill_paint(Paint::LinearGradient { start: (0.0, 0.0), end: (100.0, 0.0), stops: vec![(0.0, Color::from_rgb8(255, 0, 0)), (1.0, Color::from_rgb8(0, 0, 255))] });
+        let d = Node::rect("g", 0.0, 0.0, 100.0, 100.0, Color::WHITE).fill_paint(
+            Paint::LinearGradient {
+                start: (0.0, 0.0),
+                end: (100.0, 0.0),
+                stops: vec![
+                    (0.0, Color::from_rgb8(255, 0, 0)),
+                    (1.0, Color::from_rgb8(0, 0, 255)),
+                ],
+                space: x_core::GradSpace::Srgb,
+            },
+        );
         let (scene, s) = build_scene(&d, None, &Variables::default());
         assert_eq!(s.paths, 1);
         assert_eq!(scene.encoding().n_paths, 1);
@@ -142,8 +296,12 @@ mod tests {
 
     #[test]
     fn drop_shadow_adds_a_path() {
-        let d = Node::rect("s", 0.0, 0.0, 100.0, 50.0, Color::WHITE)
-            .effect(Effect::DropShadow { dx: 4.0, dy: 4.0, blur: 8.0, color: Color::BLACK });
+        let d = Node::rect("s", 0.0, 0.0, 100.0, 50.0, Color::WHITE).effect(Effect::DropShadow {
+            dx: 4.0,
+            dy: 4.0,
+            blur: 8.0,
+            color: Color::BLACK,
+        });
         let (_, s) = build_scene(&d, None, &Variables::default());
         assert_eq!(s.paths, 2); // shadow + fill
     }
@@ -151,7 +309,8 @@ mod tests {
     #[test]
     fn blend_mode_pushes_layer() {
         let plain = Node::rect("p", 0.0, 0.0, 50.0, 50.0, Color::WHITE);
-        let blended = Node::rect("b", 0.0, 0.0, 50.0, 50.0, Color::WHITE).blend(BlendKind::Multiply);
+        let blended =
+            Node::rect("b", 0.0, 0.0, 50.0, 50.0, Color::WHITE).blend(BlendKind::Multiply);
         let (s1, _) = build_scene(&plain, None, &Variables::default());
         let (s2, _) = build_scene(&blended, None, &Variables::default());
         // The mix layer adds a clip path to the encoding.
@@ -160,19 +319,26 @@ mod tests {
 
     #[test]
     fn vector_node_renders_real_path() {
-        let star = Node::vector("v", 0.0, 0.0, 100.0, 100.0, vec![
-            PathCmd::MoveTo(50.0, 0.0),
-            PathCmd::LineTo(61.0, 35.0),
-            PathCmd::LineTo(98.0, 35.0),
-            PathCmd::LineTo(68.0, 57.0),
-            PathCmd::LineTo(79.0, 91.0),
-            PathCmd::LineTo(50.0, 70.0),
-            PathCmd::LineTo(21.0, 91.0),
-            PathCmd::LineTo(32.0, 57.0),
-            PathCmd::LineTo(2.0, 35.0),
-            PathCmd::LineTo(39.0, 35.0),
-            PathCmd::Close,
-        ]);
+        let star = Node::vector(
+            "v",
+            0.0,
+            0.0,
+            100.0,
+            100.0,
+            vec![
+                PathCmd::MoveTo(50.0, 0.0),
+                PathCmd::LineTo(61.0, 35.0),
+                PathCmd::LineTo(98.0, 35.0),
+                PathCmd::LineTo(68.0, 57.0),
+                PathCmd::LineTo(79.0, 91.0),
+                PathCmd::LineTo(50.0, 70.0),
+                PathCmd::LineTo(21.0, 91.0),
+                PathCmd::LineTo(32.0, 57.0),
+                PathCmd::LineTo(2.0, 35.0),
+                PathCmd::LineTo(39.0, 35.0),
+                PathCmd::Close,
+            ],
+        );
         let (scene, s) = build_scene(&star, None, &Variables::default());
         assert_eq!(s.paths, 1);
         assert_eq!(scene.encoding().n_paths, 1);
@@ -180,6 +346,49 @@ mod tests {
         let empty = Node::vector("e", 0.0, 0.0, 10.0, 10.0, vec![]);
         let (_, s2) = build_scene(&empty, None, &Variables::default());
         assert_eq!(s2.paths, 0);
+    }
+
+    #[test]
+    fn pattern_fill_renders_clipped_image() {
+        let path = std::env::temp_dir().join("xnative_pattern_test.png");
+        {
+            let f = std::fs::File::create(&path).unwrap();
+            let mut enc = png::Encoder::new(std::io::BufWriter::new(f), 2, 2);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[
+                255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+            ])
+            .unwrap();
+        }
+        let mut assets = Assets::new();
+        assets
+            .load_png("pat", path.to_str().unwrap())
+            .expect("decode");
+        let d = Node::rect("r", 0.0, 0.0, 100.0, 50.0, Color::WHITE).fill_paint(
+            x_core::Paint::Pattern {
+                asset: "pat".into(),
+                fit: x_core::ImageFit::Tile,
+            },
+        );
+        let tree = build_render_tree(&d, &Variables::default());
+        let sink = VelloSink {
+            assets: Some(&assets),
+            fonts: None,
+        };
+        let scene = sink.render(&tree);
+        assert!(
+            scene.encoding().n_clips > 0,
+            "pattern renders inside a clip layer"
+        );
+        // missing bytes: no panic, still emits the commands
+        let sink2 = VelloSink {
+            assets: None,
+            fonts: None,
+        };
+        let _ = sink2.render(&tree);
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -192,10 +401,15 @@ mod tests {
             enc.set_color(png::ColorType::Rgba);
             enc.set_depth(png::BitDepth::Eight);
             let mut w = enc.write_header().unwrap();
-            w.write_image_data(&[255,0,0,255, 255,0,0,255, 255,0,0,255, 255,0,0,255]).unwrap();
+            w.write_image_data(&[
+                255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+            ])
+            .unwrap();
         }
         let mut assets = Assets::new();
-        assets.load_png("logo", path.to_str().unwrap()).expect("decode");
+        assets
+            .load_png("logo", path.to_str().unwrap())
+            .expect("decode");
         assert_eq!(assets.len(), 1);
         assert_eq!(assets.get("logo").unwrap().image.width, 2);
 
@@ -218,7 +432,13 @@ mod tests {
     #[test]
     fn layout_v2_cross_axis_center_and_space_between() {
         let mut d = Node::frame("r", 400.0, 100.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, padding: [0.0; 4], align: CrossAlign::Center, space_between: true, ..Default::default() })
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                padding: [0.0; 4],
+                align: CrossAlign::Center,
+                distribute: Distribute::Between,
+                ..Default::default()
+            })
             .child(Node::rect("a", 0.0, 0.0, 50.0, 40.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 50.0, 60.0, Color::WHITE));
         apply_auto_layout(&mut d, &Variables::default());
@@ -228,13 +448,71 @@ mod tests {
     }
 
     #[test]
+    fn layout_distribution_around_and_evenly() {
+        // 400px fixed frame, two 50px items, zero padding: leftover = 300.
+        //   Around: u = 150 -> first edge 75, inner gap 150 -> x = 75 / 275
+        //   Evenly: g = 100 -> every gap 100 (incl. edges)   -> x = 100 / 250
+        for (mode, x0, x1) in [
+            (Distribute::Around, 75.0, 275.0),
+            (Distribute::Evenly, 100.0, 250.0),
+        ] {
+            let mut d = Node::frame("r", 400.0, 100.0)
+                .auto_layout(AutoLayout {
+                    direction: LayoutDirection::Horizontal,
+                    padding: [0.0; 4],
+                    align: CrossAlign::Center,
+                    distribute: mode,
+                    ..Default::default()
+                })
+                .child(Node::rect("a", 0.0, 0.0, 50.0, 40.0, Color::WHITE))
+                .child(Node::rect("b", 0.0, 0.0, 50.0, 60.0, Color::WHITE));
+            apply_auto_layout(&mut d, &Variables::default());
+            assert_eq!(d.children[0].transform.x, x0, "{mode:?} first");
+            assert_eq!(d.children[1].transform.x, x1, "{mode:?} second");
+        }
+    }
+
+    #[test]
+    fn layout_distribution_wrap_rows_spread_full_width() {
+        // wrap layout: one row of two 50px items in a 300px frame (gap 0)
+        // distributes per-row like justify-content on that line.
+        let mut d = Node::frame("r", 300.0, 100.0)
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                padding: [0.0; 4],
+                gap: 0.0,
+                wrap: AutoLayoutWrap::Wrap,
+                distribute: Distribute::Evenly,
+                ..Default::default()
+            })
+            .child(Node::rect("a", 0.0, 0.0, 50.0, 40.0, Color::WHITE))
+            .child(Node::rect("b", 0.0, 0.0, 50.0, 60.0, Color::WHITE));
+        apply_auto_layout(&mut d, &Variables::default());
+        // leftover 200, gaps 200/3 -> edge 66.66.., inner gap the same
+        assert!((d.children[0].transform.x - 200.0 / 3.0).abs() < 1e-9);
+        assert!((d.children[1].transform.x - (200.0 / 3.0 + 50.0 + 200.0 / 3.0)).abs() < 1e-9);
+    }
+
+    #[test]
     fn layout_v2_recursive_hug_propagates() {
         let inner = Node::frame("inner", 0.0, 0.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Vertical, gap: 10.0, padding: [5.0; 4], sizing: Sizing::Hug, ..Default::default() })
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                gap: 10.0,
+                padding: [5.0; 4],
+                sizing: Sizing::Hug,
+                ..Default::default()
+            })
             .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE))
             .child(Node::rect("b", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
         let mut outer = Node::frame("outer", 0.0, 0.0)
-            .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: [0.0; 4], sizing: Sizing::Hug, ..Default::default() })
+            .auto_layout(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                gap: 0.0,
+                padding: [0.0; 4],
+                sizing: Sizing::Hug,
+                ..Default::default()
+            })
             .child(inner);
         apply_layout_recursive(&mut outer, &Variables::default());
         // inner hugged: h = 5+20+10+20+5 = 60, w = 30+10 = 40
@@ -248,7 +526,8 @@ mod tests {
     #[test]
     fn variables_v2_modes_and_aliases() {
         let mut vars = Variables::default();
-        vars.colors.insert("bg".into(), Color::from_rgb8(255, 255, 255));
+        vars.colors
+            .insert("bg".into(), Color::from_rgb8(255, 255, 255));
         let mut dark = HashMap::new();
         dark.insert("bg".to_string(), Color::from_rgb8(0, 0, 0));
         vars.modes.insert("dark".into(), dark);
@@ -272,24 +551,28 @@ mod tests {
         vars.aliases.insert("a".into(), "b".into());
         vars.aliases.insert("b".into(), "a".into());
         // must not hang; falls back
-        assert_eq!((vars.color("a", Color::from_rgb8(1, 2, 3)).components[0] * 255.0).round() as u8, 1);
+        assert_eq!(
+            (vars.color("a", Color::from_rgb8(1, 2, 3)).components[0] * 255.0).round() as u8,
+            1
+        );
     }
 }
-
 
 #[cfg(test)]
 mod variable_bindings {
     use super::*;
-    
 
     #[test]
     fn radius_and_opacity_bind_to_number_variables() {
         let mut vars = Variables::default();
         vars.numbers.insert("radius-lg".into(), 20.0);
         vars.numbers.insert("dim".into(), 0.25);
-        let d = Node::frame("page", 200.0, 200.0)
-            .child(Node::rect("r", 0.0, 0.0, 100.0, 60.0, Color::WHITE)
-                .radius(2.0).bind("radius", "radius-lg").bind("opacity", "dim"));
+        let d = Node::frame("page", 200.0, 200.0).child(
+            Node::rect("r", 0.0, 0.0, 100.0, 60.0, Color::WHITE)
+                .radius(2.0)
+                .bind("radius", "radius-lg")
+                .bind("opacity", "dim"),
+        );
         // renders without panic and produces the path
         let (_, s) = build_scene(&d, None, &vars);
         assert_eq!(s.paths, 1);
@@ -305,30 +588,61 @@ mod variable_bindings {
 #[cfg(test)]
 mod component2_render {
     use super::*;
-    
+
     use x_components::{set_override, OverrideValue};
 
     fn doc_with_masters() -> Node {
         let mut icon_a = Node::component("ca", "Icon/Check", 16.0, 16.0);
         icon_a.visible = false;
-        icon_a.children.push(Node::rect("ic-a", 0.0, 0.0, 16.0, 16.0, Color::from_rgb8(0, 0xff, 0)));
+        icon_a.children.push(Node::rect(
+            "ic-a",
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            Color::from_rgb8(0, 0xff, 0),
+        ));
         let mut icon_b = Node::component("cb", "Icon/Cross", 16.0, 16.0);
         icon_b.visible = false;
         // cross = TWO rects so swap changes path count
-        icon_b.children.push(Node::rect("ic-b1", 0.0, 0.0, 16.0, 4.0, Color::from_rgb8(0xff, 0, 0)));
-        icon_b.children.push(Node::rect("ic-b2", 0.0, 6.0, 16.0, 4.0, Color::from_rgb8(0xff, 0, 0)));
+        icon_b.children.push(Node::rect(
+            "ic-b1",
+            0.0,
+            0.0,
+            16.0,
+            4.0,
+            Color::from_rgb8(0xff, 0, 0),
+        ));
+        icon_b.children.push(Node::rect(
+            "ic-b2",
+            0.0,
+            6.0,
+            16.0,
+            4.0,
+            Color::from_rgb8(0xff, 0, 0),
+        ));
         let mut btn = Node::component("cbtn", "Button", 100.0, 40.0);
         btn.visible = false;
-        btn.children.push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::BLACK));
-        btn.children.push(Node::instance("slot", "Icon/Check", 4.0, 4.0, 16.0, 16.0));
-        Node::frame("page", 800.0, 600.0).child(icon_a).child(icon_b).child(btn)
+        btn.children
+            .push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::BLACK));
+        btn.children
+            .push(Node::instance("slot", "Icon/Check", 4.0, 4.0, 16.0, 16.0));
+        Node::frame("page", 800.0, 600.0)
+            .child(icon_a)
+            .child(icon_b)
+            .child(btn)
     }
 
     #[test]
     fn visibility_override_hides_node_inside_instance() {
         let mut doc = doc_with_masters();
         let mut i = Node::instance("i1", "Button", 200.0, 0.0, 100.0, 40.0);
-        let (_, s_before) = { doc.children.push(i.clone()); let r = build_scene(&doc, None, &Variables::default()); doc.children.pop(); r };
+        let (_, s_before) = {
+            doc.children.push(i.clone());
+            let r = build_scene(&doc, None, &Variables::default());
+            doc.children.pop();
+            r
+        };
         set_override(&mut i, "bg", OverrideValue::Visible(false));
         doc.children.push(i);
         let (_, s_after) = build_scene(&doc, None, &Variables::default());
@@ -339,24 +653,34 @@ mod component2_render {
     fn swap_override_replaces_nested_component() {
         let mut doc = doc_with_masters();
         let mut i = Node::instance("i1", "Button", 200.0, 0.0, 100.0, 40.0);
-        let (_, s_check) = { doc.children.push(i.clone()); let r = build_scene(&doc, None, &Variables::default()); doc.children.pop(); r };
+        let (_, s_check) = {
+            doc.children.push(i.clone());
+            let r = build_scene(&doc, None, &Variables::default());
+            doc.children.pop();
+            r
+        };
         set_override(&mut i, "slot", OverrideValue::Swap("Icon/Cross".into()));
         doc.children.push(i);
         let (_, s_cross) = build_scene(&doc, None, &Variables::default());
         // Check icon = 1 path; Cross icon = 2 paths
-        assert_eq!(s_cross.paths, s_check.paths + 1, "swap to 2-path icon adds a path");
+        assert_eq!(
+            s_cross.paths,
+            s_check.paths + 1,
+            "swap to 2-path icon adds a path"
+        );
     }
 }
 
 #[cfg(test)]
 mod typography_integration {
     use super::*;
-    
 
     #[test]
     fn text_node_renders_with_real_font_when_available() {
         let mut fm = x_text::FontManager::new();
-        if fm.load_system_fonts() == 0 { return; } // headless env w/o fonts: skip
+        if fm.load_system_fonts() == 0 {
+            return;
+        } // headless env w/o fonts: skip
         let d = Node::text("t", 0.0, 0.0, 400.0, 24.0, "Real Type");
         let (scene, s) = build_scene_full(&d, None, &Variables::default(), None, Some(&fm));
         // "Real Type" = 8 visible glyphs (space skipped as no-outline? no—space HAS no outline) -> >= 8 filled outlines
@@ -366,5 +690,65 @@ mod typography_integration {
         let (_, s2) = build_scene(&d, None, &Variables::default());
         assert!(s2.paths > 0);
     }
-}
 
+    #[test]
+    fn rich_spans_segment_text_into_styled_runs() {
+        let mut fm = x_text::FontManager::new();
+        if fm.load_system_fonts() == 0 {
+            return;
+        }
+        let f = fm.default_font().unwrap();
+        // "abcdef" with a red bold span over bytes [1,4) ("bcd")
+        let red = Color::from_rgb8(0xff, 0x00, 0x00);
+        let mut d = Node::text("t", 0.0, 0.0, 400.0, 24.0, "abcdef");
+        d.text_runs = vec![TextRun {
+            start: 1,
+            len: 3,
+            color: Some(red),
+            size: Some(30.0),
+            weight: Some(700),
+            ..Default::default()
+        }];
+        let base = Color::BLACK;
+        let spans = build_rich_spans(&d, "abcdef", base, &fm, f);
+        // three segments: "a" (base), "bcd" (styled), "ef" (base)
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].text, "a");
+        assert_eq!(spans[0].color, base);
+        assert_eq!(spans[1].text, "bcd");
+        assert_eq!(spans[1].color, red);
+        // the 0.72 em contract: Span size = font size * 0.72 (same as the shaper)
+        assert!(
+            (spans[1].size - 30.0 * 0.72).abs() < 1e-6,
+            "got {}",
+            spans[1].size
+        );
+        assert!(spans[1].variations.iter().any(|(a, _)| a == "wght"));
+        assert_eq!(spans[2].text, "ef");
+        assert_eq!(spans[2].color, base);
+    }
+
+    #[test]
+    fn rich_spans_render_more_paths_than_plain() {
+        let mut fm = x_text::FontManager::new();
+        if fm.load_system_fonts() == 0 {
+            return;
+        }
+        // plain text renders; a styled span must still produce glyph outlines
+        let mut t = Node::text("t", 0.0, 0.0, 400.0, 24.0, "hello world");
+        t.text_runs = vec![TextRun {
+            start: 0,
+            len: 5,
+            size: Some(40.0),
+            ..Default::default()
+        }];
+        let d = Node::frame("p", 400.0, 100.0).child(t);
+        let (scene, s) = build_scene_full(&d, None, &Variables::default(), None, Some(&fm));
+        assert!(
+            s.paths >= 10,
+            "styled text should render glyphs, got {}",
+            s.paths
+        );
+        assert!(scene.encoding().n_paths >= 10);
+    }
+}

@@ -31,28 +31,69 @@ fn mix(h: &mut u64, v: u64) {
     *h = h.wrapping_mul(0x0000_0100_0000_01b3);
 }
 #[inline]
-fn fmix(h: &mut u64, f: f64) { mix(h, f.to_bits()); }
+fn fmix(h: &mut u64, f: f64) {
+    mix(h, f.to_bits());
+}
 fn smix(h: &mut u64, s: &str) {
-    for b in s.as_bytes() { mix(h, *b as u64); }
+    for b in s.as_bytes() {
+        mix(h, *b as u64);
+    }
     mix(h, 0x1f);
 }
 fn cmix(h: &mut u64, c: &Color) {
     let rgba = c.to_rgba8();
-    mix(h, u64::from_le_bytes([rgba.r, rgba.g, rgba.b, rgba.a, 0, 0, 0, 0]));
+    mix(
+        h,
+        u64::from_le_bytes([rgba.r, rgba.g, rgba.b, rgba.a, 0, 0, 0, 0]),
+    );
 }
 fn paint_mix(h: &mut u64, p: &Paint) {
     match p {
-        Paint::Solid(c) => { mix(h, 1); cmix(h, c); }
-        Paint::Variable(n) => { mix(h, 2); smix(h, n); }
-        Paint::LinearGradient { start, end, stops } => {
-            mix(h, 3);
-            fmix(h, start.0); fmix(h, start.1); fmix(h, end.0); fmix(h, end.1);
-            for (t, c) in stops { fmix(h, *t as f64); cmix(h, c); }
+        Paint::Solid(c) => {
+            mix(h, 1);
+            cmix(h, c);
         }
-        Paint::RadialGradient { center, radius, stops } => {
+        Paint::Variable(n) => {
+            mix(h, 2);
+            smix(h, n);
+        }
+        Paint::LinearGradient {
+            start,
+            end,
+            stops,
+            space,
+        } => {
+            mix(h, 3);
+            mix(h, *space as u64);
+            fmix(h, start.0);
+            fmix(h, start.1);
+            fmix(h, end.0);
+            fmix(h, end.1);
+            for (t, c) in stops {
+                fmix(h, *t as f64);
+                cmix(h, c);
+            }
+        }
+        Paint::Pattern { asset, fit } => {
+            mix(h, 5);
+            smix(h, asset);
+            mix(h, *fit as u64);
+        }
+        Paint::RadialGradient {
+            center,
+            radius,
+            stops,
+            space,
+        } => {
             mix(h, 4);
-            fmix(h, center.0); fmix(h, center.1); fmix(h, *radius);
-            for (t, c) in stops { fmix(h, *t as f64); cmix(h, c); }
+            mix(h, *space as u64);
+            fmix(h, center.0);
+            fmix(h, center.1);
+            fmix(h, *radius);
+            for (t, c) in stops {
+                fmix(h, *t as f64);
+                cmix(h, c);
+            }
         }
     }
 }
@@ -64,80 +105,249 @@ fn hash_subtree(n: &Node) -> (u64, bool, bool) {
     let mut has_inst = false;
     fn walk(n: &Node, h: &mut u64, has_comp: &mut bool, has_inst: &mut bool) {
         smix(h, &n.id);
-        fmix(h, n.transform.x); fmix(h, n.transform.y);
-        fmix(h, n.transform.rotation); fmix(h, n.transform.scale_x); fmix(h, n.transform.scale_y);
-        fmix(h, n.w); fmix(h, n.h);
+        fmix(h, n.transform.x);
+        fmix(h, n.transform.y);
+        fmix(h, n.transform.rotation);
+        fmix(h, n.transform.scale_x);
+        fmix(h, n.transform.scale_y);
+        fmix(h, n.w);
+        fmix(h, n.h);
         paint_mix(h, &n.fill);
-        paint_mix(h, &n.stroke.paint); fmix(h, n.stroke.width);
+        paint_mix(h, &n.stroke.paint);
+        fmix(h, n.stroke.width);
         mix(h, n.visual_stacks_materialized as u64);
-        for l in &n.fill_layers { paint_mix(h, &l.paint); fmix(h, l.opacity as f64); mix(h, l.visible as u64); mix(h, l.blend as u64); }
+        for l in &n.fill_layers {
+            paint_mix(h, &l.paint);
+            fmix(h, l.opacity as f64);
+            mix(h, l.visible as u64);
+            mix(h, l.blend as u64);
+        }
         for l in &n.stroke_layers {
-            paint_mix(h, &l.stroke.paint); fmix(h, l.stroke.width); fmix(h, l.opacity as f64); mix(h, l.visible as u64); mix(h, l.blend as u64);
-            mix(h, l.options.align as u64); mix(h, l.options.cap_start as u64); mix(h, l.options.cap_end as u64); mix(h, l.options.join as u64);
-            fmix(h, l.options.dash_offset); fmix(h, l.options.miter_limit); for d in &l.options.dash { fmix(h, *d); }
+            paint_mix(h, &l.stroke.paint);
+            fmix(h, l.stroke.width);
+            fmix(h, l.opacity as f64);
+            mix(h, l.visible as u64);
+            mix(h, l.blend as u64);
+            mix(h, l.options.align as u64);
+            mix(h, l.options.cap_start as u64);
+            mix(h, l.options.cap_end as u64);
+            mix(h, l.options.join as u64);
+            fmix(h, l.options.dash_offset);
+            fmix(h, l.options.miter_limit);
+            for d in &l.options.dash {
+                fmix(h, *d);
+            }
         }
         for l in &n.effect_layers {
-            fmix(h, l.opacity as f64); mix(h, l.visible as u64); mix(h, l.blend as u64);
+            fmix(h, l.opacity as f64);
+            mix(h, l.visible as u64);
+            mix(h, l.blend as u64);
             match &l.effect {
-                Effect::DropShadow { dx, dy, blur, color } => { mix(h, 31); fmix(h, *dx); fmix(h, *dy); fmix(h, *blur); cmix(h, color); }
-                Effect::InnerShadow { dx, dy, blur, color } => { mix(h, 32); fmix(h, *dx); fmix(h, *dy); fmix(h, *blur); cmix(h, color); }
-                Effect::LayerBlur { radius } => { mix(h, 33); fmix(h, *radius); }
-                Effect::BackgroundBlur { radius } => { mix(h, 34); fmix(h, *radius); }
+                Effect::DropShadow {
+                    dx,
+                    dy,
+                    blur,
+                    color,
+                } => {
+                    mix(h, 31);
+                    fmix(h, *dx);
+                    fmix(h, *dy);
+                    fmix(h, *blur);
+                    cmix(h, color);
+                }
+                Effect::InnerShadow {
+                    dx,
+                    dy,
+                    blur,
+                    color,
+                } => {
+                    mix(h, 32);
+                    fmix(h, *dx);
+                    fmix(h, *dy);
+                    fmix(h, *blur);
+                    cmix(h, color);
+                }
+                Effect::LayerBlur { radius } => {
+                    mix(h, 33);
+                    fmix(h, *radius);
+                }
+                Effect::BackgroundBlur { radius } => {
+                    mix(h, 34);
+                    fmix(h, *radius);
+                }
             }
         }
         fmix(h, n.opacity as f64);
-        mix(h, n.visible as u64); mix(h, (n.is_mask as u64) << 1); mix(h, (n.blend as u64) << 2);
-        if let Some(cr) = n.corner_radii { for v in cr { fmix(h, v); } }
+        mix(h, n.visible as u64);
+        mix(h, (n.is_mask as u64) << 1);
+        mix(h, (n.blend as u64) << 2);
+        if let Some(cr) = n.corner_radii {
+            for v in cr {
+                fmix(h, v);
+            }
+        }
         for e in &n.effects {
             match e {
-                Effect::DropShadow { dx, dy, blur, color } => { mix(h, 11); fmix(h, *dx); fmix(h, *dy); fmix(h, *blur); cmix(h, color); }
-                Effect::InnerShadow { dx, dy, blur, color } => { mix(h, 12); fmix(h, *dx); fmix(h, *dy); fmix(h, *blur); cmix(h, color); }
-                Effect::LayerBlur { radius } => { mix(h, 13); fmix(h, *radius); }
-                Effect::BackgroundBlur { radius } => { mix(h, 14); fmix(h, *radius); }
+                Effect::DropShadow {
+                    dx,
+                    dy,
+                    blur,
+                    color,
+                } => {
+                    mix(h, 11);
+                    fmix(h, *dx);
+                    fmix(h, *dy);
+                    fmix(h, *blur);
+                    cmix(h, color);
+                }
+                Effect::InnerShadow {
+                    dx,
+                    dy,
+                    blur,
+                    color,
+                } => {
+                    mix(h, 12);
+                    fmix(h, *dx);
+                    fmix(h, *dy);
+                    fmix(h, *blur);
+                    cmix(h, color);
+                }
+                Effect::LayerBlur { radius } => {
+                    mix(h, 13);
+                    fmix(h, *radius);
+                }
+                Effect::BackgroundBlur { radius } => {
+                    mix(h, 14);
+                    fmix(h, *radius);
+                }
             }
         }
         // bindings/overrides affect resolution
         let mut keys: Vec<_> = n.bindings.iter().collect();
         keys.sort();
-        for (k, v) in keys { smix(h, k); smix(h, v); }
+        for (k, v) in keys {
+            smix(h, k);
+            smix(h, v);
+        }
         let mut ovr: Vec<_> = n.overrides.iter().collect();
         ovr.sort();
-        for (k, v) in ovr { smix(h, k); smix(h, v); }
+        for (k, v) in ovr {
+            smix(h, k);
+            smix(h, v);
+        }
         match &n.kind {
-            NodeKind::Frame { layout } => { mix(h, 21); if let Some(l) = layout { fmix(h, l.gap); for p in l.padding { fmix(h, p); } mix(h, l.direction as u64); mix(h, if l.cross_sizing == Some(Sizing::Hug) { 2u64 } else if l.cross_sizing.is_some() { 1u64 } else { 0u64 }); } }
-            NodeKind::Group => mix(h, 22),
-            NodeKind::Rect { radius } => { mix(h, 23); fmix(h, *radius); }
-            NodeKind::Ellipse => mix(h, 24),
-            NodeKind::Line => mix(h, 25),
-            NodeKind::Text { text } => {
-                mix(h, 26); smix(h, text);
-                // rich runs change glyphs without changing `text`
-                for r in &n.text_runs { smix(h, &r.start.to_string()); smix(h, &r.len.to_string());
-                    if let Some(c) = r.color { for b in c.components { fmix(h, b as f64); } }
-                    if let Some(sz) = r.size { fmix(h, sz); }
-                    if let Some(f) = &r.font { smix(h, f); }
+            NodeKind::Frame { layout } => {
+                mix(h, 21);
+                if let Some(l) = layout {
+                    fmix(h, l.gap);
+                    for p in l.padding {
+                        fmix(h, p);
+                    }
+                    mix(h, l.direction as u64);
+                    mix(
+                        h,
+                        if l.cross_sizing == Some(Sizing::Hug) {
+                            2u64
+                        } else if l.cross_sizing.is_some() {
+                            1u64
+                        } else {
+                            0u64
+                        },
+                    );
                 }
             }
-            NodeKind::Image { asset, fit, placement } => {
-                mix(h, 27); smix(h, asset); mix(h, *fit as u64);
-                fmix(h, placement.focal.0); fmix(h, placement.focal.1);
-                fmix(h, placement.scale); mix(h, placement.flip_h as u64); mix(h, placement.flip_v as u64);
+            NodeKind::Group => mix(h, 22),
+            NodeKind::Rect { radius } => {
+                mix(h, 23);
+                fmix(h, *radius);
+            }
+            NodeKind::Ellipse => mix(h, 24),
+            NodeKind::Section => {
+                mix(h, 28);
+                smix(h, &n.name);
+            }
+            NodeKind::Arc { start, end } => {
+                mix(h, 27);
+                fmix(h, *start);
+                fmix(h, *end);
+            }
+            NodeKind::Line => mix(h, 25),
+            NodeKind::Text { text } => {
+                mix(h, 26);
+                smix(h, text);
+                // rich runs change glyphs without changing `text`
+                for r in &n.text_runs {
+                    smix(h, &r.start.to_string());
+                    smix(h, &r.len.to_string());
+                    if let Some(c) = r.color {
+                        for b in c.components {
+                            fmix(h, b as f64);
+                        }
+                    }
+                    if let Some(sz) = r.size {
+                        fmix(h, sz);
+                    }
+                    if let Some(f) = &r.font {
+                        smix(h, f);
+                    }
+                }
+            }
+            NodeKind::Image {
+                asset,
+                fit,
+                placement,
+            } => {
+                mix(h, 27);
+                smix(h, asset);
+                mix(h, *fit as u64);
+                fmix(h, placement.focal.0);
+                fmix(h, placement.focal.1);
+                fmix(h, placement.scale);
+                mix(h, placement.flip_h as u64);
+                mix(h, placement.flip_v as u64);
             }
             NodeKind::Vector { path } => {
                 mix(h, 28);
                 for c in path {
                     match c {
-                        PathCmd::MoveTo(a, b) => { mix(h, 1); fmix(h, *a); fmix(h, *b); }
-                        PathCmd::LineTo(a, b) => { mix(h, 2); fmix(h, *a); fmix(h, *b); }
-                        PathCmd::CurveTo(a, b, c2, d, e, f) => { mix(h, 3); fmix(h, *a); fmix(h, *b); fmix(h, *c2); fmix(h, *d); fmix(h, *e); fmix(h, *f); }
+                        PathCmd::MoveTo(a, b) => {
+                            mix(h, 1);
+                            fmix(h, *a);
+                            fmix(h, *b);
+                        }
+                        PathCmd::LineTo(a, b) => {
+                            mix(h, 2);
+                            fmix(h, *a);
+                            fmix(h, *b);
+                        }
+                        PathCmd::CurveTo(a, b, c2, d, e, f) => {
+                            mix(h, 3);
+                            fmix(h, *a);
+                            fmix(h, *b);
+                            fmix(h, *c2);
+                            fmix(h, *d);
+                            fmix(h, *e);
+                            fmix(h, *f);
+                        }
                         PathCmd::Close => mix(h, 4),
                     }
                 }
             }
-            NodeKind::Component { name } => { mix(h, 29); smix(h, name); *has_comp = true; }
-            NodeKind::Instance { component } => { mix(h, 30); smix(h, component); *has_inst = true; }
+            NodeKind::Component { name } => {
+                mix(h, 29);
+                smix(h, name);
+                *has_comp = true;
+            }
+            NodeKind::Instance { component } => {
+                mix(h, 30);
+                smix(h, component);
+                *has_inst = true;
+            }
+            NodeKind::Slice => mix(h, 31),
         }
-        for c in &n.children { walk(c, h, has_comp, has_inst); }
+        for c in &n.children {
+            walk(c, h, has_comp, has_inst);
+        }
         mix(h, 0x2e);
     }
     walk(n, &mut h, &mut has_comp, &mut has_inst);
@@ -148,22 +358,33 @@ fn hash_subtree(n: &Node) -> (u64, bool, bool) {
 /// expanding to the rotated corners; instances get their node box which
 /// is what layout sized them to). Cheap: one walk, no lowering.
 pub fn subtree_bounds(n: &Node, parent: Affine) -> Option<vello::kurbo::Rect> {
-    if !n.visible { return None; }
+    if !n.visible {
+        return None;
+    }
     let world = parent * n.transform.matrix(n.w, n.h);
     let mut acc: Option<vello::kurbo::Rect> = None;
     let include = |r: vello::kurbo::Rect, acc: &mut Option<vello::kurbo::Rect>| {
-        *acc = Some(match acc { Some(a) => a.union(r), None => r });
+        *acc = Some(match acc {
+            Some(a) => a.union(r),
+            None => r,
+        });
     };
     // own box (all paint kinds live inside it; effects add blur margin)
     let own = world.transform_rect_bbox(vello::kurbo::Rect::new(0.0, 0.0, n.w, n.h));
-    let blur = n.active_effects().iter().map(|l| match &l.effect {
-        Effect::DropShadow { dx, dy, blur, .. } => dx.abs().max(dy.abs()) + blur,
-        Effect::InnerShadow { .. } => 0.0,
-        Effect::LayerBlur { radius } | Effect::BackgroundBlur { radius } => *radius,
-    }).fold(0.0f64, f64::max);
+    let blur = n
+        .active_effects()
+        .iter()
+        .map(|l| match &l.effect {
+            Effect::DropShadow { dx, dy, blur, .. } => dx.abs().max(dy.abs()) + blur,
+            Effect::InnerShadow { .. } => 0.0,
+            Effect::LayerBlur { radius } | Effect::BackgroundBlur { radius } => *radius,
+        })
+        .fold(0.0f64, f64::max);
     include(own.inflate(blur, blur), &mut acc);
     for c in &n.children {
-        if let Some(b) = subtree_bounds(c, world) { include(b, &mut acc); }
+        if let Some(b) = subtree_bounds(c, world) {
+            include(b, &mut acc);
+        }
     }
     acc
 }
@@ -172,11 +393,19 @@ fn vars_hash(vars: &Variables) -> u64 {
     let mut h = 0x9e37_79b9_7f4a_7c15u64;
     let mut cs: Vec<_> = vars.colors.iter().collect();
     cs.sort_by_key(|(k, _)| (*k).clone());
-    for (k, v) in cs { smix(&mut h, k); cmix(&mut h, v); }
+    for (k, v) in cs {
+        smix(&mut h, k);
+        cmix(&mut h, v);
+    }
     let mut ns: Vec<_> = vars.numbers.iter().collect();
     ns.sort_by_key(|(k, _)| (*k).clone());
-    for (k, v) in ns { smix(&mut h, k); fmix(&mut h, *v); }
-    if let Some(m) = &vars.active_mode { smix(&mut h, m); }
+    for (k, v) in ns {
+        smix(&mut h, k);
+        fmix(&mut h, *v);
+    }
+    if let Some(m) = &vars.active_mode {
+        smix(&mut h, m);
+    }
     h
 }
 
@@ -212,7 +441,9 @@ pub struct FrameCache {
 }
 
 impl FrameCache {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn render(&mut self, root: &Node, vars: &Variables, sink: &VelloSink) -> &Scene {
         self.render_viewport(root, vars, sink, None)
@@ -231,7 +462,13 @@ impl FrameCache {
     /// viewport cell so small pans stay cache hits; bucket keys carry
     /// the per-bucket visibility mask so scrolling re-encodes only the
     /// buckets whose visible set changed.
-    pub fn render_viewport(&mut self, root: &Node, vars: &Variables, sink: &VelloSink, viewport: Option<vello::kurbo::Rect>) -> &Scene {
+    pub fn render_viewport(
+        &mut self,
+        root: &Node,
+        vars: &Variables,
+        sink: &VelloSink,
+        viewport: Option<vello::kurbo::Rect>,
+    ) -> &Scene {
         let t0 = std::time::Instant::now();
         let vh = vars_hash(vars);
         // per-top-child hashes + registry hash (components anywhere)
@@ -241,26 +478,37 @@ impl FrameCache {
         let root_world_m = root.transform.matrix(root.w, root.h);
         let visible_mask: Vec<bool> = match viewport {
             None => vec![true; root.children.len()],
-            Some(vp) => root.children.iter().zip(&child_info).map(|(c, (h, _, _))| {
-                if matches!(c.kind, NodeKind::Component { .. }) { return true; }
-                // bounds memoized by subtree hash: only re-walk changed subtrees
-                let b = match self.bounds.get(&c.id) {
-                    Some((bh, bb)) if *bh == *h => *bb,
-                    _ => {
-                        let bb = subtree_bounds(c, root_world_m);
-                        self.bounds.insert(c.id.clone(), (*h, bb));
-                        bb
+            Some(vp) => root
+                .children
+                .iter()
+                .zip(&child_info)
+                .map(|(c, (h, _, _))| {
+                    if matches!(c.kind, NodeKind::Component { .. }) {
+                        return true;
                     }
-                };
-                match b {
-                    Some(b) => b.x1 >= vp.x0 && b.x0 <= vp.x1 && b.y1 >= vp.y0 && b.y0 <= vp.y1,
-                    None => false,
-                }
-            }).collect(),
+                    // bounds memoized by subtree hash: only re-walk changed subtrees
+                    let b = match self.bounds.get(&c.id) {
+                        Some((bh, bb)) if *bh == *h => *bb,
+                        _ => {
+                            let bb = subtree_bounds(c, root_world_m);
+                            self.bounds.insert(c.id.clone(), (*h, bb));
+                            bb
+                        }
+                    };
+                    match b {
+                        Some(b) => b.x1 >= vp.x0 && b.x0 <= vp.x1 && b.y1 >= vp.y0 && b.y0 <= vp.y1,
+                        None => false,
+                    }
+                })
+                .collect(),
         };
         let culled = visible_mask.iter().filter(|v| !**v).count();
         let mut reg_hash = vh;
-        for (h, has_comp, _) in &child_info { if *has_comp { mix(&mut reg_hash, *h); } }
+        for (h, has_comp, _) in &child_info {
+            if *has_comp {
+                mix(&mut reg_hash, *h);
+            }
+        }
         // root shell hash (root's own fields, no children)
         let mut shell = root.clone();
         shell.children.clear();
@@ -279,7 +527,9 @@ impl FrameCache {
                 culled,
                 segments_total: root.children.len(),
                 segments_reused: root.children.len(),
-                hash_ms, lower_ms: 0.0, encode_ms: 0.0,
+                hash_ms,
+                lower_ms: 0.0,
+                encode_ms: 0.0,
             };
             // if-let here trips NLL's conditional-return-of-a-borrow
             // limitation (the loan would outlive the later self.scene
@@ -308,7 +558,9 @@ impl FrameCache {
                 culled: 0, // fallback path never culls (mask semantics)
                 segments_total: root.children.len(),
                 segments_reused: 0,
-                hash_ms, lower_ms, encode_ms,
+                hash_ms,
+                lower_ms,
+                encode_ms,
             };
             return self.scene.as_ref().unwrap();
         }
@@ -328,7 +580,9 @@ impl FrameCache {
         // ONE reusable lowering shell (root fields + component defs,
         // transparent fill — shell painted separately above)
         let mut lower_shell = root.clone();
-        lower_shell.children.retain(|c| matches!(c.kind, NodeKind::Component { .. }));
+        lower_shell
+            .children
+            .retain(|c| matches!(c.kind, NodeKind::Component { .. }));
         lower_shell.fill = Paint::Solid(Color::TRANSPARENT);
         lower_shell.fill_layers.clear();
         lower_shell.stroke_layers.clear();
@@ -349,15 +603,27 @@ impl FrameCache {
             let mut bucket_has_inst = false;
             for i in lo..hi {
                 let (h, _, has_inst) = child_info[i];
-                if !visible_mask[i] { mix(&mut key, 0xdead); continue; } // culled: key only marks absence
+                if !visible_mask[i] {
+                    mix(&mut key, 0xdead);
+                    continue;
+                } // culled: key only marks absence
                 mix(&mut key, h);
-                if has_inst { bucket_has_inst = true; }
+                if has_inst {
+                    bucket_has_inst = true;
+                }
             }
             mix(&mut key, vh);
-            if bucket_has_inst { mix(&mut key, reg_hash); }
-            for c in rw { fmix(&mut key, c); }
+            if bucket_has_inst {
+                mix(&mut key, reg_hash);
+            }
+            for c in rw {
+                fmix(&mut key, c);
+            }
             let seg = match self.segments.get(&b) {
-                Some((k, sc)) if *k == key => { reused += hi - lo; sc.clone() }
+                Some((k, sc)) if *k == key => {
+                    reused += hi - lo;
+                    sc.clone()
+                }
                 _ => {
                     let tl = std::time::Instant::now();
                     for (i, child) in root.children.iter().enumerate().take(hi).skip(lo) {
@@ -388,7 +654,9 @@ impl FrameCache {
             culled,
             segments_total: root.children.len(),
             segments_reused: reused,
-            hash_ms, lower_ms, encode_ms,
+            hash_ms,
+            lower_ms,
+            encode_ms,
         };
         self.scene.as_ref().unwrap()
     }
@@ -403,7 +671,14 @@ mod tests {
     fn doc(n: usize) -> Node {
         let mut page = Node::frame("page", 2000.0, 2000.0);
         for i in 0..n {
-            page.children.push(Node::rect(&format!("r{i}"), (i * 20) as f64, 10.0, 15.0, 15.0, Color::from_rgb8(50, 100, 200)));
+            page.children.push(Node::rect(
+                &format!("r{i}"),
+                (i * 20) as f64,
+                10.0,
+                15.0,
+                15.0,
+                Color::from_rgb8(50, 100, 200),
+            ));
         }
         page
     }
@@ -411,7 +686,10 @@ mod tests {
     #[test]
     fn unchanged_frame_is_a_full_hit_no_lower_no_encode() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let mut fc = FrameCache::new();
         fc.render(&doc(300), &vars, &sink);
         assert!(!fc.stats.full_hit);
@@ -427,7 +705,10 @@ mod tests {
         // 2000 children = 4 buckets of 512; moving node 42 re-lowers ONLY
         // bucket 0 — the other three buckets' encoded scenes are reused.
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let mut fc = FrameCache::new();
         fc.render(&doc(2000), &vars, &sink);
         let mut d2 = doc(2000);
@@ -435,18 +716,31 @@ mod tests {
         let encodes_before = fc.encode_count;
         fc.render(&d2, &vars, &sink);
         assert!(!fc.stats.full_hit);
-        assert_eq!(fc.stats.segments_reused, 2000 - 512, "3 of 4 buckets reused");
-        assert_eq!(fc.encode_count, encodes_before + 1, "exactly ONE bucket re-encoded");
+        assert_eq!(
+            fc.stats.segments_reused,
+            2000 - 512,
+            "3 of 4 buckets reused"
+        );
+        assert_eq!(
+            fc.encode_count,
+            encodes_before + 1,
+            "exactly ONE bucket re-encoded"
+        );
     }
 
     #[test]
     fn instance_segments_invalidate_when_component_changes() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let make = |fill: Color| {
             Node::frame("page", 1000.0, 1000.0)
-                .child(Node::component("m", "Chip", 50.0, 20.0)
-                    .child(Node::rect("m-bg", 0.0, 0.0, 50.0, 20.0, fill)))
+                .child(
+                    Node::component("m", "Chip", 50.0, 20.0)
+                        .child(Node::rect("m-bg", 0.0, 0.0, 50.0, 20.0, fill)),
+                )
                 .child(Node::instance("i1", "Chip", 100.0, 100.0, 50.0, 20.0))
                 .child(Node::rect("plain", 300.0, 300.0, 40.0, 40.0, Color::BLACK))
         };
@@ -456,13 +750,19 @@ mod tests {
         // re-lower even though the instance node itself is unchanged
         fc.render(&make(Color::from_rgb8(0, 255, 0)), &vars, &sink);
         assert!(!fc.stats.full_hit);
-        assert_eq!(fc.stats.segments_reused, 0, "component change re-lowered the (single) bucket");
+        assert_eq!(
+            fc.stats.segments_reused, 0,
+            "component change re-lowered the (single) bucket"
+        );
     }
 
     #[test]
     fn masked_documents_fall_back_correctly() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let page = Node::frame("page", 500.0, 500.0)
             .child(Node::ellipse("m", 0.0, 0.0, 100.0, 100.0, Color::WHITE).mask(true))
             .child(Node::rect("r", 0.0, 0.0, 200.0, 200.0, Color::BLACK));
@@ -470,7 +770,11 @@ mod tests {
         fc.render(&page, &vars, &sink);
         // segment path bypassed; output must equal the reference lowering
         let reference = build_render_tree(&page, &vars);
-        let clip_count = reference.commands.iter().filter(|c| matches!(c, RenderCommand::PushClip { .. })).count();
+        let clip_count = reference
+            .commands
+            .iter()
+            .filter(|c| matches!(c, RenderCommand::PushClip { .. }))
+            .count();
         assert_eq!(clip_count, 1, "mask semantics preserved via fallback");
         // and unchanged masked docs still get the full-hit fast path
         fc.render(&page, &vars, &sink);
@@ -480,10 +784,20 @@ mod tests {
     #[test]
     fn segmented_output_matches_reference_lowering() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let page = Node::frame("page", 1000.0, 1000.0)
             .child(Node::rect("a", 10.0, 10.0, 50.0, 50.0, Color::from_rgb8(255, 0, 0)).radius(4.0))
-            .child(Node::ellipse("b", 100.0, 10.0, 50.0, 50.0, Color::from_rgb8(0, 255, 0)))
+            .child(Node::ellipse(
+                "b",
+                100.0,
+                10.0,
+                50.0,
+                50.0,
+                Color::from_rgb8(0, 255, 0),
+            ))
             .child(Node::text("t", 10.0, 100.0, 200.0, 16.0, "hello"));
         let mut fc = FrameCache::new();
         fc.render(&page, &vars, &sink);
@@ -509,7 +823,14 @@ mod culling_tests {
         for i in 0..n {
             let x = (i % 100) as f64 * 1000.0;
             let y = (i / 100) as f64 * 1000.0;
-            page.children.push(Node::rect(&format!("r{i}"), x, y, 50.0, 50.0, Color::from_rgb8(9, 9, 9)));
+            page.children.push(Node::rect(
+                &format!("r{i}"),
+                x,
+                y,
+                50.0,
+                50.0,
+                Color::from_rgb8(9, 9, 9),
+            ));
         }
         page
     }
@@ -517,53 +838,97 @@ mod culling_tests {
     #[test]
     fn offscreen_children_are_culled_from_lowering() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let mut fc = FrameCache::new();
         // viewport covers only the top-left 2000x2000 corner
         let vp = KRect::new(0.0, 0.0, 2000.0, 2000.0);
         fc.render_viewport(&spread_doc(2000), &vars, &sink, Some(vp));
-        assert!(fc.stats.culled > 1900, "most children culled, got {}", fc.stats.culled);
+        assert!(
+            fc.stats.culled > 1900,
+            "most children culled, got {}",
+            fc.stats.culled
+        );
     }
 
     #[test]
     fn culling_is_conservative_for_effects_and_rotation() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         // shadowed node just OUTSIDE the viewport must NOT be culled
         // (its blur bleeds in)
         let page = Node::frame("page", 5000.0, 5000.0)
-            .child(Node::rect("sh", 2010.0, 100.0, 50.0, 50.0, Color::BLACK)
-                .effect(Effect::DropShadow { dx: -30.0, dy: 0.0, blur: 30.0, color: Color::from_rgba8(0, 0, 0, 128) }))
+            .child(
+                Node::rect("sh", 2010.0, 100.0, 50.0, 50.0, Color::BLACK).effect(
+                    Effect::DropShadow {
+                        dx: -30.0,
+                        dy: 0.0,
+                        blur: 30.0,
+                        color: Color::from_rgba8(0, 0, 0, 128),
+                    },
+                ),
+            )
             .child(Node::rect("far", 4000.0, 4000.0, 50.0, 50.0, Color::BLACK));
         let mut fc = FrameCache::new();
         let vp = KRect::new(0.0, 0.0, 2000.0, 2000.0);
         fc.render_viewport(&page, &vars, &sink, Some(vp));
-        assert_eq!(fc.stats.culled, 1, "shadow keeps 'sh' visible; only 'far' culled");
+        assert_eq!(
+            fc.stats.culled, 1,
+            "shadow keeps 'sh' visible; only 'far' culled"
+        );
     }
 
     #[test]
     fn panning_into_new_area_reencodes_only_affected_buckets() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let doc = spread_doc(2000);
         let mut fc = FrameCache::new();
-        fc.render_viewport(&doc, &vars, &sink, Some(KRect::new(0.0, 0.0, 2000.0, 2000.0)));
+        fc.render_viewport(
+            &doc,
+            &vars,
+            &sink,
+            Some(KRect::new(0.0, 0.0, 2000.0, 2000.0)),
+        );
         // same viewport again: full hit even with culling active
-        fc.render_viewport(&doc, &vars, &sink, Some(KRect::new(0.0, 0.0, 2000.0, 2000.0)));
+        fc.render_viewport(
+            &doc,
+            &vars,
+            &sink,
+            Some(KRect::new(0.0, 0.0, 2000.0, 2000.0)),
+        );
         assert!(fc.stats.full_hit, "static viewport = full cache hit");
         // pan far: visibility mask changes -> re-render, but ONLY dirty buckets
         let enc_before = fc.encode_count;
-        fc.render_viewport(&doc, &vars, &sink, Some(KRect::new(50000.0, 0.0, 52000.0, 2000.0)));
+        fc.render_viewport(
+            &doc,
+            &vars,
+            &sink,
+            Some(KRect::new(50000.0, 0.0, 52000.0, 2000.0)),
+        );
         assert!(!fc.stats.full_hit);
         assert!(fc.encode_count > enc_before, "new area encoded");
-        assert!(fc.stats.segments_reused > 0 || fc.stats.culled > 1900,
-            "pan re-encodes only visibility-changed buckets");
+        assert!(
+            fc.stats.segments_reused > 0 || fc.stats.culled > 1900,
+            "pan re-encodes only visibility-changed buckets"
+        );
     }
 
     #[test]
     fn no_viewport_means_no_culling() {
         let vars = Variables::default();
-        let sink = VelloSink { assets: None, fonts: None };
+        let sink = VelloSink {
+            assets: None,
+            fonts: None,
+        };
         let mut fc = FrameCache::new();
         fc.render(&spread_doc(500), &vars, &sink);
         assert_eq!(fc.stats.culled, 0);

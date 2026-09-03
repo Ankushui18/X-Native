@@ -8,15 +8,19 @@
 //! arm. The upgrade path to `parley`/`cosmic-text` swaps the glyph source;
 //! everything else (encode call site, fills, overrides) stays.
 
-
+pub mod cache;
 pub mod font;
 pub mod shaping;
 pub mod sources;
-pub mod cache;
+pub use cache::{ShapedBlock, ShapedTextCache, TextLayoutKey};
 pub use font::{FontManager, LoadedFont, PositionedGlyph};
-pub use sources::{SystemFonts, GoogleFonts, FaceInfo, platform_font_dirs};
-pub use shaping::{Span, GlyphRun, Shaper, Line, TextBlockStyle, Align, encode_rich_text, layout_lines, break_opportunities, glyph_outlines, node_text_outlines, node_text_outlines_uncached, node_text_outlines_styled, node_text_outlines_styled_uncached, node_text_outlines_rich, node_text_outlines_rich_uncached, OutlineGlyph};
-pub use cache::{ShapedTextCache, TextLayoutKey, ShapedBlock};
+pub use shaping::{
+    break_opportunities, encode_rich_text, glyph_outlines, layout_lines, node_text_baseline,
+    node_text_outlines, node_text_outlines_rich, node_text_outlines_rich_uncached,
+    node_text_outlines_styled, node_text_outlines_styled_uncached, node_text_outlines_uncached,
+    Align, GlyphRun, Line, OutlineGlyph, Shaper, Span, TextBlockStyle,
+};
+pub use sources::{platform_font_dirs, FaceInfo, GoogleFonts, SystemFonts};
 
 use vello::kurbo::{Affine, BezPath, Cap, Join, Stroke};
 use vello::peniko::Color;
@@ -144,7 +148,10 @@ pub fn encode_text(scene: &mut Scene, text: &str, world: Affine, size: f64, colo
     let mut pen_x = 0.0;
     let mut paths = 0usize;
     for ch in text.chars() {
-        if ch == ' ' { pen_x += ADVANCE * scale; continue; }
+        if ch == ' ' {
+            pen_x += ADVANCE * scale;
+            continue;
+        }
         let mut path = BezPath::new();
         if let Some(mask) = glyph(ch) {
             for (bit, (x0, y0, x1, y1)) in SEG_LINES.iter() {
@@ -170,7 +177,13 @@ pub fn encode_text(scene: &mut Scene, text: &str, world: Affine, size: f64, colo
                 }
             }
         }
-        scene.stroke(&stroke, world * Affine::translate((pen_x, 0.4 * scale)), color, None, &path);
+        scene.stroke(
+            &stroke,
+            world * Affine::translate((pen_x, 0.4 * scale)),
+            color,
+            None,
+            &path,
+        );
         paths += 1;
         pen_x += ADVANCE * scale;
     }

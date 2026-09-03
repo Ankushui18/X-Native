@@ -35,14 +35,24 @@ impl LibraryRef {
         let library_id = it.next()?.to_string();
         let class = it.next()?.to_string();
         let name = it.next()?.to_string();
-        (!library_id.is_empty() && !class.is_empty() && !name.is_empty())
-            .then_some(Self { library_id, class, name })
+        (!library_id.is_empty() && !class.is_empty() && !name.is_empty()).then_some(Self {
+            library_id,
+            class,
+            name,
+        })
     }
     pub fn uri(&self) -> String {
-        format!("{LIBRARY_URI_PREFIX}{}/{}/{}", self.library_id, self.class, self.name)
+        format!(
+            "{LIBRARY_URI_PREFIX}{}/{}/{}",
+            self.library_id, self.class, self.name
+        )
     }
     pub fn style(lib: &str, name: &str) -> Self {
-        Self { library_id: lib.into(), class: "style".into(), name: name.into() }
+        Self {
+            library_id: lib.into(),
+            class: "style".into(),
+            name: name.into(),
+        }
     }
 }
 
@@ -82,9 +92,12 @@ pub struct LibraryDependency {
 /// PINNED version's snapshot may be consulted — the caller passes the
 /// snapshot it stored at accept-time (see `Document.library_snapshots`).
 pub fn resolve_library_style<'a>(
-    snapshots: &'a HashMap<String, Library>, r: &LibraryRef,
+    snapshots: &'a HashMap<String, Library>,
+    r: &LibraryRef,
 ) -> Option<&'a Style> {
-    if r.class != "style" { return None; }
+    if r.class != "style" {
+        return None;
+    }
     snapshots.get(&r.library_id)?.styles.get(&r.name)
 }
 
@@ -94,29 +107,154 @@ pub fn resolve_library_style<'a>(
 pub fn resolve_library_styles(n: &mut Node, snapshots: &HashMap<String, Library>) -> usize {
     let mut count = 0;
     for (key, _) in STYLE_BINDING_KEYS {
-        let Some(raw) = n.bindings.get(key).cloned() else { continue };
-        let Some(r) = LibraryRef::parse(&raw) else { continue };
+        let Some(raw) = n.bindings.get(key).cloned() else {
+            continue;
+        };
+        let Some(r) = LibraryRef::parse(&raw) else {
+            continue;
+        };
         if let Some(s) = resolve_library_style(snapshots, &r) {
             crate::apply_style(n, s);
             count += 1;
         }
         // missing library/style: values stay frozen (never blank a design)
     }
-    for c in &mut n.children { count += resolve_library_styles(c, snapshots); }
+    for c in &mut n.children {
+        count += resolve_library_styles(c, snapshots);
+    }
     count
 }
 
 /// Usage count of one library style ref in a subtree.
 pub fn library_style_usage(n: &Node, r: &LibraryRef) -> usize {
     let uri = r.uri();
-    let mut count = STYLE_BINDING_KEYS.iter()
+    let mut count = STYLE_BINDING_KEYS
+        .iter()
         .filter(|(k, _)| n.bindings.get(*k).map(String::as_str) == Some(uri.as_str()))
         .count();
-    for c in &n.children { count += library_style_usage(c, r); }
+    for c in &n.children {
+        count += library_style_usage(c, r);
+    }
     count
 }
 
+/// Count live instances of a component (by master name) in a subtree.
+pub fn count_instances(n: &Node, component: &str) -> usize {
+    let mut count = match &n.kind {
+        crate::NodeKind::Instance { component: c } if c == component => 1,
+        _ => 0,
+    };
+    for c in &n.children {
+        count += count_instances(c, component);
+    }
+    count
+}
+
+/// Build a publishable library from document parts: every named style,
+/// the variables, and every visible Component node in the page forest
+/// (deduped by component name — first definition wins, hidden registry
+/// masters are excluded). The "publish" half of the library lifecycle;
+/// `mklib`/demo docs are the seed, this is the app-side flow.
+pub fn library_from_parts(
+    styles: &std::collections::HashMap<String, crate::Style>,
+    vars: &crate::Variables,
+    pages: &[Node],
+    library_id: &str,
+    name: &str,
+    version: u32,
+) -> Library {
+    let mut lib = Library {
+        library_id: library_id.to_string(),
+        name: name.to_string(),
+        version,
+        styles: styles.clone(),
+        variables: vars.clone(),
+        ..Default::default()
+    };
+    let mut seen: Vec<String> = vec![];
+    fn collect(n: &Node, lib: &mut Library, seen: &mut Vec<String>) {
+        if let crate::NodeKind::Component { name } = &n.kind {
+            if n.visible && !seen.contains(name) {
+                seen.push(name.clone());
+                lib.components.push(n.clone());
+            }
+        }
+        for c in &n.children {
+            collect(c, lib, seen);
+        }
+    }
+    for page in pages {
+        collect(page, &mut lib, &mut seen);
+    }
+    lib
+}
+
 // -------------------------------------------------------------- versioning
+
+#[cfg(test)]
+mod publish_tests {
+    use super::*;
+    use crate::{Document, Node, NodeKind, Style, Variables};
+
+    #[test]
+    fn library_from_parts_collects_styles_vars_visible_components() {
+        let mut styles = std::collections::HashMap::new();
+        styles.insert(
+            "Paint/Primary".into(),
+            Style::Paint {
+                fill: crate::Paint::Solid(crate::Color::from_rgb8(0, 0, 255)),
+            },
+        );
+        let mut vars = Variables::default();
+        vars.numbers.insert("gap".into(), 8.0);
+
+        let mut page = Node::frame("page", 400.0, 300.0);
+        let mut btn = Node::rect("btn", 0.0, 0.0, 100.0, 40.0, crate::Color::WHITE);
+        btn.kind = NodeKind::Component {
+            name: "Button".into(),
+        };
+        let mut dup = btn.clone();
+        dup.id = "btn-dup".into(); // same name -> deduped
+        let mut hidden = Node::rect("hid", 0.0, 0.0, 10.0, 10.0, crate::Color::WHITE);
+        hidden.kind = NodeKind::Component {
+            name: "Registry".into(),
+        };
+        hidden.visible = false; // registry masters never publish
+        page.children.push(btn);
+        page.children.push(dup);
+        page.children.push(hidden);
+
+        let lib = library_from_parts(&styles, &vars, &[page.clone()], "kit", "Kit", 2);
+        assert_eq!(lib.library_id, "kit");
+        assert_eq!(lib.version, 2);
+        assert_eq!(lib.styles.len(), 1);
+        assert_eq!(lib.variables.numbers["gap"], 8.0);
+        assert_eq!(lib.components.len(), 1, "dedupe by name, skip hidden");
+        assert!(
+            matches!(&lib.components[0].kind, NodeKind::Component { name } if name == "Button")
+        );
+    }
+
+    #[test]
+    fn count_instances_counts_by_master_name() {
+        let mut page = Node::frame("page", 400.0, 300.0);
+        for i in 0..3 {
+            page.children.push(Node::instance(
+                &format!("i{i}"),
+                "Button",
+                0.0,
+                0.0,
+                10.0,
+                10.0,
+            ));
+        }
+        page.children
+            .push(Node::instance("other", "Card", 0.0, 0.0, 10.0, 10.0));
+        assert_eq!(count_instances(&page, "Button"), 3);
+        assert_eq!(count_instances(&page, "Card"), 1);
+        assert_eq!(count_instances(&page, "None"), 0);
+    }
+}
 
 /// One reviewed change between the pinned snapshot and a newer library.
 #[derive(Debug, Clone, PartialEq)]
@@ -141,23 +279,40 @@ pub fn diff_library(pinned: &Library, newer: &Library) -> Vec<LibraryChange> {
         }
     }
     for name in pinned.styles.keys() {
-        if !newer.styles.contains_key(name) { out.push(LibraryChange::StyleRemoved(name.clone())); }
+        if !newer.styles.contains_key(name) {
+            out.push(LibraryChange::StyleRemoved(name.clone()));
+        }
     }
     for (k, v) in &newer.variables.colors {
-        if pinned.variables.colors.get(k) != Some(v) { out.push(LibraryChange::VariableChanged(k.clone())); }
+        if pinned.variables.colors.get(k) != Some(v) {
+            out.push(LibraryChange::VariableChanged(k.clone()));
+        }
     }
     for (k, v) in &newer.variables.numbers {
-        if pinned.variables.numbers.get(k) != Some(v) { out.push(LibraryChange::VariableChanged(k.clone())); }
+        if pinned.variables.numbers.get(k) != Some(v) {
+            out.push(LibraryChange::VariableChanged(k.clone()));
+        }
     }
     let names = |l: &Library| -> Vec<String> {
-        l.components.iter().filter_map(|c| match &c.kind {
-            crate::NodeKind::Component { name } => Some(name.clone()),
-            _ => None,
-        }).collect()
+        l.components
+            .iter()
+            .filter_map(|c| match &c.kind {
+                crate::NodeKind::Component { name } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
     };
     let (pn, nn) = (names(pinned), names(newer));
-    for n in &nn { if !pn.contains(n) { out.push(LibraryChange::ComponentAdded(n.clone())); } }
-    for n in &pn { if !nn.contains(n) { out.push(LibraryChange::ComponentRemoved(n.clone())); } }
+    for n in &nn {
+        if !pn.contains(n) {
+            out.push(LibraryChange::ComponentAdded(n.clone()));
+        }
+    }
+    for n in &pn {
+        if !nn.contains(n) {
+            out.push(LibraryChange::ComponentRemoved(n.clone()));
+        }
+    }
     out.sort_by_key(|c| format!("{c:?}"));
     out
 }
@@ -171,7 +326,8 @@ pub fn accept_update(
     pages: &mut [Node],
     newer: Library,
 ) -> (Vec<LibraryChange>, usize) {
-    let changes = snapshots.get(&dep.library_id)
+    let changes = snapshots
+        .get(&dep.library_id)
         .map(|pinned| diff_library(pinned, &newer))
         .unwrap_or_default();
     dep.resolved_version = newer.version;
@@ -191,14 +347,23 @@ pub fn accept_update(
 /// `libmaster-<library_id>-<component_name>`) to the pinned snapshot's
 /// current definition. Instances reference masters by component name,
 /// so they pick the refresh up automatically. Returns masters updated.
-pub fn refresh_library_masters(page: &mut Node, library_id: &str, snapshots: &HashMap<String, Library>) -> usize {
-    let Some(lib) = snapshots.get(library_id) else { return 0 };
+pub fn refresh_library_masters(
+    page: &mut Node,
+    library_id: &str,
+    snapshots: &HashMap<String, Library>,
+) -> usize {
+    let Some(lib) = snapshots.get(library_id) else {
+        return 0;
+    };
     let prefix = format!("libmaster-{library_id}-");
     fn walk(n: &mut Node, prefix: &str, lib: &Library, count: &mut usize) {
         if let Some(comp_name) = n.id.strip_prefix(prefix).map(str::to_string) {
             if let NodeKind::Component { .. } = &n.kind {
-                if let Some(def) = lib.components.iter().find(|c|
-                    matches!(&c.kind, NodeKind::Component { name } if *name == comp_name)) {
+                if let Some(def) = lib
+                    .components
+                    .iter()
+                    .find(|c| matches!(&c.kind, NodeKind::Component { name } if *name == comp_name))
+                {
                     n.children = def.children.clone();
                     n.w = def.w;
                     n.h = def.h;
@@ -207,7 +372,9 @@ pub fn refresh_library_masters(page: &mut Node, library_id: &str, snapshots: &Ha
                 }
             }
         }
-        for c in &mut n.children { walk(c, prefix, lib, count); }
+        for c in &mut n.children {
+            walk(c, prefix, lib, count);
+        }
     }
     let mut count = 0;
     walk(page, &prefix, lib, &mut count);
@@ -243,8 +410,18 @@ mod tests {
             version: 1,
             ..Default::default()
         };
-        l.styles.insert("primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)) });
-        l.styles.insert("surface".into(), Style::Paint { fill: Paint::Solid(Color::WHITE) });
+        l.styles.insert(
+            "primary".into(),
+            Style::Paint {
+                fill: Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
+            },
+        );
+        l.styles.insert(
+            "surface".into(),
+            Style::Paint {
+                fill: Paint::Solid(Color::WHITE),
+            },
+        );
         l.variables.numbers.insert("radius".into(), 8.0);
         l
     }
@@ -256,7 +433,10 @@ mod tests {
         assert_eq!(r.class, "style");
         assert_eq!(r.name, "primary");
         assert_eq!(r.uri(), "library://brand-system/style/primary");
-        assert!(LibraryRef::parse("library://x/style").is_none(), "missing name");
+        assert!(
+            LibraryRef::parse("library://x/style").is_none(),
+            "missing name"
+        );
         assert!(LibraryRef::parse("asset://abc").is_none());
         // names may contain slashes ("Primary / 500")
         let r2 = LibraryRef::parse("library://brand-system/style/Primary/500").unwrap();
@@ -268,22 +448,38 @@ mod tests {
         let lib = brand_v1();
         let mut snapshots = HashMap::new();
         snapshots.insert(lib.library_id.clone(), lib.clone());
-        let mut page = Node::frame("p", 100.0, 100.0)
-            .child(Node::rect("a", 0.0, 0.0, 10.0, 10.0, Color::BLACK));
+        let mut page = Node::frame("p", 100.0, 100.0).child(Node::rect(
+            "a",
+            0.0,
+            0.0,
+            10.0,
+            10.0,
+            Color::BLACK,
+        ));
         // bind by URI (the app writes the uri into the binding)
         let r = LibraryRef::style("brand-system", "primary");
         let def = resolve_library_style(&snapshots, &r).unwrap().clone();
         bind_style(&mut page.children[0], &r.uri(), &def);
-        assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)));
+        assert_eq!(
+            page.children[0].fill,
+            Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF))
+        );
         // resolving against the SAME pinned snapshot is a no-op change-wise
         let n = resolve_library_styles(&mut page, &snapshots);
         assert_eq!(n, 1);
-        assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)));
+        assert_eq!(
+            page.children[0].fill,
+            Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF))
+        );
         // a missing library must freeze values, not blank them
         let empty = HashMap::new();
         let n2 = resolve_library_styles(&mut page, &empty);
         assert_eq!(n2, 0);
-        assert_eq!(page.children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)), "frozen");
+        assert_eq!(
+            page.children[0].fill,
+            Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
+            "frozen"
+        );
         assert_eq!(library_style_usage(&page, &r), 1);
     }
 
@@ -293,25 +489,47 @@ mod tests {
         let v1 = brand_v1();
         let mut v2 = brand_v1();
         v2.version = 2;
-        v2.styles.insert("primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)) });
-        v2.styles.insert("danger".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0xE7, 0x4C, 0x3C)) });
+        v2.styles.insert(
+            "primary".into(),
+            Style::Paint {
+                fill: Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)),
+            },
+        );
+        v2.styles.insert(
+            "danger".into(),
+            Style::Paint {
+                fill: Paint::Solid(Color::from_rgb8(0xE7, 0x4C, 0x3C)),
+            },
+        );
         v2.styles.remove("surface");
 
         let mut snapshots = HashMap::new();
         snapshots.insert(v1.library_id.clone(), v1.clone());
         let mut dep = LibraryDependency {
-            library_id: "brand-system".into(), resolved_version: 1, snapshot_hash: String::new(), source_path: "brand.xlib".into(),
+            library_id: "brand-system".into(),
+            resolved_version: 1,
+            snapshot_hash: String::new(),
+            source_path: "brand.xlib".into(),
         };
         let r = LibraryRef::style("brand-system", "primary");
         let def = resolve_library_style(&snapshots, &r).unwrap().clone();
-        let mut pages = vec![Node::frame("p", 100.0, 100.0)
-            .child(Node::rect("a", 0.0, 0.0, 10.0, 10.0, Color::BLACK))];
+        let mut pages = vec![Node::frame("p", 100.0, 100.0).child(Node::rect(
+            "a",
+            0.0,
+            0.0,
+            10.0,
+            10.0,
+            Color::BLACK,
+        ))];
         bind_style(&mut pages[0].children[0], &r.uri(), &def);
 
         // v2 exists — but the document is pinned to v1: resolve does NOT move
         resolve_library_styles(&mut pages[0], &snapshots);
-        assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
-            "pinned version protects the document");
+        assert_eq!(
+            pages[0].children[0].fill,
+            Paint::Solid(Color::from_rgb8(0x33, 0x66, 0xFF)),
+            "pinned version protects the document"
+        );
 
         // review: the changeset is precise
         let changes = diff_library(&v1, &v2);
@@ -324,7 +542,10 @@ mod tests {
         assert_eq!(accepted.len(), changes.len());
         assert_eq!(dep.resolved_version, 2);
         assert_eq!(updated, 1);
-        assert_eq!(pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)),
-            "consumer updated only after explicit accept");
+        assert_eq!(
+            pages[0].children[0].fill,
+            Paint::Solid(Color::from_rgb8(0x66, 0x33, 0xFF)),
+            "consumer updated only after explicit accept"
+        );
     }
 }

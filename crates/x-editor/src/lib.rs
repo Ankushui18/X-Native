@@ -14,28 +14,28 @@
 //! - Phase 9: SpatialGrid index for O(~1) point queries at 100K nodes
 //! - Phase 10: named version checkpoints + dev-mode CSS export
 
-pub mod selection;
-pub mod commands;
-pub mod editor_core;
 pub mod align;
-pub mod snapping;
-pub mod constraints;
-pub mod prototype;
-pub mod spatial;
-pub mod devmode;
-pub mod vector_edit;
 pub mod booleans;
+pub mod commands;
+pub mod constraints;
+pub mod devmode;
+pub mod editor_core;
+pub mod prototype;
+pub mod selection;
+pub mod snapping;
+pub mod spatial;
 #[cfg(test)]
 mod tests_mod;
+pub mod vector_edit;
 
-pub use selection::*;
-pub use commands::*;
-pub use editor_core::*;
 pub use align::*;
-pub use snapping::*;
+pub use booleans::{boolean_paths, node_to_path, BoolOp};
+pub use commands::*;
 pub use constraints::*;
-pub use prototype::*;
-pub use spatial::*;
 pub use devmode::*;
-pub use vector_edit::{anchors, anchor_at, Anchor};
-pub use booleans::{BoolOp, boolean_paths, node_to_path};
+pub use editor_core::*;
+pub use prototype::*;
+pub use selection::*;
+pub use snapping::*;
+pub use spatial::*;
+pub use vector_edit::{anchor_at, anchors, segment_at, Anchor};

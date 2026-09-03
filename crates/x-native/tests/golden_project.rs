@@ -16,8 +16,9 @@
 use x_native::editor::{BoolOp, Editor};
 use x_native::fileio::{load_x, save_x};
 use x_native::{
-    apply_layout_recursive, bind_style, build_render_tree, AutoLayout, Color, CrossAlign,
-    Document, Effect, ImageFit, LayoutDirection, LibraryDependency, LibraryRef, Node, Paint, RenderCommand, Style, Variables,
+    apply_layout_recursive, bind_style, build_render_tree, AutoLayout, Color, CrossAlign, Document,
+    Effect, GradSpace, ImageFit, LayoutDirection, LibraryDependency, LibraryRef, Node, Paint,
+    RenderCommand, Style, Variables,
 };
 
 /// The pinned golden values. When a deliberate engine change moves them,
@@ -37,65 +38,159 @@ const GOLDEN_KIND_HASH: u64 = 0xad13_07e3_363b_ec73;
 fn golden_document() -> Document {
     let mut doc = Document::new();
     let mut vars = Variables::default();
-    vars.colors.insert("brand".into(), Color::from_rgb8(0x0d, 0x99, 0xff));
+    vars.colors
+        .insert("brand".into(), Color::from_rgb8(0x0d, 0x99, 0xff));
     vars.numbers.insert("gap".into(), 16.0);
 
     // styles (local + a library-shaped binding)
-    doc.styles.insert("Primary".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(0x63, 0x66, 0xff)) });
-    doc.styles.insert("Card".into(), Style::Effect { effects: vec![Effect::DropShadow { dx: 0.0, dy: 4.0, blur: 12.0, color: Color::from_rgba8(0, 0, 0, 120) }] });
+    doc.styles.insert(
+        "Primary".into(),
+        Style::Paint {
+            fill: Paint::Solid(Color::from_rgb8(0x63, 0x66, 0xff)),
+        },
+    );
+    doc.styles.insert(
+        "Card".into(),
+        Style::Effect {
+            effects: vec![Effect::DropShadow {
+                dx: 0.0,
+                dy: 4.0,
+                blur: 12.0,
+                color: Color::from_rgba8(0, 0, 0, 120),
+            }],
+        },
+    );
 
     let mut page = Node::frame("golden", 800.0, 600.0)
         // auto layout row w/ variable gap
         .child({
             let mut row = Node::frame("row", 400.0, 80.0)
                 .auto_layout(AutoLayout {
-                    direction: LayoutDirection::Horizontal, gap: 10.0, padding: [8.0; 4],
-                    align: CrossAlign::Center, gap_var: Some("gap".into()), ..Default::default()
+                    direction: LayoutDirection::Horizontal,
+                    gap: 10.0,
+                    padding: [8.0; 4],
+                    align: CrossAlign::Center,
+                    gap_var: Some("gap".into()),
+                    ..Default::default()
                 })
-                .child(Node::rect("r1", 0.0, 0.0, 60.0, 40.0, Color::from_rgb8(255, 0, 0)).radius(6.0))
-                .child(Node::ellipse("e1", 0.0, 0.0, 40.0, 40.0, Color::from_rgb8(0, 255, 0)));
+                .child(
+                    Node::rect("r1", 0.0, 0.0, 60.0, 40.0, Color::from_rgb8(255, 0, 0)).radius(6.0),
+                )
+                .child(Node::ellipse(
+                    "e1",
+                    0.0,
+                    0.0,
+                    40.0,
+                    40.0,
+                    Color::from_rgb8(0, 255, 0),
+                ));
             apply_layout_recursive(&mut row, &vars);
             row
         })
         // component + instance with text override
-        .child(Node::component("m-btn", "Button", 100.0, 36.0)
-            .child(Node::rect("b-bg", 0.0, 0.0, 100.0, 36.0, Color::from_rgb8(0x0d, 0x99, 0xff)).radius(8.0))
-            .child(Node::text("b-t", 12.0, 10.0, 76.0, 14.0, "OK")))
-        .child(Node::instance("i1", "Button", 40.0, 120.0, 100.0, 36.0)
-            .override_prop("b-t", "text:GOLDEN"))
+        .child(
+            Node::component("m-btn", "Button", 100.0, 36.0)
+                .child(
+                    Node::rect(
+                        "b-bg",
+                        0.0,
+                        0.0,
+                        100.0,
+                        36.0,
+                        Color::from_rgb8(0x0d, 0x99, 0xff),
+                    )
+                    .radius(8.0),
+                )
+                .child(Node::text("b-t", 12.0, 10.0, 76.0, 14.0, "OK")),
+        )
+        .child(
+            Node::instance("i1", "Button", 40.0, 120.0, 100.0, 36.0)
+                .override_prop("b-t", "text:GOLDEN"),
+        )
         // gradient + blend + effect
-        .child(Node::rect("grad", 200.0, 120.0, 120.0, 60.0, Color::WHITE)
-            .fill_paint(Paint::LinearGradient {
-                start: (0.0, 0.0), end: (120.0, 0.0),
-                stops: vec![(0.0, Color::from_rgb8(255, 90, 0)), (1.0, Color::from_rgb8(142, 45, 226))],
-            })
-            .effect(Effect::DropShadow { dx: 2.0, dy: 3.0, blur: 6.0, color: Color::from_rgba8(0, 0, 0, 100) }))
+        .child(
+            Node::rect("grad", 200.0, 120.0, 120.0, 60.0, Color::WHITE)
+                .fill_paint(Paint::LinearGradient {
+                    start: (0.0, 0.0),
+                    end: (120.0, 0.0),
+                    stops: vec![
+                        (0.0, Color::from_rgb8(255, 90, 0)),
+                        (1.0, Color::from_rgb8(142, 45, 226)),
+                    ],
+                    space: GradSpace::Srgb,
+                })
+                .effect(Effect::DropShadow {
+                    dx: 2.0,
+                    dy: 3.0,
+                    blur: 6.0,
+                    color: Color::from_rgba8(0, 0, 0, 100),
+                }),
+        )
         // mask over image
         .child(Node::ellipse("msk", 400.0, 120.0, 80.0, 80.0, Color::WHITE).mask(true))
         .child({
             let mut img = Node::image("img", 400.0, 120.0, 120.0, 90.0, "asset://golden");
-            if let x_native::NodeKind::Image { fit, .. } = &mut img.kind { *fit = ImageFit::Crop; }
+            if let x_native::NodeKind::Image { fit, .. } = &mut img.kind {
+                *fit = ImageFit::Crop;
+            }
             img
         })
         // variable-bound fill + text
-        .child(Node::rect("vb", 40.0, 240.0, 60.0, 60.0, Color::BLACK).fill_paint(Paint::Variable("brand".into())))
-        .child(Node::text("title", 40.0, 320.0, 300.0, 24.0, "Golden project"));
+        .child(
+            Node::rect("vb", 40.0, 240.0, 60.0, 60.0, Color::BLACK)
+                .fill_paint(Paint::Variable("brand".into())),
+        )
+        .child(Node::text(
+            "title",
+            40.0,
+            320.0,
+            300.0,
+            24.0,
+            "Golden project",
+        ));
     // vector boolean through the editor (curve-preserving default backend)
     let mut ed = Editor::new(page);
-    ed.root.children.push(Node::rect("ba", 200.0, 240.0, 80.0, 80.0, Color::from_rgb8(0x2e, 0xcc, 0x71)));
-    ed.root.children.push(Node::ellipse("bb", 250.0, 260.0, 80.0, 80.0, Color::from_rgb8(0x2e, 0xcc, 0x71)));
+    ed.root.children.push(Node::rect(
+        "ba",
+        200.0,
+        240.0,
+        80.0,
+        80.0,
+        Color::from_rgb8(0x2e, 0xcc, 0x71),
+    ));
+    ed.root.children.push(Node::ellipse(
+        "bb",
+        250.0,
+        260.0,
+        80.0,
+        80.0,
+        Color::from_rgb8(0x2e, 0xcc, 0x71),
+    ));
     ed.selection = vec!["ba".into(), "bb".into()];
     ed.boolean_selected(BoolOp::Union).expect("golden boolean");
     page = ed.root;
 
     // style binding + library dep with snapshot
-    bind_style(x_native::editor::find_mut(&mut page, "vb").unwrap(), "Primary", &doc.styles["Primary"].clone());
+    bind_style(
+        x_native::editor::find_mut(&mut page, "vb").unwrap(),
+        "Primary",
+        &doc.styles["Primary"].clone(),
+    );
     let mut lib = x_native::Library {
-        library_id: "golden-lib".into(), name: "Golden Lib".into(), version: 1, ..Default::default()
+        library_id: "golden-lib".into(),
+        name: "Golden Lib".into(),
+        version: 1,
+        ..Default::default()
     };
-    lib.styles.insert("LibStyle".into(), Style::Paint { fill: Paint::Solid(Color::from_rgb8(9, 9, 9)) });
+    lib.styles.insert(
+        "LibStyle".into(),
+        Style::Paint {
+            fill: Paint::Solid(Color::from_rgb8(9, 9, 9)),
+        },
+    );
     doc.library_deps.push(LibraryDependency {
-        library_id: "golden-lib".into(), resolved_version: 1,
+        library_id: "golden-lib".into(),
+        resolved_version: 1,
         snapshot_hash: x_native::fileio::library_hash(&lib),
         source_path: "golden.xlib".into(),
     });

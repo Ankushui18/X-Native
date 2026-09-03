@@ -44,7 +44,9 @@ fn point_in(poly: &[Pt], x: f64, y: f64) -> bool {
         let (x2, y2) = poly[(i + 1) % n];
         if (y1 > y) != (y2 > y) {
             let xi = x1 + (y - y1) / (y2 - y1) * (x2 - x1);
-            if x < xi { inside = !inside; }
+            if x < xi {
+                inside = !inside;
+            }
         }
     }
     inside
@@ -55,27 +57,50 @@ fn seg_x(a: Pt, b: Pt, c: Pt, d: Pt) -> Option<(f64, f64, Pt)> {
     let (r1, r2) = (b.0 - a.0, b.1 - a.1);
     let (s1, s2) = (d.0 - c.0, d.1 - c.1);
     let denom = r1 * s2 - r2 * s1;
-    if denom.abs() < 1e-12 { return None; } // parallel/collinear
+    if denom.abs() < 1e-12 {
+        return None;
+    } // parallel/collinear
     let (q1, q2) = (c.0 - a.0, c.1 - a.1);
     let s = (q1 * s2 - q2 * s1) / denom;
     let t = (q1 * r2 - q2 * r1) / denom;
-    if !(0.0..=1.0).contains(&s) || !(0.0..=1.0).contains(&t) { return None; }
+    if !(0.0..=1.0).contains(&s) || !(0.0..=1.0).contains(&t) {
+        return None;
+    }
     Some((s, t, (a.0 + s * r1, a.1 + s * r2)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClipOp { Union, Intersect, AminusB, BminusA }
+pub enum ClipOp {
+    Union,
+    Intersect,
+    AminusB,
+    BminusA,
+}
 
 /// One Greiner–Hormann pass. Returns None on degenerate topology
 /// (vertex-on-edge after retries, or tracing runaway) — caller falls back.
 pub fn clip(subject: &[Pt], clipper: &[Pt], op: ClipOp) -> Option<Vec<Vec<Pt>>> {
-    if subject.len() < 3 || clipper.len() < 3 { return None; }
+    if subject.len() < 3 || clipper.len() < 3 {
+        return None;
+    }
     // dedup closing point
     let mut s: Vec<Pt> = subject.to_vec();
-    if s.len() > 1 && (s[0].0 - s[s.len()-1].0).abs() < 1e-9 && (s[0].1 - s[s.len()-1].1).abs() < 1e-9 { s.pop(); }
+    if s.len() > 1
+        && (s[0].0 - s[s.len() - 1].0).abs() < 1e-9
+        && (s[0].1 - s[s.len() - 1].1).abs() < 1e-9
+    {
+        s.pop();
+    }
     let mut c: Vec<Pt> = clipper.to_vec();
-    if c.len() > 1 && (c[0].0 - c[c.len()-1].0).abs() < 1e-9 && (c[0].1 - c[c.len()-1].1).abs() < 1e-9 { c.pop(); }
-    if s.len() < 3 || c.len() < 3 { return None; }
+    if c.len() > 1
+        && (c[0].0 - c[c.len() - 1].0).abs() < 1e-9
+        && (c[0].1 - c[c.len() - 1].1).abs() < 1e-9
+    {
+        c.pop();
+    }
+    if s.len() < 3 || c.len() < 3 {
+        return None;
+    }
 
     // retry loop: perturb the clip polygon if a vertex lands on an edge
     for attempt in 0..4 {
@@ -119,38 +144,87 @@ fn clip_once(s: &[Pt], c: &[Pt], op: ClipOp) -> Result<Vec<Vec<Pt>>, bool> {
         let c_in_s = point_in(s, c[0].0, c[0].1);
         let sv = s.to_vec();
         let cv = c.to_vec();
-        let rev = |mut p: Vec<Pt>| { p.reverse(); p };
+        let rev = |mut p: Vec<Pt>| {
+            p.reverse();
+            p
+        };
         return Ok(match op {
             ClipOp::Intersect => {
-                if s_in_c { vec![sv] } else if c_in_s { vec![cv] } else { vec![] }
+                if s_in_c {
+                    vec![sv]
+                } else if c_in_s {
+                    vec![cv]
+                } else {
+                    vec![]
+                }
             }
             ClipOp::Union => {
-                if s_in_c { vec![cv] } else if c_in_s { vec![sv] } else { vec![sv, cv] }
+                if s_in_c {
+                    vec![cv]
+                } else if c_in_s {
+                    vec![sv]
+                } else {
+                    vec![sv, cv]
+                }
             }
             ClipOp::AminusB => {
-                if s_in_c { vec![] } else if c_in_s { vec![sv, rev(cv)] } else { vec![sv] }
+                if s_in_c {
+                    vec![]
+                } else if c_in_s {
+                    vec![sv, rev(cv)]
+                } else {
+                    vec![sv]
+                }
             }
             ClipOp::BminusA => {
-                if c_in_s { vec![] } else if s_in_c { vec![cv, rev(sv)] } else { vec![cv] }
+                if c_in_s {
+                    vec![]
+                } else if s_in_c {
+                    vec![cv, rev(sv)]
+                } else {
+                    vec![cv]
+                }
             }
         });
     }
-    if !xpts.len().is_multiple_of(2) { return Err(true); } // grazing contact
+    if !xpts.len().is_multiple_of(2) {
+        return Err(true);
+    } // grazing contact
 
     // ---- build the two doubly-linked chains with intersections inserted
     let mut arena: Vec<V> = vec![];
     let mut id2s: Vec<usize> = vec![usize::MAX; xpts.len()];
     let mut id2c: Vec<usize> = vec![usize::MAX; xpts.len()];
-    
-    let build = |pts: &[Pt], on: &mut Vec<Vec<(f64, usize)>>, id2: &mut Vec<usize>, arena: &mut Vec<V>| -> usize {
+
+    let build = |pts: &[Pt],
+                 on: &mut Vec<Vec<(f64, usize)>>,
+                 id2: &mut Vec<usize>,
+                 arena: &mut Vec<V>|
+     -> usize {
         let start = arena.len();
         for (i, p) in pts.iter().enumerate() {
-            arena.push(V { p: *p, next: 0, prev: 0, neighbor: usize::MAX, intersect: false, entry: false, processed: false });
+            arena.push(V {
+                p: *p,
+                next: 0,
+                prev: 0,
+                neighbor: usize::MAX,
+                intersect: false,
+                entry: false,
+                processed: false,
+            });
             let _ = i;
             on[i].sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             for (_, id) in &on[i] {
                 id2[*id] = arena.len();
-                arena.push(V { p: xpts[*id], next: 0, prev: 0, neighbor: usize::MAX, intersect: true, entry: false, processed: false });
+                arena.push(V {
+                    p: xpts[*id],
+                    next: 0,
+                    prev: 0,
+                    neighbor: usize::MAX,
+                    intersect: true,
+                    entry: false,
+                    processed: false,
+                });
             }
         }
         let end = arena.len();
@@ -171,12 +245,19 @@ fn clip_once(s: &[Pt], c: &[Pt], op: ClipOp) -> Result<Vec<Vec<Pt>>, bool> {
     // ---- mark entry/exit (alternating from the head's containment status)
     let mark = |head: usize, other: &[Pt], invert: bool, arena: &mut Vec<V>| {
         let mut status = !point_in(other, arena[head].p.0, arena[head].p.1); // next crossing enters?
-        if invert { status = !status; }
+        if invert {
+            status = !status;
+        }
         let mut k = head;
         loop {
-            if arena[k].intersect { arena[k].entry = status; status = !status; }
+            if arena[k].intersect {
+                arena[k].entry = status;
+                status = !status;
+            }
             k = arena[k].next;
-            if k == head { break; }
+            if k == head {
+                break;
+            }
         }
     };
     let (inv_s, inv_c) = match op {
@@ -204,25 +285,37 @@ fn clip_once(s: &[Pt], c: &[Pt], op: ClipOp) -> Result<Vec<Vec<Pt>>, bool> {
                     cur = arena[cur].next;
                     poly.push(arena[cur].p);
                     steps += 1;
-                    if steps > budget { return Err(false); }
-                    if arena[cur].intersect { break; }
+                    if steps > budget {
+                        return Err(false);
+                    }
+                    if arena[cur].intersect {
+                        break;
+                    }
                 }
             } else {
                 loop {
                     cur = arena[cur].prev;
                     poly.push(arena[cur].p);
                     steps += 1;
-                    if steps > budget { return Err(false); }
-                    if arena[cur].intersect { break; }
+                    if steps > budget {
+                        return Err(false);
+                    }
+                    if arena[cur].intersect {
+                        break;
+                    }
                 }
             }
             arena[cur].processed = true;
             let nb = arena[cur].neighbor;
             arena[nb].processed = true;
             cur = nb;
-            if cur == start || arena[cur].neighbor == start { break; }
+            if cur == start || arena[cur].neighbor == start {
+                break;
+            }
         }
-        if poly.len() >= 3 { out.push(poly); }
+        if poly.len() >= 3 {
+            out.push(poly);
+        }
     }
     Ok(out)
 }
@@ -253,13 +346,29 @@ mod tests {
         let a = square(0.0, 0.0, 100.0);
         let b = square(50.0, 0.0, 100.0);
         let u = clip(&a, &b, ClipOp::Union).unwrap();
-        assert!((total_area(&u) - 15000.0).abs() < 1.0, "union {}", total_area(&u));
+        assert!(
+            (total_area(&u) - 15000.0).abs() < 1.0,
+            "union {}",
+            total_area(&u)
+        );
         let i = clip(&a, &b, ClipOp::Intersect).unwrap();
-        assert!((total_area(&i) - 5000.0).abs() < 1.0, "intersect {}", total_area(&i));
+        assert!(
+            (total_area(&i) - 5000.0).abs() < 1.0,
+            "intersect {}",
+            total_area(&i)
+        );
         let d = clip(&a, &b, ClipOp::AminusB).unwrap();
-        assert!((total_area(&d) - 5000.0).abs() < 1.0, "a-b {}", total_area(&d));
+        assert!(
+            (total_area(&d) - 5000.0).abs() < 1.0,
+            "a-b {}",
+            total_area(&d)
+        );
         let e = clip_exclude(&a, &b).unwrap();
-        assert!((total_area(&e) - 10000.0).abs() < 1.0, "exclude {}", total_area(&e));
+        assert!(
+            (total_area(&e) - 10000.0).abs() < 1.0,
+            "exclude {}",
+            total_area(&e)
+        );
     }
 
     #[test]
@@ -270,7 +379,10 @@ mod tests {
         let b = square(99.0, 0.0, 100.0);
         let i = clip(&a, &b, ClipOp::Intersect).unwrap();
         let got = total_area(&i);
-        assert!((got - 100.0).abs() < 0.5, "sliver intersect {got} (want 100)");
+        assert!(
+            (got - 100.0).abs() < 0.5,
+            "sliver intersect {got} (want 100)"
+        );
     }
 
     #[test]
@@ -278,7 +390,11 @@ mod tests {
         let big = square(0.0, 0.0, 100.0);
         let small = square(25.0, 25.0, 50.0);
         let hole = clip(&big, &small, ClipOp::AminusB).unwrap();
-        assert!((total_area(&hole) - 7500.0).abs() < 1.0, "donut {}", total_area(&hole));
+        assert!(
+            (total_area(&hole) - 7500.0).abs() < 1.0,
+            "donut {}",
+            total_area(&hole)
+        );
         let far = square(500.0, 500.0, 10.0);
         assert!(clip(&big, &far, ClipOp::Intersect).unwrap().is_empty());
         assert_eq!(clip(&big, &far, ClipOp::Union).unwrap().len(), 2);
@@ -297,7 +413,11 @@ mod tests {
         }
         let want = 100.0 + 5.0 * 50.0; // width 350 x height 100
         let got = total_area(&[acc.clone()]);
-        assert!((got - want * 100.0).abs() < 1.0, "chained union {got} vs {}", want * 100.0);
+        assert!(
+            (got - want * 100.0).abs() < 1.0,
+            "chained union {got} vs {}",
+            want * 100.0
+        );
     }
 
     #[test]
@@ -306,7 +426,11 @@ mod tests {
         let a = square(1e6, 1e6, 1000.0);
         let b = square(1e6 + 500.0, 1e6, 1000.0);
         let i = clip(&a, &b, ClipOp::Intersect).unwrap();
-        assert!((total_area(&i) - 500_000.0).abs() < 5.0, "huge coords {}", total_area(&i));
+        assert!(
+            (total_area(&i) - 500_000.0).abs() < 5.0,
+            "huge coords {}",
+            total_area(&i)
+        );
         let a = square(0.0, 0.0, 0.001);
         let b = square(0.0005, 0.0, 0.001);
         let i = clip(&a, &b, ClipOp::Intersect).unwrap();

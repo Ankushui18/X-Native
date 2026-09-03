@@ -7,24 +7,36 @@
 
 #![cfg(test)]
 
-use x_core::*;
-use crate::model as components;
 use crate::layout::sync_instance_sizes;
+use crate::model as components;
+use x_core::*;
 
 /// deterministic measurement: width = chars * size/2 (same as component tests)
-fn m(text: &str, size: f64) -> f64 { text.chars().count() as f64 * size * 0.5 }
+fn m(text: &str, size: f64) -> f64 {
+    text.chars().count() as f64 * size * 0.5
+}
 
 fn find<'a>(n: &'a Node, id: &str) -> Option<&'a Node> {
-    if n.id == id { return Some(n); }
+    if n.id == id {
+        return Some(n);
+    }
     n.children.iter().find_map(|c| find(c, id))
 }
 fn find_mut<'a>(n: &'a mut Node, id: &str) -> Option<&'a mut Node> {
-    if n.id == id { return Some(n); }
+    if n.id == id {
+        return Some(n);
+    }
     n.children.iter_mut().find_map(|c| find_mut(c, id))
 }
 
 fn hug(dir: LayoutDirection, gap: f64, pad: f64) -> AutoLayout {
-    AutoLayout { direction: dir, gap, padding: [pad; 4], sizing: Sizing::Hug, ..Default::default() }
+    AutoLayout {
+        direction: dir,
+        gap,
+        padding: [pad; 4],
+        sizing: Sizing::Hug,
+        ..Default::default()
+    }
 }
 
 // ---------------------------------------------------------- nested hugging
@@ -86,7 +98,11 @@ fn text_override_cascades_through_nested_hug_components() {
     );
     // toolbar: hug row [instance, sibling 30 wide]
     let mut inst = Node::instance("i1", "Button", 0.0, 0.0, 68.0, 44.0);
-    components::set_override(&mut inst, "btn-label", components::OverrideValue::Text("CHECKOUT".into()));
+    components::set_override(
+        &mut inst,
+        "btn-label",
+        components::OverrideValue::Text("CHECKOUT".into()),
+    );
     let toolbar = Node::frame("toolbar", 0.0, 0.0)
         .auto_layout(hug(LayoutDirection::Horizontal, 10.0, 6.0))
         .child(inst)
@@ -102,7 +118,11 @@ fn text_override_cascades_through_nested_hug_components() {
     assert_eq!(find(&page, "sib").unwrap().transform.x, 144.0);
 
     // shrink the text -> everything contracts exactly
-    components::set_override(find_mut(&mut page, "i1").unwrap(), "btn-label", components::OverrideValue::Text("GO".into()));
+    components::set_override(
+        find_mut(&mut page, "i1").unwrap(),
+        "btn-label",
+        components::OverrideValue::Text("GO".into()),
+    );
     let changed = sync_instance_sizes(&mut page, &Variables::default(), &m);
     assert_eq!(changed, 1);
     assert_eq!(find(&page, "i1").unwrap().w, 68.0); // 12+16+8+20+12
@@ -119,10 +139,21 @@ fn two_instances_same_master_resize_independently() {
             .child(Node::text("chip-label", 0.0, 0.0, 10.0, 10.0, "x")),
     );
     let mut i1 = Node::instance("i1", "Chip", 0.0, 0.0, 18.0, 18.0);
-    components::set_override(&mut i1, "chip-label", components::OverrideValue::Text("short".into()));
+    components::set_override(
+        &mut i1,
+        "chip-label",
+        components::OverrideValue::Text("short".into()),
+    );
     let mut i2 = Node::instance("i2", "Chip", 0.0, 40.0, 18.0, 18.0);
-    components::set_override(&mut i2, "chip-label", components::OverrideValue::Text("much longer text".into()));
-    let mut page = Node::frame("page", 800.0, 600.0).child(chip).child(i1).child(i2);
+    components::set_override(
+        &mut i2,
+        "chip-label",
+        components::OverrideValue::Text("much longer text".into()),
+    );
+    let mut page = Node::frame("page", 800.0, 600.0)
+        .child(chip)
+        .child(i1)
+        .child(i2);
     sync_instance_sizes(&mut page, &Variables::default(), &m);
     // i1: 5 chars*5 + 8 = 33 ; i2: 16 chars*5 + 8 = 88
     assert_eq!(find(&page, "i1").unwrap().w, 33.0);
@@ -135,8 +166,11 @@ fn two_instances_same_master_resize_independently() {
 fn space_between_with_cross_center_in_fixed_frame() {
     let mut d = Node::frame("bar", 400.0, 60.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Horizontal, padding: [10.0; 4],
-            align: CrossAlign::Center, space_between: true, sizing: Sizing::Fixed,
+            direction: LayoutDirection::Horizontal,
+            padding: [10.0; 4],
+            align: CrossAlign::Center,
+            distribute: Distribute::Between,
+            sizing: Sizing::Fixed,
             ..Default::default()
         })
         .child(Node::rect("l", 0.0, 0.0, 40.0, 20.0, Color::WHITE))
@@ -156,8 +190,12 @@ fn space_between_with_cross_center_in_fixed_frame() {
 fn cross_align_end_and_vertical_direction() {
     let mut d = Node::frame("col", 100.0, 300.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Vertical, gap: 10.0, padding: [5.0; 4],
-            align: CrossAlign::End, sizing: Sizing::Fixed, ..Default::default()
+            direction: LayoutDirection::Vertical,
+            gap: 10.0,
+            padding: [5.0; 4],
+            align: CrossAlign::End,
+            sizing: Sizing::Fixed,
+            ..Default::default()
         })
         .child(Node::rect("a", 0.0, 0.0, 30.0, 40.0, Color::WHITE))
         .child(Node::rect("b", 0.0, 0.0, 60.0, 40.0, Color::WHITE));
@@ -178,16 +216,24 @@ fn gap_and_padding_variables_cascade_through_nesting() {
     vars.numbers.insert("space-l".into(), 32.0);
     let inner = Node::frame("inner", 0.0, 0.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Horizontal, gap: 1.0, padding: [1.0; 4],
-            sizing: Sizing::Hug, gap_var: Some("space-m".into()), padding_var: Some("space-m".into()),
+            direction: LayoutDirection::Horizontal,
+            gap: 1.0,
+            padding: [1.0; 4],
+            sizing: Sizing::Hug,
+            gap_var: Some("space-m".into()),
+            padding_var: Some("space-m".into()),
             ..Default::default()
         })
         .child(Node::rect("a", 0.0, 0.0, 10.0, 10.0, Color::WHITE))
         .child(Node::rect("b", 0.0, 0.0, 10.0, 10.0, Color::WHITE));
     let mut outer = Node::frame("outer", 0.0, 0.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Vertical, gap: 1.0, padding: [1.0; 4],
-            sizing: Sizing::Hug, padding_var: Some("space-l".into()), ..Default::default()
+            direction: LayoutDirection::Vertical,
+            gap: 1.0,
+            padding: [1.0; 4],
+            sizing: Sizing::Hug,
+            padding_var: Some("space-l".into()),
+            ..Default::default()
         })
         .child(inner);
     apply_layout_recursive(&mut outer, &vars);
@@ -206,14 +252,18 @@ fn gap_and_padding_variables_cascade_through_nesting() {
 #[test]
 fn constraints_apply_after_layout_parent_grows() {
     // fixed frame with a right-pinned child; frame width changes via layout parent
-    let mut frame = Node::frame("panel", 200.0, 100.0)
-        .child(Node::rect("pinned", 150.0, 10.0, 40.0, 20.0, Color::WHITE).pin(HPin::Right, VPin::Top));
+    let mut frame = Node::frame("panel", 200.0, 100.0).child(
+        Node::rect("pinned", 150.0, 10.0, 40.0, 20.0, Color::WHITE).pin(HPin::Right, VPin::Top),
+    );
     let (ow, oh) = (frame.w, frame.h);
     frame.w = 300.0; // grown by e.g. a hug parent re-solve
-    // x-editor's apply_constraints is editor-side; core equivalent:
-    let dw = frame.w - ow; let _ = oh;
+                     // x-editor's apply_constraints is editor-side; core equivalent:
+    let dw = frame.w - ow;
+    let _ = oh;
     for c in &mut frame.children {
-        if c.pin.0 == HPin::Right { c.transform.x += dw; }
+        if c.pin.0 == HPin::Right {
+            c.transform.x += dw;
+        }
     }
     assert_eq!(find(&frame, "pinned").unwrap().transform.x, 250.0);
 }
@@ -224,7 +274,8 @@ fn constraints_apply_after_layout_parent_grows() {
 fn degenerate_documents_never_panic_or_go_negative() {
     let vars = Variables::default();
     // empty hug frame -> pads only
-    let mut empty = Node::frame("e", 0.0, 0.0).auto_layout(hug(LayoutDirection::Horizontal, 10.0, 7.0));
+    let mut empty =
+        Node::frame("e", 0.0, 0.0).auto_layout(hug(LayoutDirection::Horizontal, 10.0, 7.0));
     apply_auto_layout(&mut empty, &vars);
     assert_eq!((empty.w, empty.h), (14.0, 14.0));
     // single child: no gap applied
@@ -233,16 +284,23 @@ fn degenerate_documents_never_panic_or_go_negative() {
         .child(Node::rect("only", 0.0, 0.0, 20.0, 20.0, Color::WHITE));
     apply_auto_layout(&mut single, &vars);
     assert_eq!(single.h, 30.0); // 5+20+5, gap unused
-    // space-between with children WIDER than the frame -> gap clamps to 0
+                                // space-between with children WIDER than the frame -> gap clamps to 0
     let mut tight = Node::frame("t", 50.0, 20.0)
         .auto_layout(AutoLayout {
-            direction: LayoutDirection::Horizontal, padding: [0.0; 4],
-            space_between: true, sizing: Sizing::Fixed, ..Default::default()
+            direction: LayoutDirection::Horizontal,
+            padding: [0.0; 4],
+            distribute: Distribute::Between,
+            sizing: Sizing::Fixed,
+            ..Default::default()
         })
         .child(Node::rect("x", 0.0, 0.0, 40.0, 10.0, Color::WHITE))
         .child(Node::rect("y", 0.0, 0.0, 40.0, 10.0, Color::WHITE));
     apply_auto_layout(&mut tight, &vars);
-    assert_eq!(find(&tight, "y").unwrap().transform.x, 40.0, "gap clamped at 0, children just stack");
+    assert_eq!(
+        find(&tight, "y").unwrap().transform.x,
+        40.0,
+        "gap clamped at 0, children just stack"
+    );
     // zero-size children
     let mut z = Node::frame("z", 0.0, 0.0)
         .auto_layout(hug(LayoutDirection::Horizontal, 5.0, 5.0))
@@ -250,8 +308,14 @@ fn degenerate_documents_never_panic_or_go_negative() {
     apply_auto_layout(&mut z, &vars);
     assert_eq!(z.w, 10.0);
     // instance of a MISSING master inside a layout: sync is a no-op, no panic
-    let mut page = Node::frame("p", 100.0, 100.0)
-        .child(Node::instance("ghost", "NoSuchComponent", 0.0, 0.0, 10.0, 10.0));
+    let mut page = Node::frame("p", 100.0, 100.0).child(Node::instance(
+        "ghost",
+        "NoSuchComponent",
+        0.0,
+        0.0,
+        10.0,
+        10.0,
+    ));
     assert_eq!(sync_instance_sizes(&mut page, &vars, &m), 0);
 }
 
@@ -267,7 +331,11 @@ fn layout_is_idempotent() {
     apply_layout_recursive(&mut page, &Variables::default());
     let snapshot = format!("{:?}", page);
     apply_layout_recursive(&mut page, &Variables::default());
-    assert_eq!(snapshot, format!("{:?}", page), "second solve must be a no-op");
+    assert_eq!(
+        snapshot,
+        format!("{:?}", page),
+        "second solve must be a no-op"
+    );
 }
 
 // ------------------------------------------------- per-side padding + cross sizing
@@ -276,45 +344,99 @@ fn layout_is_idempotent() {
 fn per_side_padding_positions_and_hug_horizontal() {
     // asymmetric padding L10 R4 T6 B2, gap 5, children 30x20 + 20x10
     let row = Node::frame("row", 0.0, 0.0)
-        .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 5.0, padding: [10.0, 4.0, 6.0, 2.0], sizing: Sizing::Hug, ..Default::default() })
+        .auto_layout(AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            gap: 5.0,
+            padding: [10.0, 4.0, 6.0, 2.0],
+            sizing: Sizing::Hug,
+            ..Default::default()
+        })
         .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE))
         .child(Node::rect("b", 0.0, 0.0, 20.0, 10.0, Color::WHITE));
     let mut page = Node::frame("page", 0.0, 0.0).child(row);
     apply_layout_recursive(&mut page, &Variables::default());
     let row = find(&page, "row").unwrap();
     // hug width = L10 + 30 + 5 + 20 + R4 = 69; hug height = 20 (tallest) + T6 + B2 = 28
-    assert_eq!((row.w, row.h), (69.0, 28.0), "per-side hug includes the right sides");
+    assert_eq!(
+        (row.w, row.h),
+        (69.0, 28.0),
+        "per-side hug includes the right sides"
+    );
     let a = find(&page, "a").unwrap();
-    assert_eq!((a.transform.x, a.transform.y), (10.0, 6.0), "cursor starts at L/T padding");
+    assert_eq!(
+        (a.transform.x, a.transform.y),
+        (10.0, 6.0),
+        "cursor starts at L/T padding"
+    );
     let b = find(&page, "b").unwrap();
-    assert_eq!((b.transform.x, b.transform.y), (45.0, 6.0), "gap after first child; Start align uses T padding");
+    assert_eq!(
+        (b.transform.x, b.transform.y),
+        (45.0, 6.0),
+        "gap after first child; Start align uses T padding"
+    );
 }
 
 #[test]
 fn per_side_padding_vertical_end_align() {
     // vertical col, padding L1 R7 T3 B9, cross-axis (x) End align, fixed 40x50
     let col = Node::frame("col", 40.0, 50.0)
-        .auto_layout(AutoLayout { direction: LayoutDirection::Vertical, gap: 2.0, padding: [1.0, 7.0, 3.0, 9.0], sizing: Sizing::Fixed, align: CrossAlign::End, ..Default::default() })
+        .auto_layout(AutoLayout {
+            direction: LayoutDirection::Vertical,
+            gap: 2.0,
+            padding: [1.0, 7.0, 3.0, 9.0],
+            sizing: Sizing::Fixed,
+            align: CrossAlign::End,
+            ..Default::default()
+        })
         .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
     let mut page = Node::frame("page", 0.0, 0.0).child(col);
     apply_layout_recursive(&mut page, &Variables::default());
     let a = find(&page, "a").unwrap();
     // End align: x = w - R7 - 30 = 3; y cursor starts at T3
-    assert_eq!((a.transform.x, a.transform.y), (3.0, 3.0), "End align offsets by the RIGHT padding, cursor by TOP");
+    assert_eq!(
+        (a.transform.x, a.transform.y),
+        (3.0, 3.0),
+        "End align offsets by the RIGHT padding, cursor by TOP"
+    );
 }
 
 #[test]
 fn independent_cross_axis_sizing() {
     // fixed main + hug cross: width stays, height hugs content
     let row = Node::frame("row", 100.0, 999.0)
-        .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: [0.0; 4], sizing: Sizing::Fixed, cross_sizing: Some(Sizing::Hug), ..Default::default() })
+        .auto_layout(AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            gap: 0.0,
+            padding: [0.0; 4],
+            sizing: Sizing::Fixed,
+            cross_sizing: Some(Sizing::Hug),
+            ..Default::default()
+        })
         .child(Node::rect("a", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
     // hug main + fixed cross: width hugs, height stays
     let row2 = Node::frame("row2", 999.0, 50.0)
-        .auto_layout(AutoLayout { direction: LayoutDirection::Horizontal, gap: 0.0, padding: [0.0; 4], sizing: Sizing::Hug, cross_sizing: Some(Sizing::Fixed), ..Default::default() })
+        .auto_layout(AutoLayout {
+            direction: LayoutDirection::Horizontal,
+            gap: 0.0,
+            padding: [0.0; 4],
+            sizing: Sizing::Hug,
+            cross_sizing: Some(Sizing::Fixed),
+            ..Default::default()
+        })
         .child(Node::rect("b", 0.0, 0.0, 30.0, 20.0, Color::WHITE));
     let mut page = Node::frame("page", 0.0, 0.0).child(row).child(row2);
     apply_layout_recursive(&mut page, &Variables::default());
-    assert_eq!((find(&page, "row").unwrap().w, find(&page, "row").unwrap().h), (100.0, 20.0), "fixed main keeps w, hug cross sizes h");
-    assert_eq!((find(&page, "row2").unwrap().w, find(&page, "row2").unwrap().h), (30.0, 50.0), "hug main sizes w, fixed cross keeps h");
+    assert_eq!(
+        (find(&page, "row").unwrap().w, find(&page, "row").unwrap().h),
+        (100.0, 20.0),
+        "fixed main keeps w, hug cross sizes h"
+    );
+    assert_eq!(
+        (
+            find(&page, "row2").unwrap().w,
+            find(&page, "row2").unwrap().h
+        ),
+        (30.0, 50.0),
+        "hug main sizes w, fixed cross keeps h"
+    );
 }

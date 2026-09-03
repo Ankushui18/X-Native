@@ -1,13 +1,31 @@
 //! x-native — facade crate: one `x_native` surface over the workspace.
 pub use x_core::*;
-pub mod components { pub use x_components::*; }
+pub mod mcp;
+pub mod components {
+    pub use x_components::*;
+}
 pub use x_components::{resolve_instance_layout, sync_instance_sizes, MeasureFn};
-pub use x_render::{Assets, EncodeCtx, build_scene, build_scene_with_assets, build_scene_full, benchmark_scene};
-pub use x_render::{build_render_tree, render_via_ir, RenderCommand, RenderTree, VelloSink, thumbnail_scene, export_pdf, export_pdf_with_assets, SceneCache, FrameCache, FrameCacheStats};
-pub mod editor { pub use x_editor::*; }
-pub mod fileio { pub use x_format::*; }
-pub mod text { pub use x_text::*; }
-pub mod ui { pub use x_ui::*; }
+pub use x_render::{
+    benchmark_scene, build_scene, build_scene_full, build_scene_with_assets, Assets, EncodeCtx,
+};
+pub use x_render::{
+    build_render_tree, build_render_tree_of, build_render_tree_slice, export_pdf,
+    export_pdf_with_assets, render_via_ir, thumbnail_scene, FrameCache, FrameCacheStats,
+    RenderCommand, RenderTree, SceneCache, VelloSink,
+};
+pub use x_render::{encode_jpg, encode_png, export_raster, RasterFormat, RasterSink};
+pub mod editor {
+    pub use x_editor::*;
+}
+pub mod fileio {
+    pub use x_format::*;
+}
+pub mod text {
+    pub use x_text::*;
+}
+pub mod ui {
+    pub use x_ui::*;
+}
 
 pub use x_render::export_pdf_full;
 
@@ -21,31 +39,57 @@ pub use x_render::export_pdf_full;
 /// per-run color (None = paint with the layer fill).
 pub type SvgGlyphOutlines = Vec<(String, Option<Color>)>;
 
-pub fn svg_text_outliner(fonts: &x_text::FontManager)
-    -> impl Fn(&[TextPart], f64, f64, Option<&str>) -> Option<SvgGlyphOutlines> + '_
+pub fn svg_text_outliner(
+    fonts: &x_text::FontManager,
+) -> impl Fn(&[TextPart], f64, f64, Option<&str>, x_core::TextWrap) -> Option<SvgGlyphOutlines> + '_
 {
-    move |parts: &[TextPart], size: f64, max_width: f64, font: Option<&str>| {
+    move |parts: &[TextPart],
+          size: f64,
+          max_width: f64,
+          font: Option<&str>,
+          wrap: x_core::TextWrap| {
         // unstyled single-part text keeps the plain pipeline (and its
         // ls=0/lh=1.2 defaults); anything styled goes through the rich
         // shaper (same 0.72 em + letter-spacing contract)
-        let plain = parts.len() == 1 && parts[0].color.is_none() && parts[0].size.is_none() && parts[0].font.is_none();
+        let plain = parts.len() == 1
+            && parts[0].color.is_none()
+            && parts[0].size.is_none()
+            && parts[0].font.is_none();
         let glyphs = if plain {
-            let (glyphs, _) = x_text::node_text_outlines(fonts, &parts[0].text, size, max_width, font, vello::peniko::Color::BLACK)?;
+            let (glyphs, _) = x_text::node_text_outlines(
+                fonts,
+                &parts[0].text,
+                size,
+                max_width,
+                font,
+                vello::peniko::Color::BLACK,
+            )?;
             glyphs
         } else {
-            let (glyphs, _) = x_text::node_text_outlines_rich(fonts, parts, size, max_width, font, 0.0, 1.2)?;
+            let (glyphs, _) = x_text::node_text_outlines_rich(
+                fonts, parts, size, max_width, font, 0.0, 1.2, wrap,
+            )?;
             glyphs
         };
-        Some(glyphs.iter().map(|g| {
-            // apply the glyph's local transform to its path, then write
-            // node-local SVG path data (the exporter's <g> handles x/y).
-            let mut p = g.path.clone();
-            p.apply_affine(g.transform);
-            // plain text never carries per-run colors; rich text maps the
-            // fully-transparent "no explicit color" marker to None
-            let color = if !plain && g.color.components[3] != 0.0 { Some(g.color) } else { None };
-            (svg_path_data(&p), color)
-        }).collect())
+        Some(
+            glyphs
+                .iter()
+                .map(|g| {
+                    // apply the glyph's local transform to its path, then write
+                    // node-local SVG path data (the exporter's <g> handles x/y).
+                    let mut p = g.path.clone();
+                    p.apply_affine(g.transform);
+                    // plain text never carries per-run colors; rich text maps the
+                    // fully-transparent "no explicit color" marker to None
+                    let color = if !plain && g.color.components[3] != 0.0 {
+                        Some(g.color)
+                    } else {
+                        None
+                    };
+                    (svg_path_data(&p), color)
+                })
+                .collect(),
+        )
     }
 }
 
@@ -57,7 +101,10 @@ fn svg_path_data(p: &vello::kurbo::BezPath) -> String {
             MoveTo(a) => d.push_str(&format!("M {:.2} {:.2} ", a.x, a.y)),
             LineTo(a) => d.push_str(&format!("L {:.2} {:.2} ", a.x, a.y)),
             QuadTo(a, b) => d.push_str(&format!("Q {:.2} {:.2} {:.2} {:.2} ", a.x, a.y, b.x, b.y)),
-            CurveTo(a, b, c) => d.push_str(&format!("C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ", a.x, a.y, b.x, b.y, c.x, c.y)),
+            CurveTo(a, b, c) => d.push_str(&format!(
+                "C {:.2} {:.2} {:.2} {:.2} {:.2} {:.2} ",
+                a.x, a.y, b.x, b.y, c.x, c.y
+            )),
             ClosePath => d.push_str("Z "),
         }
     }

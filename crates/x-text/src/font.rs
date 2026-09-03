@@ -37,12 +37,27 @@ impl LoadedFont {
     pub fn from_bytes_indexed(name: &str, data: Vec<u8>, index: u32) -> Result<Self, String> {
         let face = ttf_parser::Face::parse(&data, index).map_err(|e| format!("{e:?}"))?;
         let upm = face.units_per_em() as f64;
-        let (asc, desc, gap) = (face.ascender() as f64, face.descender() as f64, face.line_gap() as f64);
-        Ok(Self { name: name.into(), data, face_index: index, units_per_em: upm, ascent: asc, descent: desc, line_gap: gap, outline_cache: Default::default() })
+        let (asc, desc, gap) = (
+            face.ascender() as f64,
+            face.descender() as f64,
+            face.line_gap() as f64,
+        );
+        Ok(Self {
+            name: name.into(),
+            data,
+            face_index: index,
+            units_per_em: upm,
+            ascent: asc,
+            descent: desc,
+            line_gap: gap,
+            outline_cache: Default::default(),
+        })
     }
 
     /// Raw font bytes (rustybuzz needs them for its own Face).
-    pub fn data(&self) -> &[u8] { &self.data }
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
 
     fn face(&self) -> ttf_parser::Face<'_> {
         // parse is cheap (zero-copy views); Face borrows self.data
@@ -54,7 +69,9 @@ impl LoadedFont {
     }
 
     pub fn advance(&self, glyph: u16) -> f64 {
-        self.face().glyph_hor_advance(ttf_parser::GlyphId(glyph)).unwrap_or(0) as f64
+        self.face()
+            .glyph_hor_advance(ttf_parser::GlyphId(glyph))
+            .unwrap_or(0) as f64
     }
 
     pub fn kern(&self, left: u16, right: u16) -> f64 {
@@ -62,7 +79,9 @@ impl LoadedFont {
         if let Some(kern) = face.tables().kern {
             for sub in kern.subtables {
                 if sub.horizontal {
-                    if let Some(v) = sub.glyphs_kerning(ttf_parser::GlyphId(left), ttf_parser::GlyphId(right)) {
+                    if let Some(v) =
+                        sub.glyphs_kerning(ttf_parser::GlyphId(left), ttf_parser::GlyphId(right))
+                    {
                         return v as f64;
                     }
                 }
@@ -73,17 +92,36 @@ impl LoadedFont {
 
     /// Outline in font units (y-up); cached per glyph.
     pub fn outline(&self, glyph: u16) -> Option<BezPath> {
-        if let Some(hit) = self.outline_cache.borrow().get(&glyph) { return hit.clone(); }
+        if let Some(hit) = self.outline_cache.borrow().get(&glyph) {
+            return hit.clone();
+        }
         struct B(BezPath);
         impl ttf_parser::OutlineBuilder for B {
-            fn move_to(&mut self, x: f32, y: f32) { self.0.move_to((x as f64, y as f64)); }
-            fn line_to(&mut self, x: f32, y: f32) { self.0.line_to((x as f64, y as f64)); }
-            fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) { self.0.quad_to((x1 as f64, y1 as f64), (x as f64, y as f64)); }
-            fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) { self.0.curve_to((x1 as f64, y1 as f64), (x2 as f64, y2 as f64), (x as f64, y as f64)); }
-            fn close(&mut self) { self.0.close_path(); }
+            fn move_to(&mut self, x: f32, y: f32) {
+                self.0.move_to((x as f64, y as f64));
+            }
+            fn line_to(&mut self, x: f32, y: f32) {
+                self.0.line_to((x as f64, y as f64));
+            }
+            fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+                self.0.quad_to((x1 as f64, y1 as f64), (x as f64, y as f64));
+            }
+            fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+                self.0.curve_to(
+                    (x1 as f64, y1 as f64),
+                    (x2 as f64, y2 as f64),
+                    (x as f64, y as f64),
+                );
+            }
+            fn close(&mut self) {
+                self.0.close_path();
+            }
         }
         let mut b = B(BezPath::new());
-        let out = self.face().outline_glyph(ttf_parser::GlyphId(glyph), &mut b).map(|_| b.0);
+        let out = self
+            .face()
+            .outline_glyph(ttf_parser::GlyphId(glyph), &mut b)
+            .map(|_| b.0);
         self.outline_cache.borrow_mut().insert(glyph, out.clone());
         out
     }
@@ -109,9 +147,13 @@ pub struct FontManager {
 }
 
 impl FontManager {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     /// generation for shaped-text cache keys
-    pub fn epoch(&self) -> u64 { self.epoch }
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
 
     pub fn load_file(&mut self, name: &str, path: &str) -> Result<usize, String> {
         let data = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -119,7 +161,12 @@ impl FontManager {
     }
 
     /// Register raw font bytes (face `index` for .ttc collections).
-    pub fn load_face_bytes(&mut self, name: &str, data: Vec<u8>, index: u32) -> Result<usize, String> {
+    pub fn load_face_bytes(
+        &mut self,
+        name: &str,
+        data: Vec<u8>,
+        index: u32,
+    ) -> Result<usize, String> {
         let font = LoadedFont::from_bytes_indexed(name, data, index)?;
         let idx = self.fonts.len();
         self.by_name.insert(name.to_string(), idx);
@@ -131,39 +178,73 @@ impl FontManager {
     /// Scan standard system font dirs; returns how many loaded.
     pub fn load_system_fonts(&mut self) -> usize {
         let mut n = 0;
-        for dir in ["/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/truetype/noto", "/usr/share/fonts/opentype/noto", "/usr/share/fonts/truetype", "/usr/share/fonts/TTF", "C:\\Windows\\Fonts", "/System/Library/Fonts", "./fonts"] {
+        for dir in [
+            "/usr/share/fonts/truetype/dejavu",
+            "/usr/share/fonts/truetype/noto",
+            "/usr/share/fonts/opentype/noto",
+            "/usr/share/fonts/truetype",
+            "/usr/share/fonts/TTF",
+            "C:\\Windows\\Fonts",
+            "/System/Library/Fonts",
+            "./fonts",
+        ] {
             if let Ok(entries) = std::fs::read_dir(dir) {
                 for e in entries.flatten() {
                     let p = e.path();
-                    if p.extension().is_some_and(|x| x == "ttf" || x == "otf" || x == "ttc") {
+                    if p.extension()
+                        .is_some_and(|x| x == "ttf" || x == "otf" || x == "ttc")
+                    {
                         if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                            if self.load_file(stem, p.to_str().unwrap_or_default()).is_ok() { n += 1; }
+                            if self.load_file(stem, p.to_str().unwrap_or_default()).is_ok() {
+                                n += 1;
+                            }
                         }
                     }
                 }
             }
-            if n >= 24 { break; } // enough coverage; keep startup fast
+            if n >= 24 {
+                break;
+            } // enough coverage; keep startup fast
         }
         // guarantee CJK coverage even when the scan stopped early
         // (the Noto CJK collection lives in the opentype dir)
         if self.font_index("NotoSansCJK-Regular").is_none()
-            && self.load_file("NotoSansCJK-Regular", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc").is_ok() { n += 1; }
+            && self
+                .load_file(
+                    "NotoSansCJK-Regular",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                )
+                .is_ok()
+        {
+            n += 1;
+        }
         n
     }
 
-    pub fn font_index(&self, name: &str) -> Option<usize> { self.by_name.get(name).copied() }
+    pub fn font_index(&self, name: &str) -> Option<usize> {
+        self.by_name.get(name).copied()
+    }
     pub fn default_font(&self) -> Option<usize> {
-        self.font_index("DejaVuSans").or(if self.fonts.is_empty() { None } else { Some(0) })
+        self.font_index("DejaVuSans")
+            .or(if self.fonts.is_empty() { None } else { Some(0) })
     }
 
     /// Map char -> (font, glyph) via the fallback chain starting at `first`.
     fn map_char(&self, c: char, first: usize) -> Option<(usize, u16)> {
         if let Some(g) = self.fonts.get(first).and_then(|f| f.glyph_id(c)) {
-            if g != 0 { return Some((first, g)); }
+            if g != 0 {
+                return Some((first, g));
+            }
         }
         for (i, f) in self.fonts.iter().enumerate() {
-            if i == first { continue; }
-            if let Some(g) = f.glyph_id(c) { if g != 0 { return Some((i, g)); } }
+            if i == first {
+                continue;
+            }
+            if let Some(g) = f.glyph_id(c) {
+                if g != 0 {
+                    return Some((i, g));
+                }
+            }
         }
         None
     }
@@ -184,9 +265,17 @@ impl FontManager {
             let f = &self.fonts[fi];
             let scale = size_px / f.units_per_em;
             if let Some((pfi, pgid)) = prev {
-                if pfi == fi { pen += f.kern(pgid, gid) * scale; }
+                if pfi == fi {
+                    pen += f.kern(pgid, gid) * scale;
+                }
             }
-            out.push(PositionedGlyph { glyph: gid, font: fi, x: pen, y: 0.0, scale });
+            out.push(PositionedGlyph {
+                glyph: gid,
+                font: fi,
+                x: pen,
+                y: 0.0,
+                scale,
+            });
             pen += f.advance(gid) * scale;
             prev = Some((fi, gid));
         }
@@ -198,12 +287,22 @@ impl FontManager {
     }
 
     /// Greedy word-wrap into lines fitting `max_width` px.
-    pub fn break_lines(&self, text: &str, font: usize, size_px: f64, max_width: f64) -> Vec<String> {
+    pub fn break_lines(
+        &self,
+        text: &str,
+        font: usize,
+        size_px: f64,
+        max_width: f64,
+    ) -> Vec<String> {
         let mut lines = vec![];
         for para in text.split('\n') {
             let mut line = String::new();
             for word in para.split(' ') {
-                let cand = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+                let cand = if line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{line} {word}")
+                };
                 if self.measure(&cand, font, size_px) <= max_width || line.is_empty() {
                     line = cand;
                 } else {
@@ -226,7 +325,16 @@ impl FontManager {
     /// `world` maps the text-box origin; wraps at `max_width` if Some.
     /// Returns paths encoded.
     #[allow(clippy::too_many_arguments)] // positional params are the natural shape here; grouping would obscure the algorithm
-    pub fn encode_text_block(&self, scene: &mut Scene, text: &str, world: Affine, font: usize, size_px: f64, max_width: Option<f64>, color: Color) -> usize {
+    pub fn encode_text_block(
+        &self,
+        scene: &mut Scene,
+        text: &str,
+        world: Affine,
+        font: usize,
+        size_px: f64,
+        max_width: Option<f64>,
+        color: Color,
+    ) -> usize {
         let f0 = &self.fonts[font];
         let baseline0 = f0.ascent * (size_px / f0.units_per_em);
         let lh = self.line_height(font, size_px);
@@ -260,7 +368,10 @@ mod tests {
     fn mgr() -> FontManager {
         let mut m = FontManager::new();
         let n = m.load_system_fonts();
-        assert!(n > 0, "no system fonts found — DejaVu expected in CI/sandbox");
+        assert!(
+            n > 0,
+            "no system fonts found — DejaVu expected in CI/sandbox"
+        );
         m
     }
 
@@ -285,12 +396,15 @@ mod tests {
         let (glyphs, width) = m.shape("AVATAR", f, 32.0);
         assert_eq!(glyphs.len(), 6);
         assert!(width > 0.0);
-        for pair in glyphs.windows(2) { assert!(pair[1].x > pair[0].x); }
+        for pair in glyphs.windows(2) {
+            assert!(pair[1].x > pair[0].x);
+        }
         // kerning: "AV" should be narrower than advance('A') + advance('V')
         let (_, av) = m.shape("AV", f, 32.0);
         let fa = &m.fonts[f];
         let scale = 32.0 / fa.units_per_em;
-        let sum = (fa.advance(fa.glyph_id('A').unwrap()) + fa.advance(fa.glyph_id('V').unwrap())) * scale;
+        let sum =
+            (fa.advance(fa.glyph_id('A').unwrap()) + fa.advance(fa.glyph_id('V').unwrap())) * scale;
         assert!(av <= sum + 1e-6, "kerned width {av} should be <= raw {sum}");
     }
 
@@ -302,7 +416,9 @@ mod tests {
         let lines = m.break_lines(text, f, 16.0, 120.0);
         assert!(lines.len() >= 3, "expected multiple lines, got {lines:?}");
         for l in &lines {
-            if l.contains(' ') { assert!(m.measure(l, f, 16.0) <= 120.0 + 1e-6); }
+            if l.contains(' ') {
+                assert!(m.measure(l, f, 16.0) <= 120.0 + 1e-6);
+            }
         }
         // explicit newlines respected
         assert_eq!(m.break_lines("a\nb", f, 16.0, 999.0).len(), 2);
@@ -313,7 +429,15 @@ mod tests {
         let m = mgr();
         let f = m.default_font().unwrap();
         let mut scene = Scene::new();
-        let n = m.encode_text_block(&mut scene, "Hello type!\nSecond line", Affine::IDENTITY, f, 24.0, None, Color::BLACK);
+        let n = m.encode_text_block(
+            &mut scene,
+            "Hello type!\nSecond line",
+            Affine::IDENTITY,
+            f,
+            24.0,
+            None,
+            Color::BLACK,
+        );
         assert!(n >= 20, "expected ~22 glyph paths, got {n}");
         assert!(scene.encoding().n_paths as usize >= n);
     }

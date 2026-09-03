@@ -34,12 +34,19 @@ pub fn hash_bytes(data: &[u8]) -> String {
 pub const ASSET_URI_PREFIX: &str = "asset://";
 
 /// Is this node "asset" reference an asset:// uri (vs a legacy filename)?
-pub fn is_asset_uri(s: &str) -> bool { s.starts_with(ASSET_URI_PREFIX) }
+pub fn is_asset_uri(s: &str) -> bool {
+    s.starts_with(ASSET_URI_PREFIX)
+}
 
 // ---------------------------------------------------------------- records
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssetKind { Image, Font, Svg, Other }
+pub enum AssetKind {
+    Image,
+    Font,
+    Svg,
+    Other,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetSource {
@@ -71,22 +78,44 @@ pub struct AssetRecord {
 
 /// Magic-byte mime sniffing (extensions lie; bytes don't).
 pub fn sniff_mime(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) { return "image/png"; }
-    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return "image/jpeg"; }
-    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") { return "image/gif"; }
-    if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" { return "image/webp"; }
-    if bytes.starts_with(&[0x00, 0x01, 0x00, 0x00]) { return "font/ttf"; }
-    if bytes.starts_with(b"OTTO") { return "font/otf"; }
-    if bytes.starts_with(b"wOF2") { return "font/woff2"; }
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return "image/png";
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return "image/jpeg";
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return "image/gif";
+    }
+    if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return "image/webp";
+    }
+    if bytes.starts_with(&[0x00, 0x01, 0x00, 0x00]) {
+        return "font/ttf";
+    }
+    if bytes.starts_with(b"OTTO") {
+        return "font/otf";
+    }
+    if bytes.starts_with(b"wOF2") {
+        return "font/woff2";
+    }
     let head = &bytes[..bytes.len().min(256)];
-    if head.windows(4).any(|w| w == b"<svg") { return "image/svg+xml"; }
+    if head.windows(4).any(|w| w == b"<svg") {
+        return "image/svg+xml";
+    }
     "application/octet-stream"
 }
 
 fn kind_of(mime: &str) -> AssetKind {
-    if mime == "image/svg+xml" { return AssetKind::Svg; }
-    if mime.starts_with("image/") { return AssetKind::Image; }
-    if mime.starts_with("font/") { return AssetKind::Font; }
+    if mime == "image/svg+xml" {
+        return AssetKind::Svg;
+    }
+    if mime.starts_with("image/") {
+        return AssetKind::Image;
+    }
+    if mime.starts_with("font/") {
+        return AssetKind::Font;
+    }
     AssetKind::Other
 }
 
@@ -94,7 +123,9 @@ fn kind_of(mime: &str) -> AssetKind {
 pub fn probe_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     match sniff_mime(bytes) {
         "image/png" => {
-            if bytes.len() < 24 || &bytes[12..16] != b"IHDR" { return None; }
+            if bytes.len() < 24 || &bytes[12..16] != b"IHDR" {
+                return None;
+            }
             let w = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
             let h = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
             (w > 0 && h > 0).then_some((w, h))
@@ -103,7 +134,9 @@ pub fn probe_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
             // scan segments for SOF0/1/2 (0xC0/C1/C2)
             let mut i = 2usize;
             while i + 9 < bytes.len() {
-                if bytes[i] != 0xFF { return None; }
+                if bytes[i] != 0xFF {
+                    return None;
+                }
                 let marker = bytes[i + 1];
                 let len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
                 if (0xC0..=0xC2).contains(&marker) {
@@ -116,7 +149,9 @@ pub fn probe_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
             None
         }
         "image/gif" => {
-            if bytes.len() < 10 { return None; }
+            if bytes.len() < 10 {
+                return None;
+            }
             let w = u16::from_le_bytes([bytes[6], bytes[7]]) as u32;
             let h = u16::from_le_bytes([bytes[8], bytes[9]]) as u32;
             (w > 0 && h > 0).then_some((w, h))
@@ -134,7 +169,9 @@ pub struct AssetStore {
 }
 
 impl AssetStore {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Register bytes; returns the stable `asset://<hash>` id. Same bytes
     /// -> same id, one stored copy (dedup), regardless of `name`.
@@ -146,16 +183,26 @@ impl AssetStore {
             AssetRecord {
                 kind: kind_of(&mime),
                 dimensions: probe_dimensions(&bytes),
-                id: id.clone(), hash, mime, bytes, source,
+                id: id.clone(),
+                hash,
+                mime,
+                bytes,
+                source,
                 name: name.to_string(),
             }
         });
         id
     }
 
-    pub fn get(&self, id: &str) -> Option<&AssetRecord> { self.records.get(id) }
-    pub fn len(&self) -> usize { self.records.len() }
-    pub fn is_empty(&self) -> bool { self.records.is_empty() }
+    pub fn get(&self, id: &str) -> Option<&AssetRecord> {
+        self.records.get(id)
+    }
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
     /// deterministic iteration (sorted by id) for serialization/UI
     pub fn iter_sorted(&self) -> Vec<&AssetRecord> {
         let mut v: Vec<&AssetRecord> = self.records.values().collect();
@@ -164,9 +211,14 @@ impl AssetStore {
     }
     /// only embedded records participate in .x serialization
     pub fn embedded_sorted(&self) -> Vec<&AssetRecord> {
-        self.iter_sorted().into_iter().filter(|r| r.source == AssetSource::Embedded).collect()
+        self.iter_sorted()
+            .into_iter()
+            .filter(|r| r.source == AssetSource::Embedded)
+            .collect()
     }
-    pub fn remove(&mut self, id: &str) -> Option<AssetRecord> { self.records.remove(id) }
+    pub fn remove(&mut self, id: &str) -> Option<AssetRecord> {
+        self.records.remove(id)
+    }
 
     /// Garbage-collect: keep only assets referenced by `used_ids`.
     /// Returns the number of dropped records.
@@ -179,7 +231,10 @@ impl AssetStore {
     /// Rename the DISPLAY name (identity is content-derived and immutable).
     pub fn rename(&mut self, id: &str, new_name: &str) -> bool {
         match self.records.get_mut(id) {
-            Some(r) if !new_name.trim().is_empty() => { r.name = new_name.trim().to_string(); true }
+            Some(r) if !new_name.trim().is_empty() => {
+                r.name = new_name.trim().to_string();
+                true
+            }
             _ => false,
         }
     }
@@ -188,15 +243,21 @@ impl AssetStore {
 /// Collect every asset:// id referenced by Image nodes in a subtree.
 pub fn collect_asset_ids(n: &Node, out: &mut std::collections::HashSet<String>) {
     if let NodeKind::Image { asset, .. } = &n.kind {
-        if is_asset_uri(asset) { out.insert(asset.clone()); }
+        if is_asset_uri(asset) {
+            out.insert(asset.clone());
+        }
     }
-    for c in &n.children { collect_asset_ids(c, out); }
+    for c in &n.children {
+        collect_asset_ids(c, out);
+    }
 }
 
 /// Usage count of one asset id across a subtree.
 pub fn asset_usage(n: &Node, id: &str) -> usize {
     let mut count = matches!(&n.kind, NodeKind::Image { asset, .. } if asset == id) as usize;
-    for c in &n.children { count += asset_usage(c, id); }
+    for c in &n.children {
+        count += asset_usage(c, id);
+    }
     count
 }
 

@@ -1,23 +1,48 @@
-
-
-use x_core::*;
 #[allow(unused_imports)]
 use crate::*;
+use x_core::*;
 
 // -------------------------------------------------------- align / distribute
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AlignKind { Left, CenterH, Right, Top, CenterV, Bottom }
+pub enum AlignKind {
+    Left,
+    CenterH,
+    Right,
+    Top,
+    CenterV,
+    Bottom,
+}
 
 /// Phase 2.11: align sibling nodes (by their local x/y/w/h) to their
 /// collective bounds. Operates on ids that share `parent`.
 pub fn align(parent: &mut Node, ids: &[String], kind: AlignKind) {
-    let sel: Vec<usize> = parent.children.iter().enumerate().filter(|(_, c)| ids.contains(&c.id)).map(|(i, _)| i).collect();
-    if sel.len() < 2 { return; }
-    let x0 = sel.iter().map(|&i| parent.children[i].transform.x).fold(f64::INFINITY, f64::min);
-    let y0 = sel.iter().map(|&i| parent.children[i].transform.y).fold(f64::INFINITY, f64::min);
-    let x1 = sel.iter().map(|&i| parent.children[i].transform.x + parent.children[i].w).fold(f64::NEG_INFINITY, f64::max);
-    let y1 = sel.iter().map(|&i| parent.children[i].transform.y + parent.children[i].h).fold(f64::NEG_INFINITY, f64::max);
+    let sel: Vec<usize> = parent
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| ids.contains(&c.id))
+        .map(|(i, _)| i)
+        .collect();
+    if sel.len() < 2 {
+        return;
+    }
+    let x0 = sel
+        .iter()
+        .map(|&i| parent.children[i].transform.x)
+        .fold(f64::INFINITY, f64::min);
+    let y0 = sel
+        .iter()
+        .map(|&i| parent.children[i].transform.y)
+        .fold(f64::INFINITY, f64::min);
+    let x1 = sel
+        .iter()
+        .map(|&i| parent.children[i].transform.x + parent.children[i].w)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let y1 = sel
+        .iter()
+        .map(|&i| parent.children[i].transform.y + parent.children[i].h)
+        .fold(f64::NEG_INFINITY, f64::max);
     for &i in &sel {
         let c = &mut parent.children[i];
         match kind {
@@ -34,11 +59,27 @@ pub fn align(parent: &mut Node, ids: &[String], kind: AlignKind) {
 
 /// Phase 2.11: equal spacing along an axis (equal spacing distribution).
 pub fn distribute_horizontal(parent: &mut Node, ids: &[String]) {
-    let mut sel: Vec<usize> = parent.children.iter().enumerate().filter(|(_, c)| ids.contains(&c.id)).map(|(i, _)| i).collect();
-    if sel.len() < 3 { return; }
-    sel.sort_by(|&a, &b| parent.children[a].transform.x.partial_cmp(&parent.children[b].transform.x).unwrap());
-    let first = sel[0]; let last = *sel.last().unwrap();
-    let span = (parent.children[last].transform.x + parent.children[last].w) - parent.children[first].transform.x;
+    let mut sel: Vec<usize> = parent
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| ids.contains(&c.id))
+        .map(|(i, _)| i)
+        .collect();
+    if sel.len() < 3 {
+        return;
+    }
+    sel.sort_by(|&a, &b| {
+        parent.children[a]
+            .transform
+            .x
+            .partial_cmp(&parent.children[b].transform.x)
+            .unwrap()
+    });
+    let first = sel[0];
+    let last = *sel.last().unwrap();
+    let span = (parent.children[last].transform.x + parent.children[last].w)
+        - parent.children[first].transform.x;
     let total_w: f64 = sel.iter().map(|&i| parent.children[i].w).sum();
     let gap = (span - total_w) / (sel.len() as f64 - 1.0);
     let mut cursor = parent.children[first].transform.x;
@@ -48,4 +89,3 @@ pub fn distribute_horizontal(parent: &mut Node, ids: &[String]) {
         parent.children[i].dirty = true;
     }
 }
-

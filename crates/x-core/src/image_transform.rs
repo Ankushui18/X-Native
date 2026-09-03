@@ -26,8 +26,12 @@ pub struct ResolvedImage {
 /// THE canonical fit/placement resolution. Mirrors were removed from the
 /// sinks; change behavior HERE and every target follows.
 pub fn resolve_image_placement(
-    fit: ImageFit, placement: &ImagePlacement,
-    w: f64, h: f64, iw: f64, ih: f64,
+    fit: ImageFit,
+    placement: &ImagePlacement,
+    w: f64,
+    h: f64,
+    iw: f64,
+    ih: f64,
 ) -> ResolvedImage {
     let (w, h) = (w.max(0.001), h.max(0.001));
     let (iw, ih) = (iw.max(0.001), ih.max(0.001));
@@ -35,8 +39,13 @@ pub fn resolve_image_placement(
     let (fx, fy) = placement.focal;
     // flip = mirror inside the node box, applied OUTSIDE the fit math so
     // focal semantics stay in unflipped space (matches the canvas sink)
-    let flip = Affine::translate((if placement.flip_h { w } else { 0.0 }, if placement.flip_v { h } else { 0.0 }))
-        * Affine::scale_non_uniform(if placement.flip_h { -1.0 } else { 1.0 }, if placement.flip_v { -1.0 } else { 1.0 });
+    let flip = Affine::translate((
+        if placement.flip_h { w } else { 0.0 },
+        if placement.flip_v { h } else { 0.0 },
+    )) * Affine::scale_non_uniform(
+        if placement.flip_h { -1.0 } else { 1.0 },
+        if placement.flip_v { -1.0 } else { 1.0 },
+    );
 
     let draws = match fit {
         ImageFit::Fill => {
@@ -64,7 +73,10 @@ pub fn resolve_image_placement(
             let mut v = Vec::with_capacity((nx * ny) as usize);
             for ty in 0..ny {
                 for tx in 0..nx {
-                    v.push(flip * Affine::translate((tx as f64 * tw, ty as f64 * th)) * Affine::scale(zoom));
+                    v.push(
+                        flip * Affine::translate((tx as f64 * tw, ty as f64 * th))
+                            * Affine::scale(zoom),
+                    );
                 }
             }
             v
@@ -85,7 +97,14 @@ mod tests {
 
     #[test]
     fn fill_stretches_image_to_box() {
-        let r = resolve_image_placement(ImageFit::Fill, &ImagePlacement::default(), 200.0, 100.0, 50.0, 50.0);
+        let r = resolve_image_placement(
+            ImageFit::Fill,
+            &ImagePlacement::default(),
+            200.0,
+            100.0,
+            50.0,
+            50.0,
+        );
         assert_eq!(r.draws.len(), 1);
         assert_eq!(map(&r.draws[0], 0.0, 0.0), (0.0, 0.0));
         assert_eq!(map(&r.draws[0], 50.0, 50.0), (200.0, 100.0));
@@ -94,7 +113,14 @@ mod tests {
     #[test]
     fn fit_letterboxes_centered_by_default() {
         // 100x100 image into 200x100 box: s=1, centered horizontally
-        let r = resolve_image_placement(ImageFit::Fit, &ImagePlacement::default(), 200.0, 100.0, 100.0, 100.0);
+        let r = resolve_image_placement(
+            ImageFit::Fit,
+            &ImagePlacement::default(),
+            200.0,
+            100.0,
+            100.0,
+            100.0,
+        );
         assert_eq!(map(&r.draws[0], 0.0, 0.0), (50.0, 0.0));
         assert_eq!(map(&r.draws[0], 100.0, 100.0), (150.0, 100.0));
     }
@@ -102,28 +128,63 @@ mod tests {
     #[test]
     fn crop_covers_and_focal_selects_visible_region() {
         // 100x100 image into 200x100 box: s=2 -> image spans 200x200
-        let centered = resolve_image_placement(ImageFit::Crop, &ImagePlacement::default(), 200.0, 100.0, 100.0, 100.0);
-        assert_eq!(map(&centered.draws[0], 0.0, 0.0), (0.0, -50.0), "center crop hides 50px top+bottom");
-        let top = ImagePlacement { focal: (0.5, 0.0), ..Default::default() };
+        let centered = resolve_image_placement(
+            ImageFit::Crop,
+            &ImagePlacement::default(),
+            200.0,
+            100.0,
+            100.0,
+            100.0,
+        );
+        assert_eq!(
+            map(&centered.draws[0], 0.0, 0.0),
+            (0.0, -50.0),
+            "center crop hides 50px top+bottom"
+        );
+        let top = ImagePlacement {
+            focal: (0.5, 0.0),
+            ..Default::default()
+        };
         let r = resolve_image_placement(ImageFit::Crop, &top, 200.0, 100.0, 100.0, 100.0);
-        assert_eq!(map(&r.draws[0], 0.0, 0.0), (0.0, 0.0), "focal 0 pins the top edge");
+        assert_eq!(
+            map(&r.draws[0], 0.0, 0.0),
+            (0.0, 0.0),
+            "focal 0 pins the top edge"
+        );
     }
 
     #[test]
     fn tile_emits_grid_and_zoom_scales_tiles() {
-        let r = resolve_image_placement(ImageFit::Tile, &ImagePlacement::default(), 100.0, 100.0, 25.0, 50.0);
+        let r = resolve_image_placement(
+            ImageFit::Tile,
+            &ImagePlacement::default(),
+            100.0,
+            100.0,
+            25.0,
+            50.0,
+        );
         assert_eq!(r.draws.len(), 4 * 2, "4 cols x 2 rows");
         // second column starts one tile over
         assert_eq!(map(&r.draws[1], 0.0, 0.0), (25.0, 0.0));
-        let zoomed = ImagePlacement { scale: 2.0, ..Default::default() };
+        let zoomed = ImagePlacement {
+            scale: 2.0,
+            ..Default::default()
+        };
         let r2 = resolve_image_placement(ImageFit::Tile, &zoomed, 100.0, 100.0, 25.0, 50.0);
         assert_eq!(r2.draws.len(), 2, "2x zoom halves the grid");
-        assert_eq!(map(&r2.draws[0], 25.0, 50.0), (50.0, 100.0), "tile drawn at 2x");
+        assert_eq!(
+            map(&r2.draws[0], 25.0, 50.0),
+            (50.0, 100.0),
+            "tile drawn at 2x"
+        );
     }
 
     #[test]
     fn flips_mirror_inside_the_box() {
-        let ph = ImagePlacement { flip_h: true, ..Default::default() };
+        let ph = ImagePlacement {
+            flip_h: true,
+            ..Default::default()
+        };
         let r = resolve_image_placement(ImageFit::Fill, &ph, 200.0, 100.0, 50.0, 50.0);
         // image left edge lands on box RIGHT edge
         assert_eq!(map(&r.draws[0], 0.0, 0.0), (200.0, 0.0));

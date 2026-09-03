@@ -47,7 +47,9 @@ pub fn backfill_uuids(root: &Node, out: &mut std::collections::BTreeMap<String, 
     fn walk(n: &Node, path: &str, out: &mut std::collections::BTreeMap<String, String>) {
         let p = format!("{path}/{}", n.id);
         out.entry(p.clone()).or_insert_with(|| fnv1a128(&p));
-        for c in &n.children { walk(c, &p, out); }
+        for c in &n.children {
+            walk(c, &p, out);
+        }
     }
     walk(root, "", out);
 }
@@ -58,29 +60,65 @@ pub fn backfill_uuids(root: &Node, out: &mut std::collections::BTreeMap<String, 
 /// engine payload reuses the v1 node serializer (already key-sorted).
 pub fn save_x_v2(d: &DocumentV2) -> String {
     let inner = save_x(&d.doc); // {"format":..,"version":1,...}
-    // strip v1 envelope, keep from "variables" on
-    let payload = inner.strip_prefix("{\"format\":\"x-native\",\"version\":1,").unwrap_or(&inner);
+                                // strip v1 envelope, keep from "variables" on
+    let payload = inner
+        .strip_prefix("{\"format\":\"x-native\",\"version\":1,")
+        .unwrap_or(&inner);
     let mut out = String::from("{\"format\":\"x-native\",\"version\":2,");
     out.push_str(&format!(
         "\"metadata\":{{\"name\":\"{}\",\"uuid\":\"{}\",\"app_version\":\"{}\"}},",
-        esc(&d.metadata.name), esc(&d.metadata.uuid), esc(&d.metadata.app_version)));
+        esc(&d.metadata.name),
+        esc(&d.metadata.uuid),
+        esc(&d.metadata.app_version)
+    ));
     out.push_str("\"fonts\":[");
-    out.push_str(&d.fonts.iter().map(|(f, s, src)| format!(
-        "{{\"family\":\"{}\",\"style\":\"{}\",\"source\":\"{}\"}}", esc(f), esc(s), esc(src)
-    )).collect::<Vec<_>>().join(","));
+    out.push_str(
+        &d.fonts
+            .iter()
+            .map(|(f, s, src)| {
+                format!(
+                    "{{\"family\":\"{}\",\"style\":\"{}\",\"source\":\"{}\"}}",
+                    esc(f),
+                    esc(s),
+                    esc(src)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+    );
     out.push_str("],\"assets\":[");
-    out.push_str(&d.assets.iter().map(|(i, k, sha, href)| format!(
-        "{{\"id\":\"{}\",\"kind\":\"{}\",\"sha256\":\"{}\",\"href\":\"{}\"}}", esc(i), esc(k), esc(sha), esc(href)
-    )).collect::<Vec<_>>().join(","));
+    out.push_str(
+        &d.assets
+            .iter()
+            .map(|(i, k, sha, href)| {
+                format!(
+                    "{{\"id\":\"{}\",\"kind\":\"{}\",\"sha256\":\"{}\",\"href\":\"{}\"}}",
+                    esc(i),
+                    esc(k),
+                    esc(sha),
+                    esc(href)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+    );
     out.push_str("],\"uuids\":{");
-    out.push_str(&d.uuids.iter().map(|(k, v)| format!("\"{}\":\"{}\"", esc(k), esc(v))).collect::<Vec<_>>().join(","));
+    out.push_str(
+        &d.uuids
+            .iter()
+            .map(|(k, v)| format!("\"{}\":\"{}\"", esc(k), esc(v)))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
     out.push_str("},");
     out.push_str(payload);
     out
 }
 
 fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
 /// The migration chain: index N migrates schema vN+1 -> vN+2.
@@ -93,11 +131,15 @@ pub const MIGRATIONS: &[(u32, Migration)] = &[(1, migrate_v1_to_v2)];
 pub fn load_x_any(text: &str) -> Result<DocumentV2, String> {
     let mut version = sniff_version(text)?;
     if version > SCHEMA_VERSION {
-        return Err(format!("file schema v{version} is newer than supported v{SCHEMA_VERSION}"));
+        return Err(format!(
+            "file schema v{version} is newer than supported v{SCHEMA_VERSION}"
+        ));
     }
     let mut current = text.to_string();
     while version < SCHEMA_VERSION {
-        let step = MIGRATIONS.iter().find(|(from, _)| *from == version)
+        let step = MIGRATIONS
+            .iter()
+            .find(|(from, _)| *from == version)
             .ok_or_else(|| format!("no migration from v{version}"))?;
         current = (step.1)(&current)?;
         version += 1;
@@ -119,17 +161,26 @@ pub fn sniff_version(text: &str) -> Result<u32, String> {
     let i = text.find(key).ok_or("no version field")?;
     let rest = &text[i + key.len()..];
     let end = rest.find([',', '}']).ok_or("bad version")?;
-    rest[..end].trim().parse().map_err(|_| "bad version number".into())
+    rest[..end]
+        .trim()
+        .parse()
+        .map_err(|_| "bad version number".into())
 }
 
 /// Pure migration step: v1 -> v2 (metadata + deterministic uuid backfill).
 pub fn migrate_v1_to_v2(v1_text: &str) -> Result<String, String> {
     let doc = load_x(v1_text)?;
     let mut d2 = DocumentV2 {
-        metadata: Metadata { name: "Untitled".into(), uuid: fnv1a128(v1_text), app_version: env!("CARGO_PKG_VERSION").into() },
+        metadata: Metadata {
+            name: "Untitled".into(),
+            uuid: fnv1a128(v1_text),
+            app_version: env!("CARGO_PKG_VERSION").into(),
+        },
         ..Default::default()
     };
-    for p in &doc.pages { backfill_uuids(p, &mut d2.uuids); }
+    for p in &doc.pages {
+        backfill_uuids(p, &mut d2.uuids);
+    }
     d2.doc = doc;
     Ok(save_x_v2(&d2))
 }
@@ -140,7 +191,10 @@ fn load_v2(text: &str) -> Result<DocumentV2, String> {
     let engine_text = text.replacen("\"version\":2,", "\"version\":1,", 1);
     // cut envelope sections the v1 loader doesn't know (it skips unknown keys)
     let doc = load_x(&engine_text)?;
-    let mut d2 = DocumentV2 { doc, ..Default::default() };
+    let mut d2 = DocumentV2 {
+        doc,
+        ..Default::default()
+    };
     d2.metadata.name = grab_str(text, "\"metadata\":{\"name\":\"").unwrap_or_default();
     d2.metadata.uuid = grab_str(text, "\"uuid\":\"").unwrap_or_default();
     d2.metadata.app_version = grab_str(text, "\"app_version\":\"").unwrap_or_default();
@@ -169,7 +223,10 @@ fn grab_str(text: &str, key: &str) -> Option<String> {
 // ------------------------------------------------------------- validation
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Issue { pub code: &'static str, pub message: String }
+pub struct Issue {
+    pub code: &'static str,
+    pub message: String,
+}
 
 pub fn validate(doc: &Document) -> Vec<Issue> {
     let mut issues = vec![];
@@ -178,27 +235,49 @@ pub fn validate(doc: &Document) -> Vec<Issue> {
         let mut seen = std::collections::HashSet::new();
         fn ids(n: &Node, seen: &mut std::collections::HashSet<String>, issues: &mut Vec<Issue>) {
             if !seen.insert(n.id.clone()) {
-                issues.push(Issue { code: "E001", message: format!("duplicate node id '{}'", n.id) });
+                issues.push(Issue {
+                    code: "E001",
+                    message: format!("duplicate node id '{}'", n.id),
+                });
             }
-            for c in &n.children { ids(c, seen, issues); }
+            for c in &n.children {
+                ids(c, seen, issues);
+            }
         }
         ids(page, &mut seen, &mut issues);
 
         // component registry for E002/E003
         let mut masters: std::collections::HashMap<String, &Node> = Default::default();
         fn collect<'a>(n: &'a Node, m: &mut std::collections::HashMap<String, &'a Node>) {
-            if let NodeKind::Component { name } = &n.kind { m.insert(name.clone(), n); }
-            for c in &n.children { collect(c, m); }
+            if let NodeKind::Component { name } = &n.kind {
+                m.insert(name.clone(), n);
+            }
+            for c in &n.children {
+                collect(c, m);
+            }
         }
         collect(page, &mut masters);
 
-        fn scan(n: &Node, masters: &std::collections::HashMap<String, &Node>, vars: &Variables, issues: &mut Vec<Issue>) {
+        fn scan(
+            n: &Node,
+            masters: &std::collections::HashMap<String, &Node>,
+            vars: &Variables,
+            issues: &mut Vec<Issue>,
+        ) {
             if let NodeKind::Instance { component } = &n.kind {
                 match masters.get(component) {
-                    None => issues.push(Issue { code: "E002", message: format!("instance '{}' references missing component '{component}'", n.id) }),
+                    None => issues.push(Issue {
+                        code: "E002",
+                        message: format!(
+                            "instance '{}' references missing component '{component}'",
+                            n.id
+                        ),
+                    }),
                     Some(master) => {
                         for target in n.overrides.keys() {
-                            fn has(m: &Node, id: &str) -> bool { m.id == id || m.children.iter().any(|c| has(c, id)) }
+                            fn has(m: &Node, id: &str) -> bool {
+                                m.id == id || m.children.iter().any(|c| has(c, id))
+                            }
                             if !master.children.iter().any(|c| has(c, target)) {
                                 issues.push(Issue { code: "E003", message: format!("override target '{target}' not found in component '{component}'") });
                             }
@@ -208,13 +287,24 @@ pub fn validate(doc: &Document) -> Vec<Issue> {
             }
             for (prop, var) in &n.bindings {
                 if !vars.numbers.contains_key(var) && !vars.colors.contains_key(var) {
-                    issues.push(Issue { code: "E004", message: format!("binding {prop} -> undefined variable '{var}' on '{}'", n.id) });
+                    issues.push(Issue {
+                        code: "E004",
+                        message: format!(
+                            "binding {prop} -> undefined variable '{var}' on '{}'",
+                            n.id
+                        ),
+                    });
                 }
             }
             if !n.w.is_finite() || !n.h.is_finite() || n.w < 0.0 || n.h < 0.0 {
-                issues.push(Issue { code: "E006", message: format!("bad geometry on '{}'", n.id) });
+                issues.push(Issue {
+                    code: "E006",
+                    message: format!("bad geometry on '{}'", n.id),
+                });
             }
-            for c in &n.children { scan(c, masters, vars, issues); }
+            for c in &n.children {
+                scan(c, masters, vars, issues);
+            }
         }
         scan(page, &masters, &doc.variables, &mut issues);
 
@@ -222,10 +312,18 @@ pub fn validate(doc: &Document) -> Vec<Issue> {
         fn protos(n: &Node, pages: &[String], issues: &mut Vec<Issue>) {
             if let Some(p) = &n.prototype {
                 if !pages.iter().any(|pg| pg == &p.destination) {
-                    issues.push(Issue { code: "E005", message: format!("prototype on '{}' targets missing page '{}'", n.id, p.destination) });
+                    issues.push(Issue {
+                        code: "E005",
+                        message: format!(
+                            "prototype on '{}' targets missing page '{}'",
+                            n.id, p.destination
+                        ),
+                    });
                 }
             }
-            for c in &n.children { protos(c, pages, issues); }
+            for c in &n.children {
+                protos(c, pages, issues);
+            }
         }
         let page_ids: Vec<String> = doc.pages.iter().map(|p| p.id.clone()).collect();
         protos(page, &page_ids, &mut issues);
@@ -241,22 +339,33 @@ pub struct RecoveryNote(pub String);
 /// Never-fail loader: longest-valid-prefix by brace balancing, then close.
 pub fn load_x_lenient(text: &str) -> (DocumentV2, Vec<RecoveryNote>) {
     let mut notes = vec![];
-    if let Ok(d) = load_x_any(text) { return (d, notes); }
+    if let Ok(d) = load_x_any(text) {
+        return (d, notes);
+    }
     // brace-balance repair: cut to last position where braces close cleanly
     let bytes = text.as_bytes();
     let (mut depth, mut in_str, mut escp) = (0i32, false, false);
     let mut best_end = 0usize;
     for (i, &b) in bytes.iter().enumerate() {
         if in_str {
-            if escp { escp = false; }
-            else if b == b'\\' { escp = true; }
-            else if b == b'"' { in_str = false; }
+            if escp {
+                escp = false;
+            } else if b == b'\\' {
+                escp = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
             continue;
         }
         match b {
             b'"' => in_str = true,
             b'{' | b'[' => depth += 1,
-            b'}' | b']' => { depth -= 1; if depth >= 0 { best_end = i + 1; } }
+            b'}' | b']' => {
+                depth -= 1;
+                if depth >= 0 {
+                    best_end = i + 1;
+                }
+            }
             _ => {}
         }
     }
@@ -267,25 +376,46 @@ pub fn load_x_lenient(text: &str) -> (DocumentV2, Vec<RecoveryNote>) {
     let (mut in_s, mut esc2) = (false, false);
     let mut closers = vec![];
     for &b in attempt.as_bytes() {
-        if in_s { if esc2 { esc2 = false; } else if b == b'\\' { esc2 = true; } else if b == b'"' { in_s = false; } continue; }
+        if in_s {
+            if esc2 {
+                esc2 = false;
+            } else if b == b'\\' {
+                esc2 = true;
+            } else if b == b'"' {
+                in_s = false;
+            }
+            continue;
+        }
         match b {
             b'"' => in_s = true,
             b'{' => closers.push('}'),
             b'[' => closers.push(']'),
-            b'}' | b']' => { closers.pop(); }
+            b'}' | b']' => {
+                closers.pop();
+            }
             _ => {}
         }
     }
     // drop trailing comma if present
-    while attempt.ends_with(',') || attempt.ends_with(':') { attempt.pop(); notes.push(RecoveryNote("dropped dangling separator".into())); }
-    for c in closers.iter().rev() { attempt.push(*c); }
+    while attempt.ends_with(',') || attempt.ends_with(':') {
+        attempt.pop();
+        notes.push(RecoveryNote("dropped dangling separator".into()));
+    }
+    for c in closers.iter().rev() {
+        attempt.push(*c);
+    }
     match load_x_any(&attempt) {
         Ok(d) => {
-            notes.push(RecoveryNote(format!("recovered by truncating {} byte(s)", text.len() - best_end)));
+            notes.push(RecoveryNote(format!(
+                "recovered by truncating {} byte(s)",
+                text.len() - best_end
+            )));
             (d, notes)
         }
         Err(e) => {
-            notes.push(RecoveryNote(format!("unrecoverable ({e}); returning empty document")));
+            notes.push(RecoveryNote(format!(
+                "unrecoverable ({e}); returning empty document"
+            )));
             (DocumentV2::default(), notes)
         }
     }
@@ -296,7 +426,9 @@ pub fn load_x_lenient(text: &str) -> (DocumentV2, Vec<RecoveryNote>) {
 /// Locate pages without a full parse: returns (page id, byte range).
 pub fn list_pages(text: &str) -> Vec<(String, std::ops::Range<usize>)> {
     let mut out = vec![];
-    let Some(pages_at) = text.find("\"pages\":[") else { return out };
+    let Some(pages_at) = text.find("\"pages\":[") else {
+        return out;
+    };
     let body_start = pages_at + 9;
     let bytes = text.as_bytes();
     let (mut i, mut depth, mut in_str, mut escp) = (body_start, 0i32, false, false);
@@ -304,11 +436,22 @@ pub fn list_pages(text: &str) -> Vec<(String, std::ops::Range<usize>)> {
     while i < bytes.len() {
         let b = bytes[i];
         if in_str {
-            if escp { escp = false; } else if b == b'\\' { escp = true; } else if b == b'"' { in_str = false; }
+            if escp {
+                escp = false;
+            } else if b == b'\\' {
+                escp = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
         } else {
             match b {
                 b'"' => in_str = true,
-                b'{' => { if depth == 0 { obj_start = Some(i); } depth += 1; }
+                b'{' => {
+                    if depth == 0 {
+                        obj_start = Some(i);
+                    }
+                    depth += 1;
+                }
                 b'}' => {
                     depth -= 1;
                     if depth == 0 {
@@ -336,7 +479,9 @@ pub fn load_page(text: &str, page_id: &str) -> Option<Node> {
         "{{\"format\":\"x-native\",\"version\":1,\"pages\":[{}]}}",
         &text[range]
     );
-    load_x(&single).ok().and_then(|d| d.pages.into_iter().next())
+    load_x(&single)
+        .ok()
+        .and_then(|d| d.pages.into_iter().next())
 }
 
 #[cfg(test)]
@@ -347,10 +492,19 @@ mod tests {
     fn sample_v1() -> String {
         let mut doc = Document::new();
         doc.variables.numbers.insert("gap".into(), 12.0);
-        doc.pages.push(Node::frame("page-1", 400.0, 300.0)
-            .child(Node::rect("r1", 10.0, 10.0, 50.0, 50.0, Color::from_rgb8(255, 0, 0))));
-        doc.pages.push(Node::frame("page-2", 400.0, 300.0)
-            .child(Node::text("t1", 0.0, 0.0, 100.0, 20.0, "hi")));
+        doc.pages
+            .push(Node::frame("page-1", 400.0, 300.0).child(Node::rect(
+                "r1",
+                10.0,
+                10.0,
+                50.0,
+                50.0,
+                Color::from_rgb8(255, 0, 0),
+            )));
+        doc.pages.push(
+            Node::frame("page-2", 400.0, 300.0)
+                .child(Node::text("t1", 0.0, 0.0, 100.0, 20.0, "hi")),
+        );
         save_x(&doc)
     }
 
@@ -408,20 +562,34 @@ mod tests {
     fn validation_catches_all_error_classes() {
         let mut doc = Document::new();
         let mut comp = Node::component("c", "Button", 100.0, 40.0);
-        comp.children.push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::BLACK));
+        comp.children
+            .push(Node::rect("bg", 0.0, 0.0, 100.0, 40.0, Color::BLACK));
         let mut bad_inst = Node::instance("i-ghost", "Ghost", 0.0, 0.0, 10.0, 10.0);
         bad_inst.overrides.insert("nope".into(), "#ff0000".into());
         let mut ok_inst = Node::instance("i-ok", "Button", 0.0, 0.0, 10.0, 10.0);
-        ok_inst.overrides.insert("missing-target".into(), "#ff0000".into());
+        ok_inst
+            .overrides
+            .insert("missing-target".into(), "#ff0000".into());
         let mut bound = Node::rect("b", 0.0, 0.0, 10.0, 10.0, Color::BLACK);
-        bound.bindings.insert("radius".into(), "undefined-var".into());
+        bound
+            .bindings
+            .insert("radius".into(), "undefined-var".into());
         let mut nan = Node::rect("n", 0.0, 0.0, 10.0, 10.0, Color::BLACK);
         nan.w = f64::NAN;
-        doc.pages.push(Node::frame("page", 400.0, 300.0)
-            .child(comp).child(bad_inst).child(ok_inst).child(bound).child(nan)
-            .child(Node::rect("dup", 0.0, 0.0, 1.0, 1.0, Color::BLACK))
-            .child(Node::rect("dup", 0.0, 0.0, 1.0, 1.0, Color::BLACK))
-            .child(Node::rect("p", 0.0, 0.0, 1.0, 1.0, Color::BLACK).prototype("no-such-page", 100)));
+        doc.pages.push(
+            Node::frame("page", 400.0, 300.0)
+                .child(comp)
+                .child(bad_inst)
+                .child(ok_inst)
+                .child(bound)
+                .child(nan)
+                .child(Node::rect("dup", 0.0, 0.0, 1.0, 1.0, Color::BLACK))
+                .child(Node::rect("dup", 0.0, 0.0, 1.0, 1.0, Color::BLACK))
+                .child(
+                    Node::rect("p", 0.0, 0.0, 1.0, 1.0, Color::BLACK)
+                        .prototype("no-such-page", 100),
+                ),
+        );
         let issues = validate(&doc);
         let codes: Vec<&str> = issues.iter().map(|i| i.code).collect();
         for c in ["E001", "E002", "E003", "E004", "E005", "E006"] {
@@ -439,7 +607,10 @@ mod tests {
         let cut = &v1[..v1.len() * 7 / 10];
         let (doc, notes) = load_x_lenient(cut);
         assert!(!notes.is_empty());
-        assert!(!doc.doc.pages.is_empty(), "should salvage at least one page");
+        assert!(
+            !doc.doc.pages.is_empty(),
+            "should salvage at least one page"
+        );
         // garbage-append also survives
         let dirty = format!("{v1}garbage trailing bytes!!!");
         let (doc2, _) = load_x_lenient(&dirty);

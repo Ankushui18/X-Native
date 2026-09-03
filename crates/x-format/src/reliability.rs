@@ -26,7 +26,10 @@ use x_core::Document;
 /// rename cannot cross filesystems.
 pub fn atomic_write(path: &str, contents: &[u8]) -> std::io::Result<()> {
     let p = Path::new(path);
-    let dir = p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let dir = p
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     let tmp = dir.join(format!(
         ".{}.tmp{}",
         p.file_name().and_then(|n| n.to_str()).unwrap_or("out"),
@@ -43,7 +46,9 @@ pub fn atomic_write(path: &str, contents: &[u8]) -> std::io::Result<()> {
 
 // ---------------------------------------------------------------- autosave
 
-pub fn autosave_path(doc_path: &str) -> String { format!("{doc_path}.autosave") }
+pub fn autosave_path(doc_path: &str) -> String {
+    format!("{doc_path}.autosave")
+}
 
 /// Atomic autosave snapshot. Returns bytes written.
 pub fn autosave(doc_path: &str, serialized: &str) -> std::io::Result<usize> {
@@ -67,7 +72,9 @@ pub fn check_crash_recovery(doc_path: &str) -> Option<String> {
 
 pub const BACKUP_DEPTH: usize = 3;
 
-fn backup_path(doc_path: &str, n: usize) -> String { format!("{doc_path}.bak{n}") }
+fn backup_path(doc_path: &str, n: usize) -> String {
+    format!("{doc_path}.bak{n}")
+}
 
 /// Rotate backups before an explicit save: bak2->bak3, bak1->bak2,
 /// current doc -> bak1. Recovery HISTORY, not just latest.
@@ -82,7 +89,8 @@ pub fn rotate_backups(doc_path: &str) {
 
 /// List existing backups, newest first.
 pub fn list_backups(doc_path: &str) -> Vec<String> {
-    (1..=BACKUP_DEPTH).map(|n| backup_path(doc_path, n))
+    (1..=BACKUP_DEPTH)
+        .map(|n| backup_path(doc_path, n))
         .filter(|p| Path::new(p).exists())
         .collect()
 }
@@ -115,7 +123,9 @@ pub fn open_with_recovery(doc_path: &str) -> Option<(Document, OpenOutcome)> {
     if let Some(t) = &text {
         // 1. exact
         if let Ok(d) = crate::load_x(t) {
-            if !d.pages.is_empty() { return Some((d, OpenOutcome::Clean)); }
+            if !d.pages.is_empty() {
+                return Some((d, OpenOutcome::Clean));
+            }
         }
         // 2. lenient
         let (d2, notes) = crate::load_x_lenient(t);
@@ -168,14 +178,30 @@ pub fn push_recent(doc_path: &str) {
     list.retain(|e| e != doc_path);
     list.insert(0, doc_path.to_string());
     list.truncate(8);
-    if let Some(dir) = p.parent() { let _ = std::fs::create_dir_all(dir); }
-    let _ = atomic_write(p.to_str().unwrap_or("recent.txt"), list.join("\n").as_bytes());
+    if let Some(dir) = p.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = atomic_write(
+        p.to_str().unwrap_or("recent.txt"),
+        list.join("\n").as_bytes(),
+    );
 }
 
 pub fn recent_files() -> Vec<String> {
-    std::fs::read_to_string(recent_path()).map(|t|
-        t.lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect()
-    ).unwrap_or_default()
+    std::fs::read_to_string(recent_path())
+        .map(|t| {
+            t.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Clear the recent-documents MRU list (File ▸ Clear Recent).
+pub fn clear_recent() {
+    let p = recent_path();
+    let _ = std::fs::remove_file(&p);
 }
 
 #[cfg(test)]
@@ -184,13 +210,24 @@ mod tests {
     use x_core::{Color, Node};
 
     fn tmp(name: &str) -> String {
-        format!("{}/xn-rel-{}-{name}", std::env::temp_dir().display(), std::process::id())
+        format!(
+            "{}/xn-rel-{}-{name}",
+            std::env::temp_dir().display(),
+            std::process::id()
+        )
     }
 
     fn doc() -> Document {
         let mut d = Document::new();
-        d.pages.push(Node::frame("p", 100.0, 100.0)
-            .child(Node::rect("r", 0.0, 0.0, 10.0, 10.0, Color::BLACK)));
+        d.pages
+            .push(Node::frame("p", 100.0, 100.0).child(Node::rect(
+                "r",
+                0.0,
+                0.0,
+                10.0,
+                10.0,
+                Color::BLACK,
+            )));
         d
     }
 
@@ -201,7 +238,8 @@ mod tests {
         atomic_write(&p, b"two").unwrap();
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "two");
         let dir = std::path::Path::new(&p).parent().unwrap();
-        let leftovers = std::fs::read_dir(dir).unwrap()
+        let leftovers = std::fs::read_dir(dir)
+            .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().contains("atomic.x.tmp"))
             .count();
@@ -246,9 +284,14 @@ mod tests {
         // fully garbage main file -> backup is the only path
         atomic_write(&p, b"@@@@ not json at all").unwrap();
         let (d2, outcome2) = open_with_recovery(&p).unwrap();
-        assert!(matches!(outcome2, OpenOutcome::RecoveredFromBackup(_)), "got {outcome2:?}");
+        assert!(
+            matches!(outcome2, OpenOutcome::RecoveredFromBackup(_)),
+            "got {outcome2:?}"
+        );
         assert!(!d2.pages.is_empty());
-        for b in list_backups(&p) { let _ = std::fs::remove_file(b); }
+        for b in list_backups(&p) {
+            let _ = std::fs::remove_file(b);
+        }
         let _ = std::fs::remove_file(&p);
     }
 
@@ -266,19 +309,33 @@ mod tests {
         let b1 = std::fs::read_to_string(&baks[0]).unwrap();
         let b2 = std::fs::read_to_string(&baks[1]).unwrap();
         assert_ne!(b1, b2, "distinct generations retained");
-        for b in baks { let _ = std::fs::remove_file(b); }
+        for b in baks {
+            let _ = std::fs::remove_file(b);
+        }
         let _ = std::fs::remove_file(&p);
     }
 
     #[test]
     fn legacy_hash_upgrade_converges_to_verified() {
-        use x_core::{Library, LibraryDependency, Style, Paint};
-        let mut lib = Library { library_id: "L".into(), name: "L".into(), version: 1, ..Default::default() };
-        lib.styles.insert("s".into(), Style::Paint { fill: Paint::Solid(Color::BLACK) });
+        use x_core::{Library, LibraryDependency, Paint, Style};
+        let mut lib = Library {
+            library_id: "L".into(),
+            name: "L".into(),
+            version: 1,
+            ..Default::default()
+        };
+        lib.styles.insert(
+            "s".into(),
+            Style::Paint {
+                fill: Paint::Solid(Color::BLACK),
+            },
+        );
         let mut d = doc();
         d.library_deps.push(LibraryDependency {
-            library_id: "L".into(), resolved_version: 1,
-            snapshot_hash: String::new(), source_path: "l.xlib".into(),
+            library_id: "L".into(),
+            resolved_version: 1,
+            snapshot_hash: String::new(),
+            source_path: "l.xlib".into(),
         });
         d.library_snapshots.insert("L".into(), lib);
         // legacy: unhashed

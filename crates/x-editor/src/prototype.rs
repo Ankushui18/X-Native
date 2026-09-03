@@ -1,9 +1,8 @@
-
+#[allow(unused_imports)]
+use crate::*;
 use x_core::kurbo::Point;
 use x_core::peniko::Color;
 use x_core::*;
-#[allow(unused_imports)]
-use crate::*;
 
 // ------------------------------------------------------- prototype playback
 
@@ -16,7 +15,13 @@ pub struct Player<'a> {
     stack: Vec<String>,
 }
 impl<'a> Player<'a> {
-    pub fn new(doc: &'a Node, start: &str) -> Self { Self { doc, current: start.into(), stack: vec![] } }
+    pub fn new(doc: &'a Node, start: &str) -> Self {
+        Self {
+            doc,
+            current: start.into(),
+            stack: vec![],
+        }
+    }
     /// Click at `point` inside the current top-level frame. If a node with a
     /// prototype action is hit, navigate. Returns transition ms if navigated.
     pub fn click(&mut self, point: Point) -> Option<u32> {
@@ -24,22 +29,37 @@ impl<'a> Player<'a> {
         let hit_id = hit_test(frame, point)?;
         // walk up from the hit node until a prototype action is found
         fn action_for<'b>(node: &'b Node, target: &str) -> Option<&'b x_core::PrototypeAction> {
-            if node.id == target { return node.prototype.as_ref(); }
+            if node.id == target {
+                return node.prototype.as_ref();
+            }
             for c in &node.children {
-                if let Some(a) = action_for(c, target) { return Some(a); }
-                if find(c, target).is_some() { return c.prototype.as_ref().or_else(|| action_for(c, target)); }
+                if let Some(a) = action_for(c, target) {
+                    return Some(a);
+                }
+                if find(c, target).is_some() {
+                    return c.prototype.as_ref().or_else(|| action_for(c, target));
+                }
             }
             None
         }
-        let act = action_for(frame, &hit_id).or(frame.prototype.as_ref())?.clone();
+        let act = action_for(frame, &hit_id)
+            .or(frame.prototype.as_ref())?
+            .clone();
         if find(self.doc, &act.destination).is_some() {
             self.stack.push(self.current.clone());
             self.current = act.destination;
             Some(act.transition_ms)
-        } else { None }
+        } else {
+            None
+        }
     }
     pub fn back(&mut self) -> bool {
-        if let Some(prev) = self.stack.pop() { self.current = prev; true } else { false }
+        if let Some(prev) = self.stack.pop() {
+            self.current = prev;
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -57,12 +77,18 @@ pub fn smart_animate(from: &Node, to: &Node, t: f64) -> Node {
 
     fn collect<'n>(n: &'n Node, map: &mut std::collections::HashMap<String, &'n Node>) {
         map.insert(n.id.clone(), n);
-        for c in &n.children { collect(c, map); }
+        for c in &n.children {
+            collect(c, map);
+        }
     }
     let mut from_map = std::collections::HashMap::new();
-    for c in &from.children { collect(c, &mut from_map); }
+    for c in &from.children {
+        collect(c, &mut from_map);
+    }
 
-    fn lerp(a: f64, b: f64, t: f64) -> f64 { a + (b - a) * t }
+    fn lerp(a: f64, b: f64, t: f64) -> f64 {
+        a + (b - a) * t
+    }
     fn lerp_color(a: Color, b: Color, t: f64) -> Color {
         // components are linear f32 rgba; interpolate per channel
         let lerp = |x: f32, y: f32| (x as f64 + (y as f64 - x as f64) * t) as f32;
@@ -89,17 +115,25 @@ pub fn smart_animate(from: &Node, to: &Node, t: f64) -> Node {
             // new in `to`: fade in
             node.opacity = (node.opacity as f64 * t) as f32;
         }
-        for c in &mut node.children { blend_tree(c, from_map, t); }
+        for c in &mut node.children {
+            blend_tree(c, from_map, t);
+        }
     }
-    for c in &mut frame.children { blend_tree(c, &from_map, t); }
+    for c in &mut frame.children {
+        blend_tree(c, &from_map, t);
+    }
 
     // nodes that existed in `from` but not in `to`: fade OUT (append ghosts)
     let mut to_ids = std::collections::HashSet::new();
     fn ids(n: &Node, set: &mut std::collections::HashSet<String>) {
         set.insert(n.id.clone());
-        for c in &n.children { ids(c, set); }
+        for c in &n.children {
+            ids(c, set);
+        }
     }
-    for c in &to.children { ids(c, &mut to_ids); }
+    for c in &to.children {
+        ids(c, &mut to_ids);
+    }
     for c in &from.children {
         if !to_ids.contains(&c.id) {
             let mut ghost = c.clone();
@@ -109,4 +143,3 @@ pub fn smart_animate(from: &Node, to: &Node, t: f64) -> Node {
     }
     frame
 }
-

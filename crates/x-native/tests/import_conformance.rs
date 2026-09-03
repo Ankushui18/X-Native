@@ -13,15 +13,17 @@
 //!   * the document round-trips byte-stable through the .x format
 //!   * the render IR produces paint commands (imports actually RENDER)
 
+use std::collections::HashSet;
 use x_native::fileio::{import_figma_json, import_png, import_sketch, import_svg, load_x, save_x};
 use x_native::{build_render_tree, Color, Document, Node, NodeKind, Paint, Variables};
-use std::collections::HashSet;
 
 // ---------------------------------------------------------- shared checks
 
 fn walk<'a>(n: &'a Node, f: &mut dyn FnMut(&'a Node)) {
     f(n);
-    for c in &n.children { walk(c, f); }
+    for c in &n.children {
+        walk(c, f);
+    }
 }
 
 /// The conformance contract. Every importer's output goes through this.
@@ -29,19 +31,38 @@ fn assert_conformant(doc: &Document, source: &str) {
     assert!(!doc.pages.is_empty(), "{source}: no pages");
     let mut ids = HashSet::new();
     for page in &doc.pages {
-        assert!(page.w > 0.0 && page.h > 0.0, "{source}: page {} is {}x{}", page.id, page.w, page.h);
+        assert!(
+            page.w > 0.0 && page.h > 0.0,
+            "{source}: page {} is {}x{}",
+            page.id,
+            page.w,
+            page.h
+        );
         walk(page, &mut |n| {
             assert!(!n.id.is_empty(), "{source}: empty id");
             assert!(ids.insert(n.id.clone()), "{source}: duplicate id {}", n.id);
-            assert!(n.id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ':'),
-                "{source}: unsanitized id {:?}", n.id);
-            assert!((0.0..=1.0).contains(&n.opacity), "{source}: opacity {} on {}", n.opacity, n.id);
+            assert!(
+                n.id.chars()
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ':'),
+                "{source}: unsanitized id {:?}",
+                n.id
+            );
+            assert!(
+                (0.0..=1.0).contains(&n.opacity),
+                "{source}: opacity {} on {}",
+                n.opacity,
+                n.id
+            );
             for v in [n.transform.x, n.transform.y, n.w, n.h, n.transform.rotation] {
                 assert!(v.is_finite(), "{source}: non-finite geometry on {}", n.id);
             }
             if let NodeKind::Text { .. } = n.kind {
-                assert_ne!(n.fill, Paint::Solid(Color::TRANSPARENT),
-                    "{source}: text {} imported transparent", n.id);
+                assert_ne!(
+                    n.fill,
+                    Paint::Solid(Color::TRANSPARENT),
+                    "{source}: text {} imported transparent",
+                    n.id
+                );
             }
         });
     }
@@ -105,7 +126,10 @@ fn sketch_fixture() -> Vec<u8> {
          "frame":{"x":10,"y":90,"width":200,"height":20},
          "attributedString":{"string":"conformance"},"style":{"fills":[]}}
     ]}"#;
-    zip_of(&[("document.json", docjson.as_slice()), ("pages/page-1.json", page.as_bytes())])
+    zip_of(&[
+        ("document.json", docjson.as_slice()),
+        ("pages/page-1.json", page.as_bytes()),
+    ])
 }
 
 const FIGMA_FIXTURE: &str = r##"{
@@ -150,7 +174,10 @@ fn sketch_import_is_conformant() {
     assert_conformant(&doc, "sketch");
     // format-specific spot checks THROUGH the shared contract:
     let page = &doc.pages[0];
-    assert_eq!(page.children[0].fill, Paint::Solid(Color::new([1.0, 0.0, 0.0, 1.0])));
+    assert_eq!(
+        page.children[0].fill,
+        Paint::Solid(Color::new([1.0, 0.0, 0.0, 1.0]))
+    );
     assert_eq!(page.children[0].transform.x, 10.0);
 }
 
@@ -166,7 +193,10 @@ fn svg_import_is_conformant() {
     let mut doc = Document::new();
     doc.pages.push(root);
     assert_conformant(&doc, "svg");
-    assert_eq!(doc.pages[0].children[0].fill, Paint::Solid(Color::from_rgb8(0xff, 0, 0)));
+    assert_eq!(
+        doc.pages[0].children[0].fill,
+        Paint::Solid(Color::from_rgb8(0xff, 0, 0))
+    );
 }
 
 #[test]
@@ -183,22 +213,41 @@ fn same_scene_same_semantics_across_importers() {
     // different source formats must land with identical semantics.
     let sk = import_sketch(&sketch_fixture()).unwrap();
     let fg = import_figma_json(FIGMA_FIXTURE).unwrap();
-    let sv = { let mut d = Document::new(); d.pages.push(import_svg(SVG_FIXTURE).unwrap()); d };
+    let sv = {
+        let mut d = Document::new();
+        d.pages.push(import_svg(SVG_FIXTURE).unwrap());
+        d
+    };
 
     for (name, doc) in [("sketch", &sk), ("figma", &fg), ("svg", &sv)] {
         let page = &doc.pages[0];
         // red rect kept its fill in every format
-        let red = page.children.iter().find(|c| c.fill == Paint::Solid(Color::new([1.0, 0.0, 0.0, 1.0]))
-            || c.fill == Paint::Solid(Color::from_rgb8(0xff, 0, 0)))
+        let red = page
+            .children
+            .iter()
+            .find(|c| {
+                c.fill == Paint::Solid(Color::new([1.0, 0.0, 0.0, 1.0]))
+                    || c.fill == Paint::Solid(Color::from_rgb8(0xff, 0, 0))
+            })
             .unwrap_or_else(|| panic!("{name}: no red rect"));
         assert_eq!((red.w, red.h), (100.0, 50.0), "{name}: rect size");
         // duplicate source ids were deduped the same way (suffix -2)
-        let dedup = page.children.iter().filter(|c| c.id.starts_with("r-1") || c.id.starts_with("1:1")).count();
+        let dedup = page
+            .children
+            .iter()
+            .filter(|c| c.id.starts_with("r-1") || c.id.starts_with("1:1"))
+            .count();
         assert_eq!(dedup, 2, "{name}: both rects present after id dedup");
         // text imported black in every format
-        let text = page.children.iter().find(|c| matches!(c.kind, NodeKind::Text { .. }))
+        let text = page
+            .children
+            .iter()
+            .find(|c| matches!(c.kind, NodeKind::Text { .. }))
             .unwrap_or_else(|| panic!("{name}: no text node"));
         assert_eq!(text.fill, Paint::Solid(Color::BLACK), "{name}: text fill");
-        match &text.kind { NodeKind::Text { text: t } => assert_eq!(t, "conformance"), _ => unreachable!() }
+        match &text.kind {
+            NodeKind::Text { text: t } => assert_eq!(t, "conformance"),
+            _ => unreachable!(),
+        }
     }
 }

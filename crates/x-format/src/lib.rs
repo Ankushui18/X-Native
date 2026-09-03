@@ -7,33 +7,39 @@
 //! A binary (postcard/flatbuffers) format can replace the encoding behind
 //! the same save/load API later.
 
-pub mod serialize;
+pub(crate) mod b64;
 pub mod deserialize;
+pub mod figma;
+pub mod import_ir;
+pub(crate) mod json;
+pub mod png_import;
+pub mod reliability;
+pub mod serialize;
+pub mod sketch;
 pub mod svg_export;
 pub mod svg_import;
-pub mod v2;
 #[cfg(test)]
 mod tests_mod;
-pub(crate) mod json;
-pub(crate) mod b64;
+pub mod v2;
 pub mod xlib;
-pub mod reliability;
 pub(crate) mod zipfile;
-pub mod sketch;
-pub mod import_ir;
-pub mod figma;
-pub mod png_import;
 
-pub use serialize::*;
 pub use deserialize::*;
+pub use figma::{export_figma_json, import_figma_json};
+pub use import_ir::{lower, lower_with_report, ImportDoc, ImportKind, ImportNode, ImportReport};
+pub use png_import::import_png;
+pub use reliability::*;
+pub use serialize::*;
+pub use sketch::{export_sketch, import_sketch, import_sketch_with_report};
 pub use svg_export::*;
 pub use svg_import::*;
-pub use sketch::{import_sketch, import_sketch_with_report, export_sketch};
-pub use import_ir::{lower, lower_with_report, ImportDoc, ImportNode, ImportKind, ImportReport};
-pub use figma::{import_figma_json, export_figma_json};
-pub use png_import::import_png;
-pub use xlib::{save_xlib, load_xlib, library_hash, verify_dependency, verify_document_libraries, IntegrityStatus};
-pub use reliability::*;
-pub use v2::{load_checked, load_x_any, save_x_v2, load_x_lenient, validate, list_pages, load_page, migrate_v1_to_v2, DocumentV2, Metadata, Issue, SCHEMA_VERSION};
+pub use v2::{
+    list_pages, load_checked, load_page, load_x_any, load_x_lenient, migrate_v1_to_v2, save_x_v2,
+    validate, DocumentV2, Issue, Metadata, SCHEMA_VERSION,
+};
+pub use xlib::{
+    library_hash, load_xlib, save_xlib, verify_dependency, verify_document_libraries,
+    IntegrityStatus,
+};
 
 pub const X_FORMAT_VERSION: u32 = 1;
