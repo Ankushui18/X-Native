@@ -8,7 +8,7 @@
 ## Principles
 
 1. **Canvas first** — chrome is quiet; the artboard is the hero  
-2. **One accent** — Signal teal for selection, focus, primary actions only  
+2. **One accent** — Electric blue for selection, focus, primary actions only  
 3. **Progressive disclosure** — inspector shows what the selection needs  
 4. **Native density** — 24–28px rows, 11–12px type, 8–12px padding  
 5. **Token-only chrome** — no raw hex outside `theme.rs`  
@@ -42,13 +42,13 @@
 | `text.faint` | `#6B7385` | Captions, disabled-ish |
 | `text.onAccent` | `#041016` | Text on Signal buttons |
 
-## Accent — Signal
+## Accent — Electric
 
 | Token | Hex | Use |
 |-------|-----|-----|
-| `accent.default` | `#2DD4BF` | Primary actions, selection |
-| `accent.hover` | `#5EEAD4` | Hover |
-| `accent.muted` | `#2DD4BF33` | Soft selection fill |
+| `accent.default` | `#0099FF` | Primary actions, selection |
+| `accent.hover` | `#33ADFF` | Hover |
+| `accent.muted` | `#0099FF2B` | Soft selection fill |
 | `accent.danger` | `#F87171` | Destructive |
 
 ## Spacing scale

@@ -1,8 +1,9 @@
-//! Window + input loop. Phase 1–2: create tools, pan, select, delete, undo.
+//! Window + input loop. UI is new; editor APIs from x-native.
 
 use std::sync::Arc;
 
-use vello::kurbo::{Affine, Point};
+use vello::kurbo::{Affine, Point, Rect};
+use vello::peniko::Color;
 use vello::{AaConfig, RenderParams, Renderer, RendererOptions, Scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -12,7 +13,7 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::shell::{paint_shell, regions};
-use crate::state::{AppState, Drag, Handle, Screen, Tool};
+use crate::state::{AppState, Screen, Tool};
 use crate::theme::*;
 
 struct Gpu {
@@ -29,7 +30,6 @@ struct Host {
     app: AppState,
     modifiers: ModifiersState,
     cursor: Point,
-    mouse_down: bool,
 }
 
 pub fn run() {
@@ -41,7 +41,6 @@ pub fn run() {
         app: AppState::new_blank(),
         modifiers: ModifiersState::default(),
         cursor: Point::ZERO,
-        mouse_down: false,
     };
     let _ = event_loop.run_app(&mut host);
 }
@@ -59,7 +58,9 @@ impl ApplicationHandler for Host {
         self.app.win_w = size.width.max(1) as f64;
         self.app.win_h = size.height.max(1) as f64;
 
-        let instance = wgpu::Instance::default();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_with_display_handle(
+            window.clone(),
+        ));
         let surface = instance
             .create_surface(window.clone())
             .expect("surface");
@@ -121,7 +122,12 @@ impl ApplicationHandler for Host {
         self.window.as_ref().unwrap().request_redraw();
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _id: WindowId,
+        event: WindowEvent,
+    ) {
         let Some(window) = self.window.clone() else {
             return;
         };
@@ -140,26 +146,13 @@ impl ApplicationHandler for Host {
             WindowEvent::ScaleFactorChanged { .. } => window.request_redraw(),
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = Point::new(position.x, position.y);
-                self.on_move(self.cursor);
-                if self.mouse_down {
-                    window.request_redraw();
-                }
             }
             WindowEvent::MouseInput {
-                state,
+                state: ElementState::Pressed,
                 button: MouseButton::Left,
                 ..
             } => {
-                match state {
-                    ElementState::Pressed => {
-                        self.mouse_down = true;
-                        self.on_press(self.cursor);
-                    }
-                    ElementState::Released => {
-                        self.mouse_down = false;
-                        self.on_release(self.cursor);
-                    }
-                }
+                self.on_click(self.cursor);
                 window.request_redraw();
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -180,23 +173,13 @@ impl ApplicationHandler for Host {
                 event:
                     KeyEvent {
                         logical_key,
-                        state,
+                        state: ElementState::Pressed,
                         ..
                     },
                 ..
             } => {
-                if state == ElementState::Released {
-                    if let Key::Named(NamedKey::Space) = logical_key {
-                        self.app.space_pan = false;
-                        if self.app.tool == Tool::Hand {
-                            // keep hand if explicitly chosen
-                        }
-                    }
-                }
-                if state == ElementState::Pressed {
-                    self.on_key(logical_key);
-                    window.request_redraw();
-                }
+                self.on_key(logical_key);
+                window.request_redraw();
             }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
@@ -205,79 +188,22 @@ impl ApplicationHandler for Host {
 }
 
 impl Host {
-    fn world_point(&self, p: Point) -> Point {
-        let r = regions(self.app.win_w, self.app.win_h);
-        Point::new(
-            (p.x - r.canvas.x0 - self.app.pan.0) / self.app.zoom,
-            (p.y - r.canvas.y0 - self.app.pan.1) / self.app.zoom,
-        )
-    }
-
-    fn handle_at(&self, p: Point) -> Option<(String, Handle)> {
-        let r = regions(self.app.win_w, self.app.win_h);
-        if self.app.editor.selection.len() != 1 {
-            return None;
-        }
-        let id = self.app.editor.selection[0].clone();
-        if id == self.app.editor.root.id {
-            return None;
-        }
-        let n = x_native::editor::find(&self.app.editor.root, &id)?;
-        let sx = r.canvas.x0 + self.app.pan.0 + n.transform.x * self.app.zoom;
-        let sy = r.canvas.y0 + self.app.pan.1 + n.transform.y * self.app.zoom;
-        let sw = n.w * self.app.zoom;
-        let sh = n.h * self.app.zoom;
-        let hs = 8.0; // hit size
-        let corners = [
-            (Handle::Nw, sx, sy),
-            (Handle::Ne, sx + sw, sy),
-            (Handle::Sw, sx, sy + sh),
-            (Handle::Se, sx + sw, sy + sh),
-        ];
-        for (h, hx, hy) in corners {
-            if (p.x - hx).abs() <= hs && (p.y - hy).abs() <= hs {
-                return Some((id, h));
-            }
-        }
-        None
-    }
-
-
     fn on_key(&mut self, key: Key) {
         let cmd = self.modifiers.super_key() || self.modifiers.control_key();
         match key {
-            Key::Character(c) if cmd && (c.as_str() == "k" || c.as_str() == "K") => {
+            Key::Character(c) if cmd && (c == "k" || c == "K") => {
                 if self.app.screen == Screen::Editor {
                     self.app.command_open = !self.app.command_open;
                     self.app.command_query.clear();
                 }
             }
-            Key::Character(c) if cmd && (c.as_str() == "z" || c.as_str() == "Z") => {
-                if self.app.editor.undo() {
-                    self.app.status = "Undo".into();
-                    self.app.dirty = true;
-                }
-            }
             Key::Named(NamedKey::Escape) => {
                 self.app.command_open = false;
-                self.app.editor.selection.clear();
-                self.app.create_preview = None;
-                self.app.drag = Drag::None;
             }
             Key::Named(NamedKey::Space) if self.app.screen == Screen::Editor => {
                 self.app.space_pan = true;
+                self.app.tool = Tool::Hand;
             }
-            Key::Named(NamedKey::Delete) | Key::Named(NamedKey::Backspace)
-                if self.app.screen == Screen::Editor && !self.app.command_open =>
-            {
-                self.app.editor.delete_selection();
-                self.app.status = "Deleted".into();
-                self.app.dirty = true;
-            }
-            Key::Named(NamedKey::ArrowLeft) => self.app.editor.move_selection(-1.0, 0.0),
-            Key::Named(NamedKey::ArrowRight) => self.app.editor.move_selection(1.0, 0.0),
-            Key::Named(NamedKey::ArrowUp) => self.app.editor.move_selection(0.0, -1.0),
-            Key::Named(NamedKey::ArrowDown) => self.app.editor.move_selection(0.0, 1.0),
             Key::Character(c) if self.app.screen == Screen::Editor && !self.app.command_open => {
                 match c.as_str() {
                     "v" | "V" => self.app.tool = Tool::Select,
@@ -288,7 +214,7 @@ impl Host {
                     "p" | "P" => self.app.tool = Tool::Pen,
                     "t" | "T" => self.app.tool = Tool::Text,
                     "h" | "H" => self.app.tool = Tool::Hand,
-                    _ => return,
+                    _ => {}
                 }
                 self.app.status = format!("Tool: {}", self.app.tool.label());
             }
@@ -296,8 +222,9 @@ impl Host {
         }
     }
 
-    fn on_press(&mut self, p: Point) {
+    fn on_click(&mut self, p: Point) {
         if self.app.screen == Screen::Home {
+            // Any click on home primary options area → blank editor
             self.app.open_editor_blank();
             return;
         }
@@ -306,7 +233,7 @@ impl Host {
             return;
         }
         let r = regions(self.app.win_w, self.app.win_h);
-
+        // Tools
         if r.tools.contains(p) {
             let tools = [
                 Tool::Select,
@@ -325,12 +252,13 @@ impl Host {
             }
             return;
         }
-
+        // Left: new page / switch page
         if r.left.contains(p) && self.app.left_tab == crate::state::LeftTab::Layers {
             let pages_y0 = TITLE_H + 64.0;
             let pages_end = pages_y0 + self.app.pages.len() as f64 * ROW_H;
             if p.y >= pages_y0 && p.y < pages_end {
                 let idx = ((p.y - pages_y0) / ROW_H) as usize;
+                // Trash zone
                 if self.app.pages.len() > 1 && p.x >= TOOL_W + LEFT_W - 28.0 {
                     self.app.delete_page(idx);
                 } else {
@@ -342,144 +270,34 @@ impl Host {
                 self.app.add_page();
                 return;
             }
-            // Layer row select
-            let layers_y = pages_end + 28.0 + 28.0;
-            let rows = self.app.layer_rows();
-            if p.y >= layers_y {
-                let idx = ((p.y - layers_y) / ROW_H).floor() as isize;
-                if idx >= 0 && (idx as usize) < rows.len() {
-                    self.app.editor.selection = vec![rows[idx as usize].0.clone()];
-                    self.app.status = format!("Selected {}", rows[idx as usize].1);
-                }
-            }
-            return;
         }
-
+        // Canvas: clear selection on empty click (page root not selectable)
         if r.canvas.contains(p) {
-            if self.app.tool == Tool::Hand || self.app.space_pan {
-                self.app.drag = Drag::Pan {
-                    last: (p.x, p.y),
-                };
-                return;
-            }
-            if self.app.tool.is_create() {
-                let w = self.world_point(p);
-                self.app.drag = Drag::Create {
-                    start: (w.x, w.y),
-                };
-                self.app.create_preview = Some((w.x, w.y, w.x, w.y));
-                return;
-            }
-            // Resize handle hit first
-            if let Some((id, handle)) = self.handle_at(p) {
-                if let Some(n) = x_native::editor::find(&self.app.editor.root, &id) {
-                    self.app.drag = Drag::Resize {
-                        id,
-                        handle,
-                        origin: (n.transform.x, n.transform.y, n.w, n.h),
-                    };
-                    self.app.status = "Resize".into();
-                    return;
-                }
-            }
-            // Select
-            let world = self.world_point(p);
-            let shift = self.modifiers.shift_key();
-            self.app.editor.click_select(world, shift, false);
+            let world = Point::new(
+                (p.x - r.canvas.x0 - self.app.pan.0) / self.app.zoom,
+                (p.y - r.canvas.y0 - self.app.pan.1) / self.app.zoom,
+            );
+            self.app.editor.click(world, false);
+            // Never keep page root selected
             self.app
                 .editor
                 .selection
                 .retain(|id| id != &self.app.editor.root.id);
-            if !self.app.editor.selection.is_empty() {
-                self.app.drag = Drag::Move {
-                    last: (world.x, world.y),
-                };
-                self.app.status = format!("{} selected", self.app.editor.selection.len());
-            } else {
-                self.app.status = "No selection".into();
+            if self.app.tool == Tool::Frame {
+                // Place a starter white frame at click
+                let id = format!("frame-{}", self.app.editor.root.children.len() + 1);
+                let mut f = x_native::Node::frame(&id, 400.0, 300.0);
+                f.transform.x = world.x;
+                f.transform.y = world.y;
+                f.fill = x_native::Paint::Solid(x_native::Color::WHITE);
+                f.name = "Frame".into();
+                let root = self.app.editor.root.id.clone();
+                self.app.editor.insert_node(&root, f);
+                self.app.dirty = true;
+                self.app.status = "Created frame".into();
+                self.app.tool = Tool::Select;
             }
         }
-    }
-
-    fn on_move(&mut self, p: Point) {
-        match &self.app.drag {
-            Drag::Pan { last } => {
-                let dx = p.x - last.0;
-                let dy = p.y - last.1;
-                self.app.pan.0 += dx;
-                self.app.pan.1 += dy;
-                self.app.drag = Drag::Pan {
-                    last: (p.x, p.y),
-                };
-            }
-            Drag::Create { start } => {
-                let w = self.world_point(p);
-                self.app.create_preview = Some((start.0, start.1, w.x, w.y));
-            }
-            Drag::Move { last } => {
-                let w = self.world_point(p);
-                let dx = w.x - last.0;
-                let dy = w.y - last.1;
-                if dx.abs() > 0.01 || dy.abs() > 0.01 {
-                    self.app.editor.move_selection(dx, dy);
-                    self.app.dirty = true;
-                    self.app.drag = Drag::Move {
-                        last: (w.x, w.y),
-                    };
-                }
-            }
-            Drag::Resize { id, handle, origin } => {
-                let wpt = self.world_point(p);
-                let (ox, oy, ow, oh) = *origin;
-                let id = id.clone();
-                let handle = *handle;
-                let (nx, ny, nw, nh) = match handle {
-                    Handle::Se => {
-                        (ox, oy, (wpt.x - ox).max(1.0), (wpt.y - oy).max(1.0))
-                    }
-                    Handle::Sw => {
-                        let x1 = ox + ow;
-                        let nw = (x1 - wpt.x).max(1.0);
-                        (x1 - nw, oy, nw, (wpt.y - oy).max(1.0))
-                    }
-                    Handle::Ne => {
-                        let y1 = oy + oh;
-                        let nh = (y1 - wpt.y).max(1.0);
-                        (ox, y1 - nh, (wpt.x - ox).max(1.0), nh)
-                    }
-                    Handle::Nw => {
-                        let x1 = ox + ow;
-                        let y1 = oy + oh;
-                        let nw = (x1 - wpt.x).max(1.0);
-                        let nh = (y1 - wpt.y).max(1.0);
-                        (x1 - nw, y1 - nh, nw, nh)
-                    }
-                };
-                // Apply: move delta + resize
-                if let Some(n) = x_native::editor::find(&self.app.editor.root, &id) {
-                    let dx = nx - n.transform.x;
-                    let dy = ny - n.transform.y;
-                    if dx.abs() > 0.01 || dy.abs() > 0.01 {
-                        self.app.editor.move_selection(dx, dy);
-                    }
-                    self.app.editor.resize(&id, nw, nh);
-                    self.app.dirty = true;
-                }
-            }
-            Drag::None => {}
-        }
-    }
-
-    fn on_release(&mut self, p: Point) {
-        match self.app.drag.clone() {
-            Drag::Create { start } => {
-                let w = self.world_point(p);
-                self.app.finish_create(start.0, start.1, w.x, w.y);
-            }
-            _ => {}
-        }
-        self.app.drag = Drag::None;
-        self.app.create_preview = None;
     }
 
     fn redraw(&mut self) {
@@ -489,6 +307,7 @@ impl Host {
         let mut scene = Scene::new();
         paint_shell(&mut scene, &self.app);
 
+        // Composite document content into canvas region
         if self.app.screen == Screen::Editor {
             let r = regions(self.app.win_w, self.app.win_h);
             let (doc_scene, _) =
@@ -499,55 +318,17 @@ impl Host {
                 &doc_scene,
                 Some(Affine::translate((ox, oy)).then_scale(self.app.zoom)),
             );
-            // Re-paint selection overlays above document
-            // (shell already drew outlines; document may cover them — redraw chrome selection on top via shell is under content)
-            // Document is appended after shell canvas fill; selection was in shell before doc.
-            // Re-draw selection on top:
-            for id in &self.app.editor.selection {
-                if id == &self.app.editor.root.id {
-                    continue;
-                }
-                if let Some(n) = x_native::editor::find(&self.app.editor.root, id) {
-                    let sx = r.canvas.x0 + self.app.pan.0 + n.transform.x * self.app.zoom;
-                    let sy = r.canvas.y0 + self.app.pan.1 + n.transform.y * self.app.zoom;
-                    let sw = n.w * self.app.zoom;
-                    let sh = n.h * self.app.zoom;
-                    crate::paint::stroke_rect(
-                        &mut scene,
-                        vello::kurbo::Rect::new(sx, sy, sx + sw, sy + sh),
-                        C_ACCENT,
-                        1.5,
-                    );
-                }
-            }
-            if let Some((x0, y0, x1, y1)) = self.app.create_preview {
-                let sx0 = r.canvas.x0 + self.app.pan.0 + x0.min(x1) * self.app.zoom;
-                let sy0 = r.canvas.y0 + self.app.pan.1 + y0.min(y1) * self.app.zoom;
-                let sx1 = r.canvas.x0 + self.app.pan.0 + x0.max(x1) * self.app.zoom;
-                let sy1 = r.canvas.y0 + self.app.pan.1 + y0.max(y1) * self.app.zoom;
-                crate::paint::stroke_rect(
-                    &mut scene,
-                    vello::kurbo::Rect::new(sx0, sy0, sx1, sy1),
-                    C_ACCENT,
-                    1.5,
-                );
-            }
         }
 
         let surface_tex = match gpu.surface.get_current_texture() {
             Ok(t) => t,
-            Err(e) => {
-                eprintln!("surface: {e}");
-                return;
-            }
+            Err(_) => return,
         };
         let view = surface_tex
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let width = gpu.config.width;
         let height = gpu.config.height;
-        // Note: render_to_texture expects a storage texture in some vello versions;
-        // if present path fails, surface format may need STORAGE_BINDING — platform dependent.
         let _ = gpu.renderer.render_to_texture(
             &gpu.device,
             &gpu.queue,
@@ -560,6 +341,7 @@ impl Host {
                 antialiasing_method: AaConfig::Area,
             },
         );
+        // Present
         surface_tex.present();
     }
 }

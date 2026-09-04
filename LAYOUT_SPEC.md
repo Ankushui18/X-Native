@@ -32,17 +32,3 @@
 ## Not in Phase 1
 
 - Full property editors, Auto Layout UX, assets browsers, prototype wires, export panel
-
-## Phase 2 — Core design (implemented)
-
-- Drag-create: Frame, Rectangle, Ellipse, Line, Text (click or drag)
-- Select / multi-select (Shift)
-- Move selection by drag
-- Arrow-key nudge
-- Delete / Backspace
-- Undo (Cmd/Ctrl+Z)
-- Selection outline + handles
-- Inspector: X Y W H, opacity, fill swatch, stroke width
-- Layer list click to select
-- Hand / Space pan
-- Scroll zoom

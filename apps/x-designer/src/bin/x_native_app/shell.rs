@@ -247,40 +247,15 @@ fn paint_left(scene: &mut Scene, app: &AppState, r: &Regions) {
 
 fn paint_canvas(scene: &mut Scene, app: &AppState, r: &Regions) {
     fill_rect(scene, r.canvas, C_CANVAS);
+    // Page artboard ghost (if empty page)
     let aw = 1600.0 * app.zoom;
     let ah = 1000.0 * app.zoom;
     let ax = r.canvas.x0 + app.pan.0;
     let ay = r.canvas.y0 + app.pan.1;
     let board = Rect::new(ax, ay, ax + aw, ay + ah);
+    // Only draw board outline if it intersects canvas
     fill_rect(scene, board, Color_white_soft());
     stroke_rect(scene, board, C_EDGE_2, 1.0);
-
-    // Create-tool rubber-band preview
-    if let Some((x0, y0, x1, y1)) = app.create_preview {
-        let sx0 = r.canvas.x0 + app.pan.0 + x0.min(x1) * app.zoom;
-        let sy0 = r.canvas.y0 + app.pan.1 + y0.min(y1) * app.zoom;
-        let sx1 = r.canvas.x0 + app.pan.0 + x0.max(x1) * app.zoom;
-        let sy1 = r.canvas.y0 + app.pan.1 + y0.max(y1) * app.zoom;
-        stroke_rect(scene, Rect::new(sx0, sy0, sx1, sy1), C_ACCENT, 1.5);
-    }
-
-    // Selection outlines (screen space)
-    for id in &app.editor.selection {
-        if id == &app.editor.root.id {
-            continue;
-        }
-        if let Some(n) = x_native::editor::find(&app.editor.root, id) {
-            let sx = r.canvas.x0 + app.pan.0 + n.transform.x * app.zoom;
-            let sy = r.canvas.y0 + app.pan.1 + n.transform.y * app.zoom;
-            let sw = n.w * app.zoom;
-            let sh = n.h * app.zoom;
-            stroke_rect(scene, Rect::new(sx, sy, sx + sw, sy + sh), C_ACCENT, 1.5);
-            // corner handles
-            for (hx, hy) in [(sx, sy), (sx + sw, sy), (sx, sy + sh), (sx + sw, sy + sh)] {
-                fill_rect(scene, Rect::new(hx - 3.0, hy - 3.0, hx + 3.0, hy + 3.0), C_ACCENT);
-            }
-        }
-    }
 }
 
 fn Color_white_soft() -> vello::peniko::Color {
@@ -380,32 +355,30 @@ fn paint_right(scene: &mut Scene, app: &AppState, r: &Regions) {
         return;
     }
 
-    if let Some(n) = app.selected_node() {
-        let name = if n.name.is_empty() { n.id.as_str() } else { n.name.as_str() };
-        label_bar(scene, "DESIGN", app.win_w - RIGHT_W + PAD, TITLE_H + 16.0, FONT_CAPTION, C_FAINT);
-        label_bar(scene, name, app.win_w - RIGHT_W + PAD, TITLE_H + 36.0, FONT_TITLE, C_TEXT);
-        hline(scene, app.win_w - RIGHT_W + 8.0, app.win_w - 8.0, TITLE_H + 58.0, C_EDGE);
-        label_bar(scene, "POSITION", app.win_w - RIGHT_W + PAD, TITLE_H + 70.0, FONT_CAPTION, C_FAINT);
-        label_bar(scene, &format!("X  {:.0}", n.transform.x), app.win_w - RIGHT_W + PAD, TITLE_H + 90.0, FONT_BODY, C_TEXT);
-        label_bar(scene, &format!("Y  {:.0}", n.transform.y), app.win_w - RIGHT_W + PAD + 110.0, TITLE_H + 90.0, FONT_BODY, C_TEXT);
-        label_bar(scene, &format!("W  {:.0}", n.w), app.win_w - RIGHT_W + PAD, TITLE_H + 112.0, FONT_BODY, C_TEXT);
-        label_bar(scene, &format!("H  {:.0}", n.h), app.win_w - RIGHT_W + PAD + 110.0, TITLE_H + 112.0, FONT_BODY, C_TEXT);
-        hline(scene, app.win_w - RIGHT_W + 8.0, app.win_w - 8.0, TITLE_H + 136.0, C_EDGE);
-        label_bar(scene, "APPEARANCE", app.win_w - RIGHT_W + PAD, TITLE_H + 148.0, FONT_CAPTION, C_FAINT);
-        label_bar(scene, &format!("Opacity  {:.0}%", n.opacity * 100.0), app.win_w - RIGHT_W + PAD, TITLE_H + 168.0, FONT_BODY, C_TEXT);
-        // fill swatch
-        let fill_c = match &n.fill {
-            x_native::Paint::Solid(c) => *c,
-            _ => C_RAISED,
-        };
-        fill_rrect(scene, Rect::new(app.win_w - RIGHT_W + PAD, TITLE_H + 192.0, app.win_w - RIGHT_W + PAD + 20.0, TITLE_H + 212.0), RADIUS_SM, fill_c);
-        stroke_rect(scene, Rect::new(app.win_w - RIGHT_W + PAD, TITLE_H + 192.0, app.win_w - RIGHT_W + PAD + 20.0, TITLE_H + 212.0), C_EDGE, 1.0);
-        label_bar(scene, "Fill", app.win_w - RIGHT_W + PAD + 28.0, TITLE_H + 196.0, FONT_BODY, C_DIM);
-        label_bar(scene, &format!("Stroke  {:.1}px", n.stroke.width), app.win_w - RIGHT_W + PAD, TITLE_H + 224.0, FONT_BODY, C_DIM);
-    } else {
-        label_bar(scene, "DESIGN", app.win_w - RIGHT_W + PAD, TITLE_H + 16.0, FONT_CAPTION, C_FAINT);
-        label_bar(scene, "Multiple selected", app.win_w - RIGHT_W + PAD, TITLE_H + 40.0, FONT_BODY, C_DIM);
-    }
+    label_bar(
+        scene,
+        "DESIGN",
+        app.win_w - RIGHT_W + PAD,
+        TITLE_H + 16.0,
+        FONT_CAPTION,
+        C_FAINT,
+    );
+    label_bar(
+        scene,
+        "Position · Size · Fill · Stroke",
+        app.win_w - RIGHT_W + PAD,
+        TITLE_H + 40.0,
+        FONT_BODY,
+        C_DIM,
+    );
+    label_bar(
+        scene,
+        "(Property editors Phase 2)",
+        app.win_w - RIGHT_W + PAD,
+        TITLE_H + 60.0,
+        FONT_CAPTION,
+        C_FAINT,
+    );
 }
 
 fn paint_status(scene: &mut Scene, app: &AppState, r: &Regions) {

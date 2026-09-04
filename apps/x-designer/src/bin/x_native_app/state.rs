@@ -1,7 +1,7 @@
-//! Application state — document + UI (Phase 1–2).
+//! Application state — document + UI, no old chrome inheritance.
 
-use x_native::editor::{find, Editor};
-use x_native::{Color, Document, Node, Paint, Variables};
+use x_native::editor::Editor;
+use x_native::{Document, Node, Variables};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tool {
@@ -31,11 +31,18 @@ impl Tool {
         }
     }
 
-    pub fn is_create(self) -> bool {
-        matches!(
-            self,
-            Tool::Frame | Tool::Rectangle | Tool::Ellipse | Tool::Line | Tool::Text
-        )
+    pub fn shortcut(self) -> &'static str {
+        match self {
+            Tool::Select => "V",
+            Tool::Frame => "F",
+            Tool::Rectangle => "R",
+            Tool::Ellipse => "O",
+            Tool::Line => "L",
+            Tool::Pen => "P",
+            Tool::Text => "T",
+            Tool::Hand => "H",
+            Tool::Zoom => "Z",
+        }
     }
 }
 
@@ -51,28 +58,6 @@ pub enum LeftTab {
     Assets,
     Components,
     Variables,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Handle {
-    Nw,
-    Ne,
-    Sw,
-    Se,
-}
-
-#[derive(Clone, Debug)]
-pub enum Drag {
-    None,
-    Pan { last: (f64, f64) },
-    Create { start: (f64, f64) },
-    Move { last: (f64, f64) },
-    /// Corner resize of a single selected node
-    Resize {
-        id: String,
-        handle: Handle,
-        origin: (f64, f64, f64, f64), // x,y,w,h at start
-    },
 }
 
 pub struct AppState {
@@ -94,9 +79,6 @@ pub struct AppState {
     pub command_query: String,
     pub layer_filter: String,
     pub dirty: bool,
-    pub drag: Drag,
-    pub created_count: usize,
-    pub create_preview: Option<(f64, f64, f64, f64)>,
 }
 
 impl AppState {
@@ -117,14 +99,11 @@ impl AppState {
             zoom: 1.0,
             pan: (80.0, 60.0),
             space_pan: false,
-            status: "Ready — Cmd/Ctrl+K for commands".into(),
+            status: "Ready — ⌘K for commands".into(),
             command_open: false,
             command_query: String::new(),
             layer_filter: String::new(),
             dirty: false,
-            drag: Drag::None,
-            created_count: 0,
-            create_preview: None,
         }
     }
 
@@ -138,10 +117,8 @@ impl AppState {
         self.tool = Tool::Select;
         self.zoom = 0.5;
         self.pan = (80.0, 60.0);
-        self.status = "Blank canvas — F frame · R rect · T text · Cmd+K".into();
+        self.status = "Blank canvas — F frame · R rectangle · T text · ⌘K commands".into();
         self.dirty = false;
-        self.drag = Drag::None;
-        self.create_preview = None;
     }
 
     pub fn current_page_name(&self) -> String {
@@ -157,6 +134,7 @@ impl AppState {
             .unwrap_or_else(|| "Page".into())
     }
 
+    /// Layer rows: children of page only (never the page root).
     pub fn layer_rows(&self) -> Vec<(String, String, usize)> {
         fn walk(n: &Node, depth: usize, out: &mut Vec<(String, String, usize)>) {
             let name = if n.name.is_empty() {
@@ -180,17 +158,6 @@ impl AppState {
             });
         }
         rows
-    }
-
-    pub fn selected_node(&self) -> Option<&Node> {
-        if self.editor.selection.len() != 1 {
-            return None;
-        }
-        let id = &self.editor.selection[0];
-        if id == &self.editor.root.id {
-            return None;
-        }
-        find(&self.editor.root, id)
     }
 
     pub fn add_page(&mut self) {
@@ -233,85 +200,6 @@ impl AppState {
         self.editor.selection.clear();
         self.status = "Page deleted".into();
         self.dirty = true;
-    }
-
-    pub fn finish_create(&mut self, x0: f64, y0: f64, x1: f64, y1: f64) {
-        let (bx, by) = (x0.min(x1), y0.min(y1));
-        let (mut bw, mut bh) = ((x1 - x0).abs(), (y1 - y0).abs());
-        if bw < 4.0 && bh < 4.0 {
-            match self.tool {
-                Tool::Text => {
-                    bw = 120.0;
-                    bh = 24.0;
-                }
-                Tool::Line => {
-                    bw = 100.0;
-                    bh = 1.0;
-                }
-                _ => {
-                    bw = 100.0;
-                    bh = 100.0;
-                }
-            }
-        }
-        self.created_count += 1;
-        let n = self.created_count;
-        let root = self.editor.root.id.clone();
-        let node = match self.tool {
-            Tool::Frame => {
-                let mut f = Node::frame(&format!("frame-{n}"), bw, bh);
-                f.transform.x = bx;
-                f.transform.y = by;
-                f.fill = Paint::Solid(Color::WHITE);
-                f.name = "Frame".into();
-                f
-            }
-            Tool::Rectangle => Node::rect(
-                &format!("rect-{n}"),
-                bx,
-                by,
-                bw,
-                bh,
-                Color::from_rgb8(0xd9, 0xdc, 0xe3),
-            ),
-            Tool::Ellipse => Node::ellipse(
-                &format!("ellipse-{n}"),
-                bx,
-                by,
-                bw,
-                bh,
-                Color::from_rgb8(0xd9, 0xdc, 0xe3),
-            ),
-            Tool::Line => Node::line(
-                &format!("line-{n}"),
-                bx,
-                by,
-                bw.max(1.0),
-                bh.max(1.0),
-                Color::from_rgb8(0x0d, 0x12, 0x20),
-            ),
-            Tool::Text => {
-                let mut t = Node::text(
-                    &format!("text-{n}"),
-                    bx,
-                    by,
-                    bw.max(40.0),
-                    bh.clamp(14.0, 32.0),
-                    "Text",
-                );
-                t.name = "Text".into();
-                t
-            }
-            _ => return,
-        };
-        let id = node.id.clone();
-        if self.editor.insert_node(&root, node) {
-            self.editor.selection = vec![id];
-            self.dirty = true;
-            self.status = format!("Created {}", self.tool.label().to_lowercase());
-        }
-        self.tool = Tool::Select;
-        self.create_preview = None;
     }
 
     pub fn document_snapshot(&self) -> Document {
