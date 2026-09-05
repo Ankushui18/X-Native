@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>X-Native Dashboard — FINAL v45</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
+  body{background:#090909;color:#FFFFFF;overflow:hidden}
+  .panel{background:#111111}
+  .field{background:#1A1A1A}
+  .field2{background:#222222}
+  .line{border-color:#1F1F1F}
+  .line2{border-color:#2A2A2A}
+  .text-dim{color:#777777}
+  .text-muted{color:#999999}
+  .scroll{scrollbar-width:thin;scrollbar-color:#2A2A2A transparent}
+  .scroll::-webkit-scrollbar{width:4px}
+  .scroll::-webkit-scrollbar-thumb{background:#2A2A2A;border-radius:2px}
+  .card{transition:all .15s}
+  .card:hover{transform:translateY(-2px);border-color:#2A2A2A;background:#141414}
+</style>
+</head>
+<body class="h-screen flex flex-col select-none">
+<!-- TOP BAR 40px #111111 line #1F1F1F logo 28x28 -->
+<div class="h-10 panel border-b line flex items-center px-3 gap-3 shrink-0">
+  <div class="flex items-center gap-3">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="24" height="24" rx="4" fill="#1A1A1A"/>
+      <path d="M16.7072 6.01489L16.5894 6.17866L15.9515 7.08685V7.10174H15.9445L15.3205 8.00248L15.1818 8.19603L14.6826 8.91067L14.4191 9.29032L14.0447 9.8263L13.6564 10.3846L13.4137 10.7345L12.9006 11.4715L12.7758 11.6427L12.1448 12.5509L12.131 12.5583L11.5 13.4591L11.6317 13.6452L12.131 14.3672L12.3875 14.7395L12.7619 15.2754L13.1433 15.8263L13.3929 16.1836L13.906 16.9132L14.0308 17.0918L14.6687 18H15.9307H17.1995H18.4684L17.8374 17.0844L17.7126 16.9057L17.1995 16.1762L16.9499 15.8189L16.5686 15.268L16.1941 14.732L15.9376 14.3598L15.4384 13.6377L15.3066 13.4442L15.9376 12.5434L16.5755 11.6203L16.6934 11.4491L17.2065 10.7122L17.4492 10.3623L17.8374 9.80397L18.2119 9.26799L18.4753 8.88834L18.9746 8.1737L19.1133 7.98015L19.7373 7.08685V7.07196L20.3821 6.16377L20.5 6H16.6934L16.7072 6.01489Z" fill="#1BCB55"/>
+      <path d="M8.90422 15.8311L9.29124 15.2795L9.67123 14.7429L9.93159 14.3702L10.4382 13.6472L10.5719 13.4609L11.2123 12.559L11.8597 11.6348L11.9793 11.4634L12.5 10.7255L12.2467 10.3752L11.8526 9.81615L11.4726 9.2795L11.2052 8.89938L10.6986 8.18385L10.5579 7.99006L9.92455 7.0882V7.07329H9.91751L9.27013 6.16398L9.15051 6H5.31548L5.43511 6.16398L6.07545 7.07329V7.0882L6.72283 7.99006L6.86357 8.18385L7.37021 8.89938L7.63761 9.2795L8.01055 9.81615L8.40461 10.3752L8.65794 10.7255L8.13722 11.4634L8.01055 11.6348L7.37021 12.5441L6.72987 13.4534L6.59617 13.6398L6.08952 14.3627L5.82916 14.7354L5.44918 15.272L5.06216 15.8236L4.80883 16.1814L4.28812 16.9118L4.16145 17.0907L3.52111 18H3.5H4.78772H6.07545H7.36317L8.01055 17.0832L8.13722 16.9043L8.65794 16.1739L8.91126 15.8161L8.90422 15.8311Z" fill="white"/>
+    </svg>
+    <span class="text-[14px] font-semibold tracking-tight">X-Native</span>
+  </div>
+  <div class="flex-1 flex items-center justify-center">
+    <div class="w-[480px] h-8 field border line rounded-[10px] flex items-center px-3 gap-2">
+      <i data-lucide="search" class="w-4 h-4 text-dim"></i>
+      <input placeholder="Search files, teams, or projects" class="bg-transparent outline-none text-[13px] placeholder:text-[#555555] w-full">
+      <span class="text-[10px] text-dim border line rounded-[4px] px-1.5 py-0.5">⌘K</span>
+    </div>
+  </div>
+  <div class="flex items-center gap-2">
+    <div class="h-8 px-3 field border line rounded-[8px] flex items-center gap-2 hover:bg-[#222222] cursor-pointer">
+      <i data-lucide="plus" class="w-4 h-4 text-dim"></i>
+      <span class="text-[12px] font-medium">New file</span>
+    </div>
+    <div class="w-8 h-8 rounded-full bg-[#FFEB3B] flex items-center justify-center text-[12px] font-bold text-black">S</div>
+  </div>
+</div>
+
+<div class="flex flex-1 overflow-hidden">
+  <!-- LEFT SIDEBAR 260px -->
+  <div class="w-[260px] panel border-r line flex flex-col shrink-0">
+    <div class="p-3">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <div class="w-4 h-4 rounded field border line flex items-center justify-center"><i data-lucide="box" class="w-3 h-3 text-dim"></i></div>
+          <span class="text-[9px] tracking-[0.12em] text-dim font-medium">DRAFTS</span>
+        </div>
+        <i data-lucide="more-horizontal" class="w-3.5 h-3.5 text-dim"></i>
+      </div>
+      <div class="px-2 py-1.5 rounded-[6px] hover:bg-[#1A1A1A] flex items-center gap-2 cursor-pointer group">
+        <div class="w-1.5 h-1.5 rounded-full bg-[#2ECC71]"></div>
+        <span class="text-[12px] font-medium">Personal</span>
+        <i data-lucide="chevron-down" class="w-3 h-3 text-dim ml-auto opacity-0 group-hover:opacity-100"></i>
+      </div>
+    </div>
+
+    <div class="px-2 space-y-0.5">
+      <div class="h-8 px-2 rounded-[8px] bg-[#1A1A1A] border line2 flex items-center gap-2.5 cursor-pointer">
+        <i data-lucide="layout-dashboard" class="w-4 h-4 text-white"></i>
+        <span class="text-[12px] font-medium text-white">Home</span>
+      </div>
+      <div class="h-8 px-2 rounded-[8px] hover:bg-[#1A1A1A] flex items-center gap-2.5 cursor-pointer">
+        <i data-lucide="clock" class="w-4 h-4 text-dim"></i>
+        <span class="text-[12px] text-muted">Recents</span>
+      </div>
+      <div class="h-8 px-2 rounded-[8px] hover:bg-[#1A1A1A] flex items-center gap-2.5 cursor-pointer">
+        <i data-lucide="star" class="w-4 h-4 text-dim"></i>
+        <span class="text-[12px] text-muted">Starred</span>
+      </div>
+      <div class="h-8 px-2 rounded-[8px] hover:bg-[#1A1A1A] flex items-center gap-2.5 cursor-pointer">
+        <i data-lucide="trash-2" class="w-4 h-4 text-dim"></i>
+        <span class="text-[12px] text-muted">Trash</span>
+      </div>
+    </div>
+
+    <div class="h-px bg-[#1F1F1F] my-3"></div>
+
+    <div class="px-3 flex items-center justify-between mb-2">
+      <span class="text-[9px] tracking-[0.12em] text-dim font-medium">TEAMS</span>
+      <i data-lucide="plus" class="w-3 h-3 text-dim cursor-pointer hover:text-muted"></i>
+    </div>
+    <div class="px-2 space-y-0.5">
+      <div class="h-8 px-2 rounded-[8px] hover:bg-[#1A1A1A] flex items-center gap-2.5 cursor-pointer">
+        <div class="w-5 h-5 rounded-[6px] bg-[#5B7CFF] flex items-center justify-center text-[10px] font-bold text-white">L</div>
+        <span class="text-[12px] text-muted">Liquor Delivery</span>
+        <div class="ml-auto w-5 h-5 rounded-full bg-[#1A1A1A] border line flex items-center justify-center"><span class="text-[9px] text-dim">12</span></div>
+      </div>
+      <div class="h-8 px-2 rounded-[8px] hover:bg-[#1A1A1A] flex items-center gap-2.5 cursor-pointer">
+        <div class="w-5 h-5 rounded-[6px] bg-[#FF7A45] flex items-center justify-center text-[10px] font-bold text-white">D</div>
+        <span class="text-[12px] text-muted">Design System</span>
+      </div>
+    </div>
+
+    <div class="mt-auto p-3">
+      <div class="field border line rounded-[10px] p-3">
+        <div class="flex items-center gap-2 mb-2">
+          <div class="w-8 h-8 rounded-[8px] bg-[#1BCB55]/20 border border-[#1BCB55]/30 flex items-center justify-center"><i data-lucide="sparkles" class="w-4 h-4 text-[#1BCB55]"></i></div>
+          <div><div class="text-[11px] font-medium">Upgrade to Pro</div><div class="text-[10px] text-dim">Unlimited files</div></div>
+        </div>
+        <div class="h-6 field2 border line2 rounded-[6px] flex items-center justify-center cursor-pointer hover:bg-[#2A2A2A]"><span class="text-[10px] font-medium">Upgrade</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN #060606 welcome + 4 quick actions 88px + 3-col file grid 180px -->
+  <div class="flex-1 bg-[#060606] overflow-y-auto scroll p-6">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-[24px] font-semibold tracking-tight">Welcome back, Sahil</h1>
+        <p class="text-[13px] text-muted mt-1">You have 12 files edited in the last 7 days</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="h-8 px-3 field border line rounded-[8px] flex items-center gap-2 cursor-pointer"><i data-lucide="grid-2x2" class="w-4 h-4 text-dim"></i><span class="text-[12px]">Grid</span></div>
+        <div class="h-8 px-3 bg-[#111111] border line rounded-[8px] flex items-center gap-2 cursor-pointer"><i data-lucide="list" class="w-4 h-4 text-dim"></i><span class="text-[12px] text-dim">List</span></div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-4 gap-3 mb-8">
+      <div class="card h-[88px] panel border line rounded-[12px] p-4 cursor-pointer flex flex-col justify-between">
+        <div class="w-8 h-8 rounded-[8px] bg-white flex items-center justify-center"><i data-lucide="plus" class="w-4 h-4 text-black"></i></div>
+        <div><div class="text-[13px] font-medium">New design file</div><div class="text-[11px] text-dim">Start from scratch</div></div>
+      </div>
+      <div class="card h-[88px] panel border line rounded-[12px] p-4 cursor-pointer flex flex-col justify-between">
+        <div class="w-8 h-8 rounded-[8px] bg-[#1A1A1A] border line flex items-center justify-center"><i data-lucide="import" class="w-4 h-4 text-dim"></i></div>
+        <div><div class="text-[13px] font-medium">Import file</div><div class="text-[11px] text-dim">.fig, .sketch, .xd</div></div>
+      </div>
+      <div class="card h-[88px] panel border line rounded-[12px] p-4 cursor-pointer flex flex-col justify-between">
+        <div class="w-8 h-8 rounded-[8px] bg-[#1A1A1A] border line flex items-center justify-center"><i data-lucide="layout-template" class="w-4 h-4 text-dim"></i></div>
+        <div><div class="text-[13px] font-medium">Browse templates</div><div class="text-[11px] text-dim">120+ templates</div></div>
+      </div>
+      <div class="card h-[88px] panel border line rounded-[12px] p-4 cursor-pointer flex flex-col justify-between">
+        <div class="w-8 h-8 rounded-[8px] bg-[#1A1A1A] border line flex items-center justify-center"><i data-lucide="users" class="w-4 h-4 text-dim"></i></div>
+        <div><div class="text-[13px] font-medium">Invite team</div><div class="text-[11px] text-dim">Collaborate now</div></div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <h2 class="text-[14px] font-semibold">Recents</h2>
+        <div class="h-6 px-2 field border line rounded-[6px] flex items-center gap-1.5 cursor-pointer"><span class="text-[11px] text-muted">All files</span><i data-lucide="chevron-down" class="w-3 h-3 text-dim"></i></div>
+      </div>
+      <div class="flex items-center gap-2"><i data-lucide="search" class="w-4 h-4 text-dim"></i><i data-lucide="more-horizontal" class="w-4 h-4 text-dim"></i></div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4 mb-8" id="file-grid"></div>
+
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-[14px] font-semibold">Drafts</h2>
+      <span class="text-[11px] text-dim">12 files</span>
+    </div>
+    <div class="panel border line rounded-[12px] overflow-hidden" id="draft-list"></div>
+
+    <div class="h-20"></div>
+  </div>
+</div>
+
+<script>
+  lucide.createIcons();
+  const files=[
+    {name:'Liquor Delivery App UI', team:'Liquor Delivery', edited:'Edited 2h ago', color:'#FFFFFF', members:['S','A']},
+    {name:'DESIGN_SYSTEM.md', team:'Design System', edited:'Edited 5h ago', color:'#1A1A1A', members:['S']},
+    {name:'Payment Flow', team:'Liquor Delivery', edited:'Edited yesterday', color:'#E7F5F1', members:['S','R','M']},
+    {name:'Onboarding Screens', team:'Personal', edited:'Edited 2 days ago', color:'#111111', members:['S']},
+    {name:'Dashboard Redesign', team:'Design System', edited:'Edited 3 days ago', color:'#1E1E24', members:['S','A']},
+    {name:'Landing Page', team:'Personal', edited:'Edited 1 week ago', color:'#FFFFFF', members:['S']},
+  ];
+  const grid=document.getElementById('file-grid');
+  files.forEach(f=>{
+    const div=document.createElement('div');
+    div.className='card panel border line rounded-[12px] overflow-hidden cursor-pointer group';
+    div.innerHTML=`
+      <div class="h-[140px] flex items-center justify-center relative" style="background:${f.color}">
+        <span class="text-[28px] font-bold ${f.color==='#FFFFFF'?'text-black/10':'text-white/10'}">X</span>
+        <div class="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/20 backdrop-blur flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><i data-lucide="star" class="w-3.5 h-3.5 text-white"></i></div>
+      </div>
+      <div class="p-3">
+        <div class="flex items-start justify-between">
+          <div><div class="text-[12px] font-medium truncate">${f.name}</div><div class="text-[11px] text-dim mt-0.5">${f.team} • ${f.edited}</div></div>
+          <i data-lucide="more-horizontal" class="w-4 h-4 text-dim"></i>
+        </div>
+        <div class="flex items-center gap-1 mt-2">
+          ${f.members.map(m=>`<div class="w-5 h-5 rounded-full bg-[#FFEB3B] border border-[#111111] flex items-center justify-center text-[9px] font-bold text-black -ml-1 first:ml-0">${m}</div>`).join('')}
+        </div>
+      </div>
+    `;
+    grid.appendChild(div);
+  });
+  lucide.createIcons();
+
+  const drafts=[
+    {name:'Untitled', edited:'Edited 1h ago', icon:'file'},
+    {name:'Checkout Flow', edited:'Edited 3h ago', icon:'shopping-cart'},
+    {name:'Profile Settings', edited:'Edited yesterday', icon:'user'},
+    {name:'Analytics Dashboard', edited:'Edited 2 days ago', icon:'bar-chart-3'},
+  ];
+  const list=document.getElementById('draft-list');
+  drafts.forEach((d, i)=>{
+    const row=document.createElement('div');
+    row.className=`h-12 flex items-center px-4 gap-3 ${i!==drafts.length-1?'border-b line':''} hover:bg-[#1A1A1A] cursor-pointer`;
+    row.innerHTML=`
+      <i data-lucide="${d.icon}" class="w-4 h-4 text-dim"></i>
+      <span class="text-[12px] font-medium flex-1">${d.name}</span>
+      <span class="text-[11px] text-dim">${d.edited}</span>
+      <i data-lucide="more-horizontal" class="w-4 h-4 text-dim"></i>
+    `;
+    list.appendChild(row);
+  });
+  lucide.createIcons();
+</script>
+</body>
+</html>
